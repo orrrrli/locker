@@ -26,4 +26,4 @@ build/
 /docs/
 CLAUDE.md
 .claude/
-docs/brain
+**/docs/brain
