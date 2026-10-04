@@ -1,9 +1,34 @@
 # Locker
 
+**English** | [Español](README.es.md)
+
 An iOS app for amateur football teams. Admins manage the roster, schedule matches, track attendance
 and fees, and send push notifications to their team.
 
 > **Status:** Phase 1 in design.
+
+## What is Locker?
+
+Amateur football teams run on a WhatsApp group. Match times get buried under memes, nobody knows who is
+actually coming on Saturday, the admin keeps a mental list of who still owes the referee fee, and goal
+counts depend on whoever tells the story best.
+
+Locker gives each team one place for all of that:
+
+- **A team space.** Create a team, invite players with a link, and approve who joins. A player can belong to
+  several teams, each with its own role, shirt number and position.
+- **Notices that actually arrive.** Admins send push notifications to the whole team. Every notice is also kept
+  in an in-app inbox, and admins can see who opened it ("Seen by 12 of 15").
+- **Matches and attendance.** Schedule matches, collect "going / not going" answers, get automatic reminders,
+  and record who really showed up.
+- **Fees without the awkward chat.** Track who paid and who owes, per month or per match. Each player sees only
+  their own balance.
+- **Stats you can trust (Phase 2).** Goals per player, validated by the teammates who were there, with a
+  visible trust level on every number.
+- **Show off your team (Phases 2-3).** Each team decides what goes public (results, stats, roster, posts) and
+  what stays inside the locker room.
+
+**Who it's for:** amateur and recreational teams, players aged 15 and up. A kids' version is planned for later.
 
 ## Stack
 
@@ -35,9 +60,9 @@ interface/   iOS app (Xcode project)
 
 | Phase | Name | Scope |
 |---|---|---|
-| 1 | El vestidor | Auth, teams, invites, roster, notifications, matches + RSVP, attendance, fees |
-| 2 | La cancha | Goals, match validation, stats, public profiles |
-| 3 | La tribuna | Photo/video feed, moderation |
+| 1 | El vestidor (The locker room) | Auth, teams, invites, roster, notifications, matches + RSVP, attendance, fees |
+| 2 | La cancha (The pitch) | Goals, match validation, stats, public profiles |
+| 3 | La tribuna (The stands) | Photo/video feed, moderation |
 
 ## Decisions and trade-offs
 
