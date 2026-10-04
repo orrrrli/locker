@@ -1,0 +1,26 @@
+# Secrets — never commit (public repository)
+.env
+.env.*
+!.env.example
+*.p8
+*.pem
+*.key
+
+# OS / editors
+.DS_Store
+.idea/
+.vscode/
+
+# Go
+/api/bin/
+*.test
+*.out
+
+# Xcode
+xcuserdata/
+DerivedData/
+*.xcuserstate
+build/
+
+# Claude harness docs (local only)
+/docs/
