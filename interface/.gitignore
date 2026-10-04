@@ -1,6 +1,0 @@
-# Claude Code harness (local only)
-.claude/commands
-.claude/agents
-.claude/settings.local.json
-docs/brain
-graphify-out/
