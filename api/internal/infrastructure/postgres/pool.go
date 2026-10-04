@@ -1,5 +1,8 @@
 package postgres
 
+// Regenerate sqlcdb from sql/queries with: go -C api generate ./...
+//go:generate go run github.com/sqlc-dev/sqlc/cmd/sqlc@v1.31.1 generate -f ../../../sqlc.yaml
+
 import (
 	"context"
 	"fmt"
