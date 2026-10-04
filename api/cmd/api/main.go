@@ -14,6 +14,7 @@ import (
 	"time"
 
 	apihttp "github.com/orrrrli/locker/api/internal/http"
+	"github.com/orrrrli/locker/api/internal/infrastructure/postgres"
 )
 
 const shutdownTimeout = 10 * time.Second
@@ -33,6 +34,15 @@ func start() error {
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+
+	pool, err := postgres.NewPool(ctx, cfg.DatabaseURL)
+	if err != nil {
+		return err
+	}
+	defer pool.Close()
+	if err := postgres.Migrate(ctx, pool); err != nil {
+		return err
+	}
 
 	ln, err := net.Listen("tcp", ":"+strconv.Itoa(cfg.Port))
 	if err != nil {
