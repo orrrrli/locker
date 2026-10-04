@@ -9,7 +9,8 @@ import (
 
 func TestSqlcQueriesRunOnPool(t *testing.T) {
 	pool, _ := testPool(t)
-	got, err := sqlcdb.New(pool).Ping(context.Background())
+	ctx := context.Background()
+	got, err := sqlcdb.New(Conn(ctx, pool)).Ping(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}

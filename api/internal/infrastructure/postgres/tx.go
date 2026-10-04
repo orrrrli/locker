@@ -4,17 +4,15 @@ import (
 	"context"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/orrrrli/locker/api/internal/infrastructure/postgres/sqlcdb"
 )
 
 // DBTX is what repositories run queries on: either the pool or the current
-// transaction. It matches the interface sqlc generates for pgx/v5.
-type DBTX interface {
-	Exec(ctx context.Context, sql string, args ...any) (pgconn.CommandTag, error)
-	Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error)
-	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
-}
+// transaction. It aliases the sqlc interface so Conn's result always fits
+// sqlcdb.New, even when sqlc adds methods (CopyFrom for :copyfrom queries).
+type DBTX = sqlcdb.DBTX
 
 type txKey struct{}
 
