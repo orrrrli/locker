@@ -114,11 +114,19 @@ func (s *Service) Login(ctx context.Context, email, password string) (string, er
 }
 
 func (s *Service) dummyHash(ctx context.Context) (string, error) {
-	s.dummyOnce.Do(func() {
-		// Not tied to this request: a cancelled first caller must not cache an error.
-		s.dummy, s.dummyErr = s.hasher.Hash(context.WithoutCancel(ctx), "not a real password")
-	})
-	return s.dummy, s.dummyErr
+	s.dummyMu.Lock()
+	defer s.dummyMu.Unlock()
+	if s.dummy != "" {
+		return s.dummy, nil
+	}
+	// Errors are not cached: one failure must not turn every later
+	// unknown-email login into a 500.
+	hash, err := s.hasher.Hash(ctx, "not a real password")
+	if err != nil {
+		return "", err
+	}
+	s.dummy = hash
+	return hash, nil
 }
 
 // Authenticate resolves a bearer token to its session:
@@ -194,7 +202,6 @@ func (s *Service) Logout(ctx context.Context, sessionID int64) error {
 
 // sessionState keeps the lazily computed dummy hash used by Login.
 type sessionState struct {
-	dummyOnce sync.Once
-	dummy     string
-	dummyErr  error
+	dummyMu sync.Mutex
+	dummy   string
 }
