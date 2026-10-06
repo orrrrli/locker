@@ -78,7 +78,7 @@ func (a authz) require(team teamOf, role domain.Role, next http.Handler) http.Ha
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		userID, ok := userIDFrom(r.Context())
 		if !ok {
-			writeError(w, http.StatusUnauthorized, "unauthorized")
+			unauthorized(w)
 			return
 		}
 		teamID, ok := team(r)
