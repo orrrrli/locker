@@ -118,7 +118,7 @@ func TestLoginIssuesOpaqueTokenAndStoresOnlyItsHash(t *testing.T) {
 	}
 	var plain int
 	err = s.pool.QueryRow(context.Background(),
-		"SELECT count(*) FROM session WHERE token_hash = $1 OR previous_token_hash = $1", raw).Scan(&plain)
+		"SELECT count(*) FROM session WHERE token_hash = $1", raw).Scan(&plain)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -168,15 +168,10 @@ func TestSlidingExpiry(t *testing.T) {
 	token := s.register(t, "ana@example.com")
 
 	// Used every 59 days, the session never expires (the idle clock resets).
-	// The rotation that kicks in after 7 days is followed via the header.
 	for i := range 3 {
 		s.clock.advance(59 * day)
-		rec := s.whoami(t, token)
-		if rec.Code != http.StatusOK {
+		if rec := s.whoami(t, token); rec.Code != http.StatusOK {
 			t.Fatalf("use %d after 59 idle days: %d", i+1, rec.Code)
-		}
-		if next := rec.Header().Get(sessionTokenHeader); next != "" {
-			token = next
 		}
 	}
 
@@ -189,55 +184,29 @@ func TestSlidingExpiry(t *testing.T) {
 	}
 }
 
-func TestRotationAfterSevenDays(t *testing.T) {
+// Parallel requests with the same token must all pass and keep the session:
+// a token is never swapped out from under a request in flight.
+func TestParallelRequestsKeepTheSession(t *testing.T) {
 	s := newSessionTest(t)
-	old := s.register(t, "ana@example.com")
-
-	s.clock.advance(6 * day)
-	if rec := s.whoami(t, old); rec.Code != http.StatusOK || rec.Header().Get(sessionTokenHeader) != "" {
-		t.Fatalf("6 days: %d, rotated = %q; want 200 and no rotation", rec.Code, rec.Header().Get(sessionTokenHeader))
-	}
-
-	s.clock.advance(2 * day)
-	rec := s.whoami(t, old)
-	next := rec.Header().Get(sessionTokenHeader)
-	if rec.Code != http.StatusOK || next == "" || next == old {
-		t.Fatalf("8 days: %d, new token %q; want 200 and a new token", rec.Code, next)
-	}
-
-	var current, previous []byte
-	err := s.pool.QueryRow(context.Background(),
-		"SELECT token_hash, previous_token_hash FROM session").Scan(&current, &previous)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if string(current) != string(hashOf(t, next)) || string(previous) != string(hashOf(t, old)) {
-		t.Fatal("after rotation, token_hash must be the new token's hash and previous_token_hash the old one's")
-	}
-
-	if rec := s.whoami(t, next); rec.Code != http.StatusOK || rec.Header().Get(sessionTokenHeader) != "" {
-		t.Fatalf("new token: %d, rotated again = %q", rec.Code, rec.Header().Get(sessionTokenHeader))
-	}
-}
-
-func TestReusedTokenDeletesTheSession(t *testing.T) {
-	s := newSessionTest(t)
-	old := s.register(t, "ana@example.com")
-
+	token := s.register(t, "ana@example.com")
 	s.clock.advance(8 * day)
-	next := s.whoami(t, old).Header().Get(sessionTokenHeader)
-	if next == "" {
-		t.Fatal("no rotation")
-	}
 
-	if rec := s.whoami(t, old); rec.Code != http.StatusUnauthorized {
-		t.Fatalf("rotated-out token accepted: %d", rec.Code)
+	codes := make([]int, 5)
+	var wg sync.WaitGroup
+	for i := range codes {
+		wg.Go(func() { codes[i] = s.whoami(t, token).Code })
 	}
-	if n := s.sessionCount(t); n != 0 {
-		t.Fatalf("reuse did not delete the session: %d rows", n)
+	wg.Wait()
+	for i, code := range codes {
+		if code != http.StatusOK {
+			t.Fatalf("parallel request %d: %d, want 200", i, code)
+		}
 	}
-	if rec := s.whoami(t, next); rec.Code != http.StatusUnauthorized {
-		t.Fatalf("the new token survived reuse detection: %d", rec.Code)
+	if rec := s.whoami(t, token); rec.Code != http.StatusOK {
+		t.Fatalf("token rejected after parallel requests: %d", rec.Code)
+	}
+	if n := s.sessionCount(t); n != 1 {
+		t.Fatalf("sessions = %d, want 1", n)
 	}
 }
 

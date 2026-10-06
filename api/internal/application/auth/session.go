@@ -17,13 +17,11 @@ const (
 	tokenBytes = 32
 	// SessionIdleTimeout invalidates a session unused for this long.
 	SessionIdleTimeout = 60 * 24 * time.Hour
-	// SessionRotateAfter issues a new token once the current one is this old.
-	SessionRotateAfter = 7 * 24 * time.Hour
 )
 
 var (
 	ErrInvalidCredentials = errors.New("invalid email or password")
-	// ErrUnauthenticated covers a missing, unknown, expired or reused token.
+	// ErrUnauthenticated covers a missing, unknown or expired token.
 	ErrUnauthenticated = errors.New("unauthenticated")
 )
 
@@ -31,12 +29,9 @@ var (
 // token hashes.
 type Sessions interface {
 	Create(ctx context.Context, userID int64, tokenHash []byte, now time.Time) (int64, error)
-	// ByTokenHash and ByPreviousTokenHash return domain.ErrNotFound when no session matches.
+	// ByTokenHash returns domain.ErrNotFound when no session matches.
 	ByTokenHash(ctx context.Context, tokenHash []byte) (domain.Session, error)
-	ByPreviousTokenHash(ctx context.Context, tokenHash []byte) (domain.Session, error)
 	Touch(ctx context.Context, id int64, now time.Time) error
-	// Rotate reports false when the session no longer holds oldHash.
-	Rotate(ctx context.Context, id int64, oldHash, newHash []byte, now time.Time) (bool, error)
 	Delete(ctx context.Context, id int64) error
 }
 
@@ -44,9 +39,6 @@ type Sessions interface {
 type Auth struct {
 	UserID    int64
 	SessionID int64
-	// NewToken is set when the session was rotated on this request; the
-	// client must store it and drop the old one.
-	NewToken string
 }
 
 // newToken returns an opaque 32-byte random token, base64url-encoded for the
@@ -129,12 +121,10 @@ func (s *Service) dummyHash(ctx context.Context) (string, error) {
 	return hash, nil
 }
 
-// Authenticate resolves a bearer token to its session:
-//   - unused for 60 days: the session is deleted and the token rejected;
-//   - rotated more than 7 days ago: a new token is issued and the old hash
-//     kept as previous_token_hash;
-//   - a token that was rotated out is presented again: it was reused, so the
-//     session is deleted (reuse detection).
+// Authenticate resolves a bearer token to its session. A session unused for
+// 60 days is deleted and its token rejected. Tokens are not rotated: a
+// rotation makes parallel requests and lost responses log the user out, and
+// a token stored in the Keychain gains little from it.
 func (s *Service) Authenticate(ctx context.Context, token string) (Auth, error) {
 	hash, err := hashToken(token)
 	if err != nil {
@@ -144,7 +134,7 @@ func (s *Service) Authenticate(ctx context.Context, token string) (Auth, error) 
 
 	sess, err := s.sessions.ByTokenHash(ctx, hash)
 	if errors.Is(err, domain.ErrNotFound) {
-		return Auth{}, s.detectReuse(ctx, hash)
+		return Auth{}, ErrUnauthenticated
 	}
 	if err != nil {
 		return Auth{}, err
@@ -157,42 +147,10 @@ func (s *Service) Authenticate(ctx context.Context, token string) (Auth, error) 
 		return Auth{}, ErrUnauthenticated
 	}
 
-	a := Auth{UserID: sess.UserID, SessionID: sess.ID}
-	if !now.Before(sess.RotatedAt.Add(SessionRotateAfter)) {
-		newTok, newHash, err := newToken()
-		if err != nil {
-			return Auth{}, err
-		}
-		rotated, err := s.sessions.Rotate(ctx, sess.ID, hash, newHash, now)
-		if err != nil {
-			return Auth{}, err
-		}
-		if rotated {
-			a.NewToken = newTok
-			return a, nil
-		}
-		// A concurrent request rotated it first and delivered the new token.
-	}
 	if err := s.sessions.Touch(ctx, sess.ID, now); err != nil {
 		return Auth{}, err
 	}
-	return a, nil
-}
-
-// detectReuse deletes the session if hash is a token that was rotated out.
-// It always returns ErrUnauthenticated unless the lookup itself fails.
-func (s *Service) detectReuse(ctx context.Context, hash []byte) error {
-	sess, err := s.sessions.ByPreviousTokenHash(ctx, hash)
-	if errors.Is(err, domain.ErrNotFound) {
-		return ErrUnauthenticated
-	}
-	if err != nil {
-		return err
-	}
-	if err := s.sessions.Delete(ctx, sess.ID); err != nil {
-		return err
-	}
-	return ErrUnauthenticated
+	return Auth{UserID: sess.UserID, SessionID: sess.ID}, nil
 }
 
 // Logout deletes the session.

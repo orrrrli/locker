@@ -39,31 +39,12 @@ func (r *Sessions) ByTokenHash(ctx context.Context, tokenHash []byte) (domain.Se
 	return sessionOrNotFound(sqlcdb.New(Conn(ctx, r.pool)).GetSessionByTokenHash(ctx, tokenHash))
 }
 
-// ByPreviousTokenHash returns the session whose token before the last
-// rotation hashes to tokenHash, or domain.ErrNotFound.
-func (r *Sessions) ByPreviousTokenHash(ctx context.Context, tokenHash []byte) (domain.Session, error) {
-	return sessionOrNotFound(sqlcdb.New(Conn(ctx, r.pool)).GetSessionByPreviousTokenHash(ctx, tokenHash))
-}
-
 func (r *Sessions) Touch(ctx context.Context, id int64, now time.Time) error {
 	err := sqlcdb.New(Conn(ctx, r.pool)).TouchSession(ctx, sqlcdb.TouchSessionParams{ID: id, LastUsedAt: timestamptz(now)})
 	if err != nil {
 		return fmt.Errorf("postgres: touch session: %w", err)
 	}
 	return nil
-}
-
-// Rotate swaps oldHash for newHash and reports whether it did. It does
-// nothing when the session no longer holds oldHash: a concurrent request
-// rotated it first.
-func (r *Sessions) Rotate(ctx context.Context, id int64, oldHash, newHash []byte, now time.Time) (bool, error) {
-	n, err := sqlcdb.New(Conn(ctx, r.pool)).RotateSession(ctx, sqlcdb.RotateSessionParams{
-		ID: id, OldTokenHash: oldHash, NewTokenHash: newHash, Now: timestamptz(now),
-	})
-	if err != nil {
-		return false, fmt.Errorf("postgres: rotate session: %w", err)
-	}
-	return n == 1, nil
 }
 
 func (r *Sessions) Delete(ctx context.Context, id int64) error {
@@ -81,13 +62,11 @@ func sessionOrNotFound(row sqlcdb.Session, err error) (domain.Session, error) {
 		return domain.Session{}, fmt.Errorf("postgres: get session: %w", err)
 	}
 	return domain.Session{
-		ID:                row.ID,
-		UserID:            row.UserID,
-		TokenHash:         row.TokenHash,
-		PreviousTokenHash: row.PreviousTokenHash,
-		CreatedAt:         row.CreatedAt.Time,
-		LastUsedAt:        row.LastUsedAt.Time,
-		RotatedAt:         row.RotatedAt.Time,
+		ID:         row.ID,
+		UserID:     row.UserID,
+		TokenHash:  row.TokenHash,
+		CreatedAt:  row.CreatedAt.Time,
+		LastUsedAt: row.LastUsedAt.Time,
 	}, nil
 }
 

@@ -36,13 +36,11 @@ type AuthIdentity struct {
 
 // Session is an opaque login token; only hashes are stored.
 type Session struct {
-	ID                int64
-	UserID            int64
-	TokenHash         []byte
-	PreviousTokenHash []byte
-	CreatedAt         time.Time
-	LastUsedAt        time.Time
-	RotatedAt         time.Time
+	ID         int64
+	UserID     int64
+	TokenHash  []byte
+	CreatedAt  time.Time
+	LastUsedAt time.Time
 }
 
 // DeviceToken is an APNs token for one of the user's devices (R11.7).

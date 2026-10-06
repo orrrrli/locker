@@ -107,13 +107,11 @@ type Rsvp struct {
 }
 
 type Session struct {
-	ID                int64
-	UserID            int64
-	TokenHash         []byte
-	PreviousTokenHash []byte
-	CreatedAt         pgtype.Timestamptz
-	LastUsedAt        pgtype.Timestamptz
-	RotatedAt         pgtype.Timestamptz
+	ID         int64
+	UserID     int64
+	TokenHash  []byte
+	CreatedAt  pgtype.Timestamptz
+	LastUsedAt pgtype.Timestamptz
 }
 
 type Team struct {

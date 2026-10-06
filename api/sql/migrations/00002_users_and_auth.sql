@@ -31,13 +31,10 @@ CREATE TABLE session (
     id                  bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     user_id             bigint NOT NULL REFERENCES "user",
     token_hash          bytea  NOT NULL UNIQUE,
-    previous_token_hash bytea,
     created_at          timestamptz NOT NULL DEFAULT now(),
-    last_used_at        timestamptz NOT NULL DEFAULT now(),
-    rotated_at          timestamptz NOT NULL DEFAULT now()
+    last_used_at        timestamptz NOT NULL DEFAULT now()
 );
 CREATE INDEX ON session (user_id);
-CREATE INDEX ON session (previous_token_hash) WHERE previous_token_hash IS NOT NULL;
 
 CREATE TABLE device_token (
     id           bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,

@@ -20,12 +20,8 @@ type authService interface {
 	Logout(ctx context.Context, sessionID int64) error
 }
 
-// sessionTokenHeader carries a rotated session token on any authenticated
-// response. The client must replace its stored token with it.
-const sessionTokenHeader = "X-Session-Token"
-
 // requireAuth authenticates the bearer token and puts the user and session
-// in the request context. A rotated token comes back in X-Session-Token.
+// in the request context.
 func (h authHandlers) requireAuth(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		token, ok := bearerToken(r)
@@ -42,9 +38,6 @@ func (h authHandlers) requireAuth(next http.Handler) http.Handler {
 			slog.ErrorContext(r.Context(), "auth: authenticate", "err", err)
 			writeError(w, http.StatusInternalServerError, "internal")
 			return
-		}
-		if a.NewToken != "" {
-			w.Header().Set(sessionTokenHeader, a.NewToken)
 		}
 		ctx := withUserID(r.Context(), a.UserID)
 		ctx = context.WithValue(ctx, sessionIDKey, a.SessionID)

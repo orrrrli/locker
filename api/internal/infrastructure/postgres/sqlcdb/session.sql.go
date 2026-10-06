@@ -12,8 +12,8 @@ import (
 )
 
 const createSession = `-- name: CreateSession :one
-INSERT INTO session (user_id, token_hash, created_at, last_used_at, rotated_at)
-VALUES ($1, $2, $3, $3, $3)
+INSERT INTO session (user_id, token_hash, created_at, last_used_at)
+VALUES ($1, $2, $3, $3)
 RETURNING id
 `
 
@@ -39,27 +39,8 @@ func (q *Queries) DeleteSession(ctx context.Context, id int64) error {
 	return err
 }
 
-const getSessionByPreviousTokenHash = `-- name: GetSessionByPreviousTokenHash :one
-SELECT id, user_id, token_hash, previous_token_hash, created_at, last_used_at, rotated_at FROM session WHERE previous_token_hash = $1
-`
-
-func (q *Queries) GetSessionByPreviousTokenHash(ctx context.Context, previousTokenHash []byte) (Session, error) {
-	row := q.db.QueryRow(ctx, getSessionByPreviousTokenHash, previousTokenHash)
-	var i Session
-	err := row.Scan(
-		&i.ID,
-		&i.UserID,
-		&i.TokenHash,
-		&i.PreviousTokenHash,
-		&i.CreatedAt,
-		&i.LastUsedAt,
-		&i.RotatedAt,
-	)
-	return i, err
-}
-
 const getSessionByTokenHash = `-- name: GetSessionByTokenHash :one
-SELECT id, user_id, token_hash, previous_token_hash, created_at, last_used_at, rotated_at FROM session WHERE token_hash = $1
+SELECT id, user_id, token_hash, created_at, last_used_at FROM session WHERE token_hash = $1
 `
 
 func (q *Queries) GetSessionByTokenHash(ctx context.Context, tokenHash []byte) (Session, error) {
@@ -69,43 +50,10 @@ func (q *Queries) GetSessionByTokenHash(ctx context.Context, tokenHash []byte) (
 		&i.ID,
 		&i.UserID,
 		&i.TokenHash,
-		&i.PreviousTokenHash,
 		&i.CreatedAt,
 		&i.LastUsedAt,
-		&i.RotatedAt,
 	)
 	return i, err
-}
-
-const rotateSession = `-- name: RotateSession :execrows
-UPDATE session
-SET previous_token_hash = token_hash,
-    token_hash = $1,
-    rotated_at = $2,
-    last_used_at = $2
-WHERE id = $3 AND token_hash = $4
-`
-
-type RotateSessionParams struct {
-	NewTokenHash []byte
-	Now          pgtype.Timestamptz
-	ID           int64
-	OldTokenHash []byte
-}
-
-// Rotation only applies if the session still holds the token the caller
-// presented, so two concurrent requests cannot both rotate it.
-func (q *Queries) RotateSession(ctx context.Context, arg RotateSessionParams) (int64, error) {
-	result, err := q.db.Exec(ctx, rotateSession,
-		arg.NewTokenHash,
-		arg.Now,
-		arg.ID,
-		arg.OldTokenHash,
-	)
-	if err != nil {
-		return 0, err
-	}
-	return result.RowsAffected(), nil
 }
 
 const touchSession = `-- name: TouchSession :exec
