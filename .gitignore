@@ -23,7 +23,6 @@ DerivedData/
 build/
 
 # Claude harness docs (local only)
-/docs/
 CLAUDE.md
 .claude/
 **/docs/brain
