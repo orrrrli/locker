@@ -2,7 +2,6 @@ package http
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"log/slog"
 	"net/http"
@@ -102,10 +101,4 @@ func (a authz) require(team teamOf, role domain.Role, next http.Handler) http.Ha
 		}
 		next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), membershipKey, m)))
 	})
-}
-
-func writeError(w http.ResponseWriter, status int, code string) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(map[string]string{"error": code})
 }

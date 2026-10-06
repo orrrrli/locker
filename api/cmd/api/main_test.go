@@ -6,6 +6,8 @@ import (
 	"net/http"
 	"testing"
 	"time"
+
+	apihttp "github.com/orrrrli/locker/api/internal/http"
 )
 
 func TestRunServesHealthAndShutsDown(t *testing.T) {
@@ -15,7 +17,7 @@ func TestRunServesHealthAndShutsDown(t *testing.T) {
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
-	go func() { done <- run(ctx, ln) }()
+	go func() { done <- run(ctx, ln, apihttp.NewRouter(apihttp.Deps{})) }()
 
 	resp, err := http.Get("http://" + ln.Addr().String() + "/health")
 	if err != nil {
