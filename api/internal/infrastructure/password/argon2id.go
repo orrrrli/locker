@@ -95,7 +95,8 @@ func decode(encoded string) (Params, []byte, []byte, error) {
 		return Params{}, nil, nil, errMalformed
 	}
 	var p Params
-	if _, err := fmt.Sscanf(parts[3], "m=%d,t=%d,p=%d", &p.MemoryKiB, &p.Time, &p.Threads); err != nil {
+	if _, err := fmt.Sscanf(parts[3], "m=%d,t=%d,p=%d", &p.MemoryKiB, &p.Time, &p.Threads); err != nil ||
+		p.MemoryKiB == 0 || p.Time == 0 || p.Threads == 0 {
 		return Params{}, nil, nil, errMalformed
 	}
 	b64 := base64.RawStdEncoding

@@ -64,6 +64,9 @@ func TestVerifyRejectsMalformed(t *testing.T) {
 		"$argon2id$v=19$m=x,t=1,p=1$c2FsdA$a2V5",
 		"$argon2id$v=19$m=64,t=1,p=1$!!$a2V5",
 		"$argon2id$v=19$m=64,t=1,p=1$c2FsdA$",
+		"$argon2id$v=19$m=0,t=1,p=1$c2FsdA$a2V5",
+		"$argon2id$v=19$m=64,t=0,p=1$c2FsdA$a2V5",
+		"$argon2id$v=19$m=64,t=1,p=0$c2FsdA$a2V5",
 	} {
 		if _, err := h.Verify(context.Background(), "pw", bad); err == nil {
 			t.Errorf("Verify(%q) accepted a malformed hash", bad)
