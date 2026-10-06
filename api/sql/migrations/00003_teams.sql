@@ -39,7 +39,5 @@ CREATE TABLE invite (
 CREATE INDEX ON invite (team_id);
 
 -- +goose Down
-DROP TABLE invite;
-ALTER TABLE team DROP COLUMN captain_membership_id;
-DROP TABLE membership;
-DROP TABLE team;
+-- One statement: team and membership reference each other.
+DROP TABLE invite, membership, team;
