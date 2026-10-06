@@ -36,6 +36,8 @@ type Sessions interface {
 	ByTokenHash(ctx context.Context, tokenHash []byte) (domain.Session, error)
 	Touch(ctx context.Context, id int64, now time.Time) error
 	Delete(ctx context.Context, id int64) error
+	// DeleteIdle deletes sessions last used at or before cutoff.
+	DeleteIdle(ctx context.Context, cutoff time.Time) (int64, error)
 }
 
 // Auth is an authenticated request.
@@ -156,6 +158,13 @@ func (s *Service) Authenticate(ctx context.Context, token string) (Auth, error) 
 		}
 	}
 	return Auth{UserID: sess.UserID, SessionID: sess.ID}, nil
+}
+
+// DeleteIdleSessions removes sessions unused for SessionIdleTimeout, the
+// same rule Authenticate applies, so sessions that are never presented again
+// do not pile up. It reports how many it deleted.
+func (s *Service) DeleteIdleSessions(ctx context.Context) (int64, error) {
+	return s.sessions.DeleteIdle(ctx, s.now().Add(-SessionIdleTimeout))
 }
 
 // Logout deletes the session.

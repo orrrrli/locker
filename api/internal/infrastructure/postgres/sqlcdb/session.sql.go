@@ -30,6 +30,18 @@ func (q *Queries) CreateSession(ctx context.Context, arg CreateSessionParams) (i
 	return id, err
 }
 
+const deleteIdleSessions = `-- name: DeleteIdleSessions :execrows
+DELETE FROM session WHERE last_used_at <= $1
+`
+
+func (q *Queries) DeleteIdleSessions(ctx context.Context, lastUsedAt pgtype.Timestamptz) (int64, error) {
+	result, err := q.db.Exec(ctx, deleteIdleSessions, lastUsedAt)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const deleteSession = `-- name: DeleteSession :exec
 DELETE FROM session WHERE id = $1
 `

@@ -184,6 +184,30 @@ func TestSlidingExpiry(t *testing.T) {
 	}
 }
 
+// The sweep deletes sessions idle for 60 days and keeps the ones in use.
+func TestDeleteIdleSessions(t *testing.T) {
+	s := newSessionTest(t)
+	s.register(t, "ana@example.com")
+	bea := s.register(t, "bea@example.com")
+
+	s.clock.advance(59 * day)
+	if rec := s.whoami(t, bea); rec.Code != http.StatusOK {
+		t.Fatalf("whoami: %d", rec.Code)
+	}
+	s.clock.advance(day)
+
+	n, err := s.svc.DeleteIdleSessions(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n != 1 || s.sessionCount(t) != 1 {
+		t.Fatalf("deleted %d, %d left; want 1 deleted, 1 left", n, s.sessionCount(t))
+	}
+	if rec := s.whoami(t, bea); rec.Code != http.StatusOK {
+		t.Fatalf("session in use was deleted: %d", rec.Code)
+	}
+}
+
 // last_used_at is written at most once an hour, not on every request.
 func TestTouchAtMostHourly(t *testing.T) {
 	s := newSessionTest(t)

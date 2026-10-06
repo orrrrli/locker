@@ -54,6 +54,17 @@ func (r *Sessions) Delete(ctx context.Context, id int64) error {
 	return nil
 }
 
+// DeleteIdle deletes sessions last used at or before cutoff and reports how
+// many it deleted.
+// ponytail: seq scan on session; add an index on last_used_at if the table grows large.
+func (r *Sessions) DeleteIdle(ctx context.Context, cutoff time.Time) (int64, error) {
+	n, err := sqlcdb.New(Conn(ctx, r.pool)).DeleteIdleSessions(ctx, timestamptz(cutoff))
+	if err != nil {
+		return 0, fmt.Errorf("postgres: delete idle sessions: %w", err)
+	}
+	return n, nil
+}
+
 func sessionOrNotFound(row sqlcdb.Session, err error) (domain.Session, error) {
 	if errors.Is(err, pgx.ErrNoRows) {
 		return domain.Session{}, domain.ErrNotFound

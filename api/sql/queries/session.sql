@@ -11,3 +11,6 @@ UPDATE session SET last_used_at = $2 WHERE id = $1;
 
 -- name: DeleteSession :exec
 DELETE FROM session WHERE id = $1;
+
+-- name: DeleteIdleSessions :execrows
+DELETE FROM session WHERE last_used_at <= $1;

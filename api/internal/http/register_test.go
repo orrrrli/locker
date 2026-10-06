@@ -24,6 +24,7 @@ var today = time.Date(2026, 10, 6, 15, 0, 0, 0, time.UTC)
 type apiTest struct {
 	pool    *pgxpool.Pool
 	handler http.Handler
+	svc     *auth.Service
 }
 
 // newAPI wires the real router, use cases and repositories on a fresh
@@ -47,7 +48,7 @@ func newAPI(t *testing.T, now func() time.Time) apiTest {
 			userID, _ := userIDFrom(r.Context())
 			writeJSON(w, http.StatusOK, map[string]int64{"user_id": userID})
 		})))
-	return apiTest{pool: pool, handler: mux}
+	return apiTest{pool: pool, handler: mux, svc: svc}
 }
 
 func (a apiTest) do(t *testing.T, method, path, token string, body any) *httptest.ResponseRecorder {
