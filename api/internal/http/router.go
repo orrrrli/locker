@@ -14,6 +14,8 @@ func NewRouter(d Deps) http.Handler {
 
 	a := authHandlers{svc: d.Auth}
 	mux.HandleFunc("POST /auth/register", a.register)
+	mux.HandleFunc("POST /auth/login", a.login)
+	mux.Handle("POST /auth/logout", a.requireAuth(http.HandlerFunc(a.logout)))
 	return mux
 }
 

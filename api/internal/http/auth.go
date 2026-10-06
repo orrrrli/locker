@@ -5,6 +5,7 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/orrrrli/locker/api/internal/application/auth"
@@ -13,7 +14,56 @@ import (
 
 // authService is the slice of the auth use cases the handlers call.
 type authService interface {
-	Register(ctx context.Context, in auth.RegisterInput) (int64, error)
+	Register(ctx context.Context, in auth.RegisterInput) (auth.Registered, error)
+	Login(ctx context.Context, email, password string) (string, error)
+	Authenticate(ctx context.Context, token string) (auth.Auth, error)
+	Logout(ctx context.Context, sessionID int64) error
+}
+
+// sessionTokenHeader carries a rotated session token on any authenticated
+// response. The client must replace its stored token with it.
+const sessionTokenHeader = "X-Session-Token"
+
+// requireAuth authenticates the bearer token and puts the user and session
+// in the request context. A rotated token comes back in X-Session-Token.
+func (h authHandlers) requireAuth(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		token, ok := bearerToken(r)
+		if !ok {
+			unauthorized(w)
+			return
+		}
+		a, err := h.svc.Authenticate(r.Context(), token)
+		if errors.Is(err, auth.ErrUnauthenticated) {
+			unauthorized(w)
+			return
+		}
+		if err != nil {
+			slog.ErrorContext(r.Context(), "auth: authenticate", "err", err)
+			writeError(w, http.StatusInternalServerError, "internal")
+			return
+		}
+		if a.NewToken != "" {
+			w.Header().Set(sessionTokenHeader, a.NewToken)
+		}
+		ctx := withUserID(r.Context(), a.UserID)
+		ctx = context.WithValue(ctx, sessionIDKey, a.SessionID)
+		next.ServeHTTP(w, r.WithContext(ctx))
+	})
+}
+
+func bearerToken(r *http.Request) (string, bool) {
+	scheme, token, ok := strings.Cut(r.Header.Get("Authorization"), " ")
+	if !ok || !strings.EqualFold(scheme, "Bearer") {
+		return "", false
+	}
+	token = strings.TrimSpace(token)
+	return token, token != ""
+}
+
+func unauthorized(w http.ResponseWriter) {
+	w.Header().Set("WWW-Authenticate", "Bearer")
+	writeError(w, http.StatusUnauthorized, "unauthorized")
 }
 
 type authHandlers struct {
@@ -42,12 +92,40 @@ func (h authHandlers) register(w http.ResponseWriter, r *http.Request) {
 		in.BirthDate = d
 	}
 
-	userID, err := h.svc.Register(r.Context(), in)
+	reg, err := h.svc.Register(r.Context(), in)
 	if err != nil {
 		writeAuthError(w, r, err)
 		return
 	}
-	writeJSON(w, http.StatusCreated, map[string]int64{"user_id": userID})
+	writeJSON(w, http.StatusCreated, map[string]any{"user_id": reg.UserID, "token": reg.Token})
+}
+
+type loginRequest struct {
+	Email    string `json:"email"`
+	Password string `json:"password"`
+}
+
+func (h authHandlers) login(w http.ResponseWriter, r *http.Request) {
+	var req loginRequest
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+	token, err := h.svc.Login(r.Context(), req.Email, req.Password)
+	if err != nil {
+		writeAuthError(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"token": token})
+}
+
+// logout deletes the caller's session. It runs behind requireAuth.
+func (h authHandlers) logout(w http.ResponseWriter, r *http.Request) {
+	sessionID, _ := r.Context().Value(sessionIDKey).(int64)
+	if err := h.svc.Logout(r.Context(), sessionID); err != nil {
+		writeAuthError(w, r, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // authErrors maps use-case errors to a status and a stable error code.
@@ -64,6 +142,8 @@ var authErrors = []struct {
 	{domain.ErrBirthDateInFuture, http.StatusUnprocessableEntity, "invalid_birth_date"},
 	{domain.ErrUnderage, http.StatusUnprocessableEntity, "underage"},
 	{auth.ErrEmailTaken, http.StatusConflict, "email_taken"},
+	// Same response for an unknown email and a wrong password.
+	{auth.ErrInvalidCredentials, http.StatusUnauthorized, "invalid_credentials"},
 }
 
 func writeAuthError(w http.ResponseWriter, r *http.Request, err error) {

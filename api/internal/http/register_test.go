@@ -32,12 +32,22 @@ func newAPI(t *testing.T, now func() time.Time) apiTest {
 	t.Helper()
 	pool := testdb.New(t)
 	svc := auth.NewService(auth.Deps{
-		Tx:     postgres.NewTxRunner(pool),
-		Users:  postgres.NewUsers(pool),
-		Hasher: password.NewHasher(password.Params{MemoryKiB: 64, Time: 1, Threads: 1}),
-		Now:    now,
+		Tx:       postgres.NewTxRunner(pool),
+		Users:    postgres.NewUsers(pool),
+		Sessions: postgres.NewSessions(pool),
+		Hasher:   password.NewHasher(password.Params{MemoryKiB: 64, Time: 1, Threads: 1}),
+		Now:      now,
 	})
-	return apiTest{pool: pool, handler: NewRouter(Deps{Auth: svc})}
+	// The real router, plus GET /test/whoami behind requireAuth so tests can
+	// exercise sessions without a feature endpoint.
+	mux := http.NewServeMux()
+	mux.Handle("/", NewRouter(Deps{Auth: svc}))
+	mux.Handle("GET /test/whoami", authHandlers{svc: svc}.requireAuth(http.HandlerFunc(
+		func(w http.ResponseWriter, r *http.Request) {
+			userID, _ := userIDFrom(r.Context())
+			writeJSON(w, http.StatusOK, map[string]int64{"user_id": userID})
+		})))
+	return apiTest{pool: pool, handler: mux}
 }
 
 func (a apiTest) do(t *testing.T, method, path, token string, body any) *httptest.ResponseRecorder {

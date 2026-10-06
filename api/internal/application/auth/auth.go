@@ -45,24 +45,27 @@ type Users interface {
 }
 
 type Deps struct {
-	Tx     application.TxRunner
-	Users  Users
-	Hasher PasswordHasher
-	Now    func() time.Time // nil means time.Now
+	Tx       application.TxRunner
+	Users    Users
+	Sessions Sessions
+	Hasher   PasswordHasher
+	Now      func() time.Time // nil means time.Now
 }
 
 type Service struct {
-	tx     application.TxRunner
-	users  Users
-	hasher PasswordHasher
-	now    func() time.Time
+	tx       application.TxRunner
+	users    Users
+	sessions Sessions
+	hasher   PasswordHasher
+	now      func() time.Time
+	sessionState
 }
 
 func NewService(d Deps) *Service {
 	if d.Now == nil {
 		d.Now = time.Now
 	}
-	return &Service{tx: d.Tx, users: d.Users, hasher: d.Hasher, now: d.Now}
+	return &Service{tx: d.Tx, users: d.Users, sessions: d.Sessions, hasher: d.Hasher, now: d.Now}
 }
 
 type RegisterInput struct {
@@ -72,32 +75,39 @@ type RegisterInput struct {
 	BirthDate time.Time // zero when missing
 }
 
-// Register creates a user with a password identity. It rejects a missing
-// birth date and users younger than 15 (R1.1, R1.2), stores the birth date
-// (R1.4) and hashes the password with argon2id (R3.1).
-func (s *Service) Register(ctx context.Context, in RegisterInput) (int64, error) {
+// Registered is the result of a successful registration: the new user,
+// already signed in.
+type Registered struct {
+	UserID int64
+	Token  string
+}
+
+// Register creates a user with a password identity and signs them in. It
+// rejects a missing birth date and users younger than 15 (R1.1, R1.2),
+// stores the birth date (R1.4) and hashes the password with argon2id (R3.1).
+func (s *Service) Register(ctx context.Context, in RegisterInput) (Registered, error) {
 	name := strings.TrimSpace(in.Name)
 	if name == "" || utf8.RuneCountInString(name) > maxNameLen {
-		return 0, ErrInvalidName
+		return Registered{}, ErrInvalidName
 	}
 	email, err := normalizeEmail(in.Email)
 	if err != nil {
-		return 0, err
+		return Registered{}, err
 	}
 	if err := checkPassword(in.Password); err != nil {
-		return 0, err
+		return Registered{}, err
 	}
 	if err := domain.CheckAge(in.BirthDate, s.now().UTC()); err != nil {
-		return 0, err
+		return Registered{}, err
 	}
 
 	// Hash outside the transaction: it is the slow part.
 	hash, err := s.hasher.Hash(ctx, in.Password)
 	if err != nil {
-		return 0, err
+		return Registered{}, err
 	}
 
-	var userID int64
+	var out Registered
 	err = s.tx.InTx(ctx, func(ctx context.Context) error {
 		id, err := s.users.CreateUser(ctx, name, email, in.BirthDate)
 		if err != nil {
@@ -106,16 +116,20 @@ func (s *Service) Register(ctx context.Context, in RegisterInput) (int64, error)
 		if err := s.users.CreateIdentity(ctx, id, domain.ProviderPassword, email, &hash); err != nil {
 			return err
 		}
-		userID = id
+		token, err := s.createSession(ctx, id)
+		if err != nil {
+			return err
+		}
+		out = Registered{UserID: id, Token: token}
 		return nil
 	})
 	if errors.Is(err, domain.ErrAlreadyExists) {
-		return 0, ErrEmailTaken
+		return Registered{}, ErrEmailTaken
 	}
 	if err != nil {
-		return 0, err
+		return Registered{}, err
 	}
-	return userID, nil
+	return out, nil
 }
 
 // normalizeEmail lowercases and trims the address, which is also the subject

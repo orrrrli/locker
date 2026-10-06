@@ -14,11 +14,12 @@ type contextKey int
 
 const (
 	userIDKey contextKey = iota
+	sessionIDKey
 	membershipKey
 )
 
-// withUserID marks the request as authenticated. The auth middleware
-// (BE-AUTH-3) calls it once it has validated the session.
+// withUserID marks the request as authenticated. requireAuth calls it once
+// it has validated the session.
 func withUserID(ctx context.Context, userID int64) context.Context {
 	return context.WithValue(ctx, userIDKey, userID)
 }

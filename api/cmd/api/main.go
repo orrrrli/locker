@@ -47,9 +47,10 @@ func start() error {
 	}
 
 	authSvc := auth.NewService(auth.Deps{
-		Tx:     postgres.NewTxRunner(pool),
-		Users:  postgres.NewUsers(pool),
-		Hasher: password.NewHasher(password.DefaultParams),
+		Tx:       postgres.NewTxRunner(pool),
+		Users:    postgres.NewUsers(pool),
+		Sessions: postgres.NewSessions(pool),
+		Hasher:   password.NewHasher(password.DefaultParams),
 	})
 	router := apihttp.NewRouter(apihttp.Deps{Auth: authSvc})
 
