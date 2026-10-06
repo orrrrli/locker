@@ -184,6 +184,37 @@ func TestSlidingExpiry(t *testing.T) {
 	}
 }
 
+// last_used_at is written at most once an hour, not on every request.
+func TestTouchAtMostHourly(t *testing.T) {
+	s := newSessionTest(t)
+	token := s.register(t, "ana@example.com")
+	lastUsed := func() time.Time {
+		t.Helper()
+		var at time.Time
+		if err := s.pool.QueryRow(context.Background(), "SELECT last_used_at FROM session").Scan(&at); err != nil {
+			t.Fatal(err)
+		}
+		return at
+	}
+	start := lastUsed()
+
+	s.clock.advance(59 * time.Minute)
+	if rec := s.whoami(t, token); rec.Code != http.StatusOK {
+		t.Fatalf("whoami: %d", rec.Code)
+	}
+	if got := lastUsed(); !got.Equal(start) {
+		t.Fatalf("last_used_at written after 59 minutes: %v -> %v", start, got)
+	}
+
+	s.clock.advance(time.Minute)
+	if rec := s.whoami(t, token); rec.Code != http.StatusOK {
+		t.Fatalf("whoami: %d", rec.Code)
+	}
+	if got := lastUsed(); !got.Equal(start.Add(time.Hour)) {
+		t.Fatalf("last_used_at = %v after 1 hour, want %v", got, start.Add(time.Hour))
+	}
+}
+
 // Parallel requests with the same token must all pass and keep the session:
 // a token is never swapped out from under a request in flight.
 func TestParallelRequestsKeepTheSession(t *testing.T) {

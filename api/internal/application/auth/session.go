@@ -17,6 +17,9 @@ const (
 	tokenBytes = 32
 	// SessionIdleTimeout invalidates a session unused for this long.
 	SessionIdleTimeout = 60 * 24 * time.Hour
+	// sessionTouchEvery limits last_used_at writes to one per hour per
+	// session; the 60-day idle window does not need more precision.
+	sessionTouchEvery = time.Hour
 )
 
 var (
@@ -147,8 +150,10 @@ func (s *Service) Authenticate(ctx context.Context, token string) (Auth, error) 
 		return Auth{}, ErrUnauthenticated
 	}
 
-	if err := s.sessions.Touch(ctx, sess.ID, now); err != nil {
-		return Auth{}, err
+	if now.Sub(sess.LastUsedAt) >= sessionTouchEvery {
+		if err := s.sessions.Touch(ctx, sess.ID, now); err != nil {
+			return Auth{}, err
+		}
 	}
 	return Auth{UserID: sess.UserID, SessionID: sess.ID}, nil
 }
