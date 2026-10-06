@@ -120,6 +120,16 @@ func TestRegisterAgeGate(t *testing.T) {
 	}
 }
 
+// At 01:00 UTC on 7 October it is still 6 October west of UTC (18:00 in
+// Ensenada), so a user born on 7 October 2011 is not 15 yet there.
+func TestRegisterAgeGateUsesEarliestDate(t *testing.T) {
+	api := newAPI(t, func() time.Time { return time.Date(2026, 10, 7, 1, 0, 0, 0, time.UTC) })
+	rec := api.do(t, http.MethodPost, "/auth/register", "", registration("west@example.com", "2011-10-07"))
+	if rec.Code != http.StatusUnprocessableEntity || errorCode(t, rec) != "underage" {
+		t.Fatalf("status = %d, body %s; want 422 underage", rec.Code, rec.Body)
+	}
+}
+
 func TestRegisterStoresBirthDateAndArgon2idHash(t *testing.T) {
 	api := newAPI(t, func() time.Time { return today })
 	rec := api.do(t, http.MethodPost, "/auth/register", "", registration("  Ana@Example.COM ", "2000-02-29"))

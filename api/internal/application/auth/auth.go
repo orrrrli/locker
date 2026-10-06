@@ -77,6 +77,8 @@ type RegisterInput struct {
 
 // Registered is the result of a successful registration: the new user,
 // already signed in.
+var earliestZone = time.FixedZone("UTC-12", -12*60*60)
+
 type Registered struct {
 	UserID int64
 	Token  string
@@ -97,7 +99,10 @@ func (s *Service) Register(ctx context.Context, in RegisterInput) (Registered, e
 	if err := checkPassword(in.Password); err != nil {
 		return Registered{}, err
 	}
-	if err := domain.CheckAge(in.BirthDate, s.now().UTC()); err != nil {
+	// The client's time zone is unknown, so use the date in UTC-12, the last
+	// place on Earth to reach a new day: nobody passes the gate before their
+	// local 15th birthday.
+	if err := domain.CheckAge(in.BirthDate, s.now().In(earliestZone)); err != nil {
 		return Registered{}, err
 	}
 
