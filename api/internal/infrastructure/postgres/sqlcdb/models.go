@@ -3,3 +3,134 @@
 //   sqlc v1.31.1
 
 package sqlcdb
+
+import (
+	"github.com/jackc/pgx/v5/pgtype"
+)
+
+type Attendance struct {
+	MatchID      int64
+	MembershipID int64
+}
+
+type AuthIdentity struct {
+	ID           int64
+	UserID       int64
+	Provider     string
+	Subject      string
+	PasswordHash pgtype.Text
+	CreatedAt    pgtype.Timestamptz
+}
+
+type Charge struct {
+	ID          int64
+	TeamID      int64
+	Concept     string
+	AmountCents int64
+	Currency    string
+	MatchID     pgtype.Int8
+	CreatedBy   int64
+	CreatedAt   pgtype.Timestamptz
+}
+
+type ChargeMember struct {
+	ChargeID     int64
+	MembershipID int64
+	Status       string
+	PaidMarkedBy pgtype.Int8
+	PaidMarkedAt pgtype.Timestamptz
+}
+
+type DeviceToken struct {
+	ID         int64
+	UserID     int64
+	Token      string
+	CreatedAt  pgtype.Timestamptz
+	LastSeenAt pgtype.Timestamptz
+}
+
+type Invite struct {
+	ID        int64
+	TeamID    int64
+	Token     string
+	CreatedBy int64
+	ExpiresAt pgtype.Timestamptz
+	RevokedAt pgtype.Timestamptz
+}
+
+type Match struct {
+	ID                 int64
+	TeamID             int64
+	StartsAt           pgtype.Timestamptz
+	RivalName          string
+	Location           string
+	ReminderSentAt     pgtype.Timestamptz
+	AttendanceClosedAt pgtype.Timestamptz
+	CreatedBy          int64
+}
+
+type Membership struct {
+	ID                  int64
+	TeamID              int64
+	UserID              pgtype.Int8
+	Role                string
+	Status              string
+	ShirtNumber         pgtype.Int4
+	Position            pgtype.Text
+	DisplayNameOverride pgtype.Text
+	PushMuted           bool
+	CreatedAt           pgtype.Timestamptz
+}
+
+type Notification struct {
+	ID        int64
+	TeamID    int64
+	Kind      string
+	Title     string
+	Body      string
+	MatchID   pgtype.Int8
+	SentBy    pgtype.Int8
+	CreatedAt pgtype.Timestamptz
+}
+
+type NotificationRecipient struct {
+	NotificationID int64
+	MembershipID   int64
+	ReadAt         pgtype.Timestamptz
+}
+
+type Rsvp struct {
+	MatchID      int64
+	MembershipID int64
+	Answer       string
+	UpdatedAt    pgtype.Timestamptz
+}
+
+type Session struct {
+	ID                int64
+	UserID            int64
+	TokenHash         []byte
+	PreviousTokenHash []byte
+	CreatedAt         pgtype.Timestamptz
+	LastUsedAt        pgtype.Timestamptz
+	RotatedAt         pgtype.Timestamptz
+}
+
+type Team struct {
+	ID                  int64
+	Name                string
+	Timezone            string
+	CaptainMembershipID pgtype.Int8
+	CreatedAt           pgtype.Timestamptz
+}
+
+type User struct {
+	ID              int64
+	Name            pgtype.Text
+	Email           pgtype.Text
+	EmailVerifiedAt pgtype.Timestamptz
+	BirthDate       pgtype.Date
+	PhotoUrl        pgtype.Text
+	DeletedAt       pgtype.Timestamptz
+	CreatedAt       pgtype.Timestamptz
+}
