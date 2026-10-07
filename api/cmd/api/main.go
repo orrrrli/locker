@@ -62,7 +62,10 @@ func start() error {
 	go tick(ctx, tickEvery, func(ctx context.Context) {
 		n, err := authSvc.DeleteIdleSessions(ctx)
 		if err != nil {
-			slog.ErrorContext(ctx, "ticker: delete idle sessions", "err", err)
+			// A run cut short by shutdown is not an error.
+			if ctx.Err() == nil {
+				slog.ErrorContext(ctx, "ticker: delete idle sessions", "err", err)
+			}
 		} else if n > 0 {
 			slog.InfoContext(ctx, "ticker: deleted idle sessions", "count", n)
 		}
@@ -91,6 +94,10 @@ func tick(ctx context.Context, every time.Duration, job func(context.Context)) {
 		case <-ctx.Done():
 			return
 		case <-t.C:
+			// select picks randomly when a tick and cancel are both ready.
+			if ctx.Err() != nil {
+				return
+			}
 			job(ctx)
 		}
 	}
