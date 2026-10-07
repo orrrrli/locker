@@ -17,7 +17,7 @@ func TestHealth(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.method, func(t *testing.T) {
 			rec := httptest.NewRecorder()
-			NewRouter().ServeHTTP(rec, httptest.NewRequest(tt.method, "/health", nil))
+			NewRouter(Deps{}).ServeHTTP(rec, httptest.NewRequest(tt.method, "/health", nil))
 			if rec.Code != tt.want {
 				t.Fatalf("%s /health = %d, want %d", tt.method, rec.Code, tt.want)
 			}
