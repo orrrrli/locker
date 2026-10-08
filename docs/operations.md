@@ -79,6 +79,37 @@ One-time setup in Cloudflare (R2):
    backups. Retention deletes at 31 days, after the lock ends.
 3. R2 → Manage API tokens → create a token with **Object Read & Write**, limited to that bucket.
 
+The encryption key, on your machine (never on the VPS):
+
+4. `age-keygen -o locker-backup.key`. Keep the file off the VPS: your machine plus a password manager.
+   Without it no backup can be read. The command prints the public key (`age1...`).
+
+On the VPS:
+
+5. In `VPS_PATH`, create `.env.backup` from `.env.backup.example`: the R2 account ID, the token's keys,
+   the bucket name and the **public** key from step 4. Then `chown deploy:deploy .env.backup` and
+   `chmod 600 .env.backup`. Only the backup service reads it; the api never gets these keys.
+6. Recreate the backup container so it reads the file. Compose reads `env_file` only when it creates
+   a container, so a container started before `.env.backup` existed never sees it. Do the same after
+   any later edit to `.env.backup` (for example, rotating the R2 keys):
+
+   ```bash
+   # The tag the running api uses, so backup starts with the same commit's image.
+   export API_TAG=$(docker inspect --format '{{.Config.Image}}' "$(docker compose ps -q api)" | cut -d: -f2)
+   docker compose up -d backup
+   ```
+
+7. Run one backup by hand and check it reaches R2:
+
+   ```bash
+   docker compose exec backup backup.sh
+   ```
+
+   It prints `backup uploaded: locker-<UTC time>.dump.age (<n> bytes)`, then one `Deleted` line per
+   backup older than 31 days, if any. If it fails with `R2_ACCOUNT_ID: parameter not set` (or another
+   name), the container does not have the file: check step 5, then step 6. The deploy succeeds without
+   `.env.backup`; only the nightly runs fail, with the missing name in `docker compose logs backup`.
+
 ## Deploy
 
 Every push to `main` that touches `api/**`, `backup/**`, `docker-compose.yml` or the workflow runs test, build and deploy.
