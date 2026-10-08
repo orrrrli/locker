@@ -10,6 +10,10 @@ on:
 permissions:
   contents: read
 
+# One run per ref at a time, so an older run can never push :latest after a newer one.
+concurrency:
+  group: api-${{ github.ref }}
+
 jobs:
   test:
     runs-on: ubuntu-latest
@@ -38,6 +42,22 @@ jobs:
   build:
     needs: test
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    env:
+      IMAGE: ghcr.io/orrrrli/locker-api # same name as docker-compose.yml
     steps:
       - uses: actions/checkout@v5
-      - run: docker build api
+      - run: >-
+          docker build api
+          -t $IMAGE:${{ github.sha }} -t $IMAGE:latest
+          --label org.opencontainers.image.source=https://github.com/${{ github.repository }}
+      # Pull requests build but never publish.
+      - if: github.event_name == 'push'
+        env:
+          TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ACTOR: ${{ github.actor }}
+        run: |
+          echo "$TOKEN" | docker login ghcr.io -u "$ACTOR" --password-stdin
+          docker push --all-tags $IMAGE
