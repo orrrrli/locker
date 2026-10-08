@@ -1,11 +1,14 @@
 package http
 
 import (
-	"net"
+	"crypto/sha256"
 	"net/http"
+	"net/netip"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/orrrrli/locker/api/internal/application/auth"
 )
 
 const (
@@ -16,7 +19,6 @@ const (
 	loginMaxPerAccount = 30
 	loginMaxPerIP      = 20
 	loginWindow        = 15 * time.Minute
-	maxLoginKeyLen     = 254 // longest valid email; longer input can never log in
 )
 
 // LoginLimiter throttles failed logins per (account, IP) pair, per account
@@ -47,14 +49,22 @@ func NewLoginLimiter(now func() time.Time) *LoginLimiter {
 // begin reserves one attempt on every limit before the password is checked,
 // so parallel requests cannot all pass the check before the first failure is
 // counted. The IP is reserved first: a blocked IP creates no pair or account
-// entries, which keeps memory bounded by the per-IP limit. When any limit is
-// used up it returns how long until the caller may retry and ok == false.
+// entries. An email that cannot be an account counts against the IP alone,
+// so every pair or account entry costs an argon2id check, which keeps memory
+// bounded by hashing throughput. When any limit is used up it returns how
+// long until the caller may retry and ok == false.
 func (l *LoginLimiter) begin(email, ip string) (attempt loginAttempt, retryAfter time.Duration, ok bool) {
 	now := l.now()
-	account := accountKey(email)
-	attempt = loginAttempt{l: l, ip: ip, pair: account + "\x00" + ip, account: account}
+	attempt = loginAttempt{l: l, ip: ip}
+	if account, err := auth.NormalizeEmail(email); err == nil {
+		attempt.account = shortHash(account)
+		attempt.pair = shortHash(account + "\x00" + ip)
+	}
 	if wait, ok := l.ip.take(attempt.ip, now); !ok {
 		return loginAttempt{}, wait, false
+	}
+	if !attempt.hasAccount() {
+		return attempt, 0, true
 	}
 	if wait, ok := l.pair.take(attempt.pair, now); !ok {
 		l.ip.undo(attempt.ip)
@@ -77,19 +87,31 @@ func (l *LoginLimiter) Prune() {
 	l.account.prune(now)
 }
 
-// loginAttempt is one reserved attempt; exactly one of its methods is called
-// once the outcome is known.
+// loginAttempt is one reserved attempt; exactly one of failed, succeeded or
+// cancelled is called once the outcome is known.
 type loginAttempt struct {
 	l                 *LoginLimiter
-	ip, pair, account string
+	ip, pair, account string // pair and account are empty for an invalid email
+}
+
+func (a loginAttempt) hasAccount() bool { return a.account != "" }
+
+// shortHash is a fixed 16-byte map key: emails can be 254 bytes, and live
+// counters scale with hashing throughput, so key size sets the memory bound.
+// It also copies, so the key never pins the request body.
+func shortHash(s string) string {
+	sum := sha256.Sum256([]byte(s))
+	return string(sum[:16])
 }
 
 // failed keeps the reserved attempt as a failure.
 func (a loginAttempt) failed() {
 	now := a.l.now()
 	a.l.ip.restartIfFull(a.ip, now)
-	a.l.pair.restartIfFull(a.pair, now)
-	a.l.account.restartIfFull(a.account, now)
+	if a.hasAccount() {
+		a.l.pair.restartIfFull(a.pair, now)
+		a.l.account.restartIfFull(a.account, now)
+	}
 }
 
 // succeeded clears this pair's and the account's failures and returns the
@@ -97,37 +119,46 @@ func (a loginAttempt) failed() {
 // accounts still count.
 func (a loginAttempt) succeeded() {
 	a.l.ip.undo(a.ip)
-	a.l.pair.reset(a.pair)
-	a.l.account.reset(a.account)
+	if a.hasAccount() {
+		a.l.pair.reset(a.pair)
+		a.l.account.reset(a.account)
+	}
 }
 
 // cancelled returns every reservation: the attempt did not check a password
 // (an internal error), so it is not a failure.
 func (a loginAttempt) cancelled() {
 	a.l.ip.undo(a.ip)
-	a.l.pair.undo(a.pair)
-	a.l.account.undo(a.account)
-}
-
-// accountKey is the account counter key. Unknown emails get a counter too,
-// so a lockout does not reveal whether an account exists.
-func accountKey(email string) string {
-	k := strings.ToLower(strings.TrimSpace(email))
-	if len(k) > maxLoginKeyLen {
-		k = k[:maxLoginKeyLen]
+	if a.hasAccount() {
+		a.l.pair.undo(a.pair)
+		a.l.account.undo(a.account)
 	}
-	// Clone: a substring would keep the whole request body (up to 1 MiB)
-	// alive for as long as the map holds the key.
-	return strings.Clone(k)
 }
 
-// clientIP is the address the request came from.
-func clientIP(r *http.Request) string {
-	host, _, err := net.SplitHostPort(r.RemoteAddr)
+// clientIP is the per-IP limit key: the client address, or its /64 for IPv6,
+// since one client usually controls a whole /64. X-Real-IP is trusted only
+// when the connection comes from loopback or a private network, which is how
+// nginx on the host reaches the container; any other client could set it
+// itself. Without the header the peer itself is the key, which is the case
+// for direct local calls. ok is false when an address does not parse:
+// falling back to the proxy's address would put every client in one key.
+func clientIP(r *http.Request) (key string, ok bool) {
+	ap, err := netip.ParseAddrPort(r.RemoteAddr)
 	if err != nil {
-		return r.RemoteAddr
+		return "", false
 	}
-	return host
+	addr := ap.Addr().Unmap()
+	if h := r.Header.Get("X-Real-IP"); h != "" && (addr.IsLoopback() || addr.IsPrivate()) {
+		if addr, err = netip.ParseAddr(strings.TrimSpace(h)); err != nil {
+			return "", false
+		}
+		addr = addr.Unmap()
+	}
+	if addr.Is6() {
+		p, _ := addr.WithZone("").Prefix(64)
+		return p.String(), true
+	}
+	return addr.String(), true
 }
 
 // limiter allows max attempts per key in a window that starts at the first

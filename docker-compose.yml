@@ -3,6 +3,10 @@ services:
     image: ghcr.io/orrrrli/locker-api:latest
     build: ./api # local: docker compose up --build
     env_file: .env
+    environment:
+      # Soft heap limit below the container's 256M, so the GC works harder
+      # before the kernel OOM-kills the process.
+      GOMEMLIMIT: 200MiB
     ports:
       - "127.0.0.1:${API_PORT:?}:${API_PORT:?}"
     depends_on:

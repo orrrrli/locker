@@ -106,7 +106,12 @@ func (h authHandlers) login(w http.ResponseWriter, r *http.Request) {
 	if !decodeJSON(w, r, &req) {
 		return
 	}
-	attempt, retryAfter, ok := h.limits.begin(req.Email, clientIP(r))
+	ip, ok := clientIP(r)
+	if !ok {
+		writeError(w, http.StatusBadRequest, "invalid_request")
+		return
+	}
+	attempt, retryAfter, ok := h.limits.begin(req.Email, ip)
 	if !ok {
 		// Same answer for known and unknown emails.
 		w.Header().Set("Retry-After", strconv.Itoa(int(math.Ceil(retryAfter.Seconds()))))

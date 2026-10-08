@@ -5,9 +5,11 @@ import (
 	"net/http"
 )
 
-const maxBodyBytes = 1 << 20
+// maxBodyBytes caps every JSON body. Requests can wait for an argon2id slot
+// while holding their body, so a large cap multiplies memory under load.
+const maxBodyBytes = 16 << 10
 
-// decodeJSON reads a JSON body into dst, capped at 1 MiB. On failure it
+// decodeJSON reads a JSON body into dst, capped at maxBodyBytes. On failure it
 // writes 400 and returns false.
 func decodeJSON(w http.ResponseWriter, r *http.Request, dst any) bool {
 	r.Body = http.MaxBytesReader(w, r.Body, maxBodyBytes)
