@@ -92,7 +92,7 @@ func (s *Service) Register(ctx context.Context, in RegisterInput) (Registered, e
 	if name == "" || utf8.RuneCountInString(name) > maxNameLen {
 		return Registered{}, ErrInvalidName
 	}
-	email, err := normalizeEmail(in.Email)
+	email, err := NormalizeEmail(in.Email)
 	if err != nil {
 		return Registered{}, err
 	}
@@ -137,11 +137,19 @@ func (s *Service) Register(ctx context.Context, in RegisterInput) (Registered, e
 	return out, nil
 }
 
-// normalizeEmail lowercases and trims the address, which is also the subject
-// of the password identity.
-func normalizeEmail(raw string) (string, error) {
-	email := strings.ToLower(strings.TrimSpace(raw))
-	if email == "" || len(email) > maxEmailLen {
+// NormalizeEmail lowercases and trims the address, which is also the subject
+// of the password identity. The login limiter keys on it too, so both always
+// agree on which account an input means.
+func NormalizeEmail(raw string) (string, error) {
+	trimmed := strings.TrimSpace(raw)
+	// Check the length before lowercasing: ToLower copies the input, which
+	// can be a whole request body.
+	if trimmed == "" || len(trimmed) > maxEmailLen {
+		return "", ErrInvalidEmail
+	}
+	email := strings.ToLower(trimmed)
+	// Again after lowercasing: ToLower can add bytes for some letters.
+	if len(email) > maxEmailLen {
 		return "", ErrInvalidEmail
 	}
 	addr, err := mail.ParseAddress(email)

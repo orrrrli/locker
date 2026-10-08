@@ -5,6 +5,9 @@ import "net/http"
 // Deps are the use cases the handlers call.
 type Deps struct {
 	Auth authService
+	// LoginLimiter throttles failed logins; nil gets a fresh one on the
+	// real clock.
+	LoginLimiter *LoginLimiter
 }
 
 // NewRouter returns the API's HTTP handler with every route registered.
@@ -12,7 +15,10 @@ func NewRouter(d Deps) http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /health", health)
 
-	a := authHandlers{svc: d.Auth}
+	if d.LoginLimiter == nil {
+		d.LoginLimiter = NewLoginLimiter(nil)
+	}
+	a := authHandlers{svc: d.Auth, limits: d.LoginLimiter}
 	mux.HandleFunc("POST /auth/register", a.register)
 	mux.HandleFunc("POST /auth/login", a.login)
 	mux.Handle("POST /auth/logout", a.requireAuth(http.HandlerFunc(a.logout)))

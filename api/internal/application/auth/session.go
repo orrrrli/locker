@@ -84,7 +84,7 @@ func (s *Service) createSession(ctx context.Context, userID int64) (string, erro
 // costs the same argon2id work as a wrong password, so the response time
 // does not reveal which emails are registered.
 func (s *Service) Login(ctx context.Context, email, password string) (string, error) {
-	email, err := normalizeEmail(email)
+	email, err := NormalizeEmail(email)
 	if err != nil {
 		return "", ErrInvalidCredentials
 	}
@@ -94,7 +94,11 @@ func (s *Service) Login(ctx context.Context, email, password string) (string, er
 		if err != nil {
 			return "", err
 		}
-		_, _ = s.hasher.Verify(ctx, password, dummy)
+		// Return Verify's error like the known-email branch does, so a
+		// cancelled request looks the same whether or not the email exists.
+		if _, err := s.hasher.Verify(ctx, password, dummy); err != nil {
+			return "", err
+		}
 		return "", ErrInvalidCredentials
 	}
 	if err != nil {

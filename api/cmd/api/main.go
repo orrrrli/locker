@@ -57,9 +57,11 @@ func start() error {
 		Sessions: postgres.NewSessions(pool),
 		Hasher:   password.NewHasher(password.DefaultParams),
 	})
-	router := apihttp.NewRouter(apihttp.Deps{Auth: authSvc})
+	loginLimiter := apihttp.NewLoginLimiter(nil)
+	router := apihttp.NewRouter(apihttp.Deps{Auth: authSvc, LoginLimiter: loginLimiter})
 
 	go tick(ctx, tickEvery, func(ctx context.Context) {
+		loginLimiter.Prune()
 		n, err := authSvc.DeleteIdleSessions(ctx)
 		if err != nil {
 			// A run cut short by shutdown is not an error.
