@@ -1,6 +1,6 @@
 services:
   api:
-    image: ghcr.io/orrrrli/locker-api:latest
+    image: ghcr.io/orrrrli/locker-api:${API_TAG:-latest} # CI deploys by commit SHA
     build: ./api # local: docker compose up --build
     env_file: .env
     environment:

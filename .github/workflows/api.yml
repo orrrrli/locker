@@ -1,0 +1,89 @@
+name: api
+
+on:
+  push:
+    branches: [main]
+    paths: ["api/**", "docker-compose.yml", ".github/workflows/api.yml"]
+  pull_request:
+    paths: ["api/**", "docker-compose.yml", ".github/workflows/api.yml"]
+
+permissions:
+  contents: read
+
+# One run per ref at a time, so an older run can never push :latest after a newer one.
+concurrency:
+  group: api-${{ github.ref }}
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17-alpine # same image as docker-compose.yml
+        env:
+          POSTGRES_PASSWORD: test
+          POSTGRES_DB: locker_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -h 127.0.0.1 -U postgres"
+          --health-interval 5s
+          --health-retries 10
+    env:
+      TEST_DATABASE_URL: postgres://postgres:test@127.0.0.1:5432/locker_test?sslmode=disable
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: api/go.mod
+          cache-dependency-path: api/go.sum
+      - run: go -C api vet ./...
+      - run: go -C api test ./...
+
+  build:
+    needs: test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    env:
+      IMAGE: ghcr.io/orrrrli/locker-api # same name as docker-compose.yml
+    steps:
+      - uses: actions/checkout@v5
+      - run: >-
+          docker build api
+          -t $IMAGE:${{ github.sha }} -t $IMAGE:latest
+          --label org.opencontainers.image.source=https://github.com/${{ github.repository }}
+      # Pull requests build but never publish.
+      - if: github.event_name == 'push'
+        env:
+          TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ACTOR: ${{ github.actor }}
+        run: |
+          echo "$TOKEN" | docker login ghcr.io -u "$ACTOR" --password-stdin
+          docker push --all-tags $IMAGE
+
+  # The repo owns docker-compose.yml: each deploy copies it from the commit being deployed.
+  # .env stays on the VPS and CI never writes it.
+  deploy:
+    needs: build
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main' # never on pull_request
+    runs-on: ubuntu-latest
+    environment: production # VPS_* secrets live here, limited to main
+    steps:
+      - uses: actions/checkout@v5
+      # Secrets: VPS_PATH is absolute (no ~); VPS_KNOWN_HOSTS is the host's key line for port 22.
+      - env:
+          SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
+          KNOWN_HOSTS: ${{ secrets.VPS_KNOWN_HOSTS }}
+          TARGET: ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }}
+          DIR: ${{ secrets.VPS_PATH }}
+          SHA: ${{ github.sha }}
+        run: |
+          install -m 700 -d ~/.ssh
+          install -m 600 /dev/null ~/.ssh/deploy_key
+          echo "$SSH_KEY" > ~/.ssh/deploy_key
+          echo "$KNOWN_HOSTS" > ~/.ssh/known_hosts
+          SSH_OPTS="-i $HOME/.ssh/deploy_key -o StrictHostKeyChecking=yes"
+          scp $SSH_OPTS docker-compose.yml "$TARGET:$DIR/docker-compose.yml"
+          ssh $SSH_OPTS "$TARGET" \
+            "cd '$DIR' && export API_TAG=$SHA && docker compose pull api && docker compose up -d"
