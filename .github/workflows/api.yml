@@ -3,9 +3,9 @@ name: api
 on:
   push:
     branches: [main]
-    paths: ["api/**", "docker-compose.yml", ".github/workflows/api.yml"]
+    paths: ["api/**", "backup/**", "docker-compose.yml", ".github/workflows/api.yml"]
   pull_request:
-    paths: ["api/**", "docker-compose.yml", ".github/workflows/api.yml"]
+    paths: ["api/**", "backup/**", "docker-compose.yml", ".github/workflows/api.yml"]
 
 permissions:
   contents: read
@@ -46,12 +46,17 @@ jobs:
       contents: read
       packages: write
     env:
-      IMAGE: ghcr.io/orrrrli/locker-api # same name as docker-compose.yml
+      IMAGE: ghcr.io/orrrrli/locker-api # same names as docker-compose.yml
+      BACKUP_IMAGE: ghcr.io/orrrrli/locker-backup
     steps:
       - uses: actions/checkout@v5
       - run: >-
           docker build api
           -t $IMAGE:${{ github.sha }} -t $IMAGE:latest
+          --label org.opencontainers.image.source=https://github.com/${{ github.repository }}
+      - run: >-
+          docker build backup
+          -t $BACKUP_IMAGE:${{ github.sha }} -t $BACKUP_IMAGE:latest
           --label org.opencontainers.image.source=https://github.com/${{ github.repository }}
       # Pull requests build but never publish.
       - if: github.event_name == 'push'
@@ -61,6 +66,7 @@ jobs:
         run: |
           echo "$TOKEN" | docker login ghcr.io -u "$ACTOR" --password-stdin
           docker push --all-tags $IMAGE
+          docker push --all-tags $BACKUP_IMAGE
 
   # The repo owns docker-compose.yml: each deploy copies it from the commit being deployed.
   # .env stays on the VPS and CI never writes it.
@@ -86,4 +92,4 @@ jobs:
           SSH_OPTS="-i $HOME/.ssh/deploy_key -o StrictHostKeyChecking=yes"
           scp $SSH_OPTS docker-compose.yml "$TARGET:$DIR/docker-compose.yml"
           ssh $SSH_OPTS "$TARGET" \
-            "cd '$DIR' && export API_TAG=$SHA && docker compose pull api && docker compose up -d"
+            "cd '$DIR' && export API_TAG=$SHA && docker compose pull api backup && docker compose up -d"

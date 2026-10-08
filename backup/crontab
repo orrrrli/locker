@@ -1,0 +1,2 @@
+# 09:00 UTC = 02:00 in Ensenada (PDT). Output goes to the container log (docker compose logs backup).
+0 9 * * * /usr/local/bin/backup.sh > /proc/1/fd/1 2>&1

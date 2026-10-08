@@ -19,9 +19,9 @@ How the API gets to the VPS and how to undo a bad release. The workflow is `.git
    | `VPS_PATH` | Absolute path of the compose directory on the VPS. No `~` |
 
 5. On the VPS, put the real `.env` in `VPS_PATH`. Start from `.env.example`. CI never writes it.
-6. After the first push to `main`, open the `locker-api` package in GHCR and set its visibility to
-   Public. The VPS pulls without credentials. Until then the deploy fails with `denied`; re-run the
-   `deploy` job once the package is public.
+6. After the first push to `main`, open the `locker-api` and `locker-backup` packages in GHCR and set
+   both to Public. The VPS pulls without credentials. Until then the deploy fails with `denied`; re-run
+   the `deploy` job once both are public.
 
 ## Public HTTPS (nginx behind Cloudflare)
 
@@ -66,11 +66,11 @@ if they change, update the `set_real_ip_from` lines and reinstall.
 
 ## Deploy
 
-Every push to `main` that touches `api/**`, `docker-compose.yml` or the workflow runs test, build and deploy.
+Every push to `main` that touches `api/**`, `backup/**`, `docker-compose.yml` or the workflow runs test, build and deploy.
 
-- The image is pushed as `ghcr.io/orrrrli/locker-api:<commit sha>` and `:latest`.
+- The images are pushed as `ghcr.io/orrrrli/locker-api` and `locker-backup`, each tagged `<commit sha>` and `:latest`.
 - The deploy copies `docker-compose.yml` from that commit to the VPS, then runs
-  `docker compose pull api && docker compose up -d` with `API_TAG=<commit sha>` exported for both.
+  `docker compose pull api backup && docker compose up -d` with `API_TAG=<commit sha>` exported for both.
 - The repo owns `docker-compose.yml`. Edits made by hand on the VPS are overwritten on the next deploy.
 - Pull requests run test and build only. They never push an image or deploy.
 
@@ -101,8 +101,9 @@ From `VPS_PATH`, always pass the tag that should be running, as the full 40-char
 
 ```bash
 export API_TAG=<full commit sha>
-docker compose pull api && docker compose up -d
+docker compose pull api backup && docker compose up -d
 ```
 
-A plain `docker compose up -d` without `API_TAG` falls back to `:latest`, the newest build on `main`.
+`locker-backup:<sha>` exists only for commits since the backup service was added; for an older
+commit, pull `api` alone. A plain `docker compose up -d` without `API_TAG` falls back to `:latest`, the newest build on `main`.
 After a rollback, that brings the bad release back.
