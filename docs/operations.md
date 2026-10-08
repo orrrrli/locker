@@ -23,6 +23,47 @@ How the API gets to the VPS and how to undo a bad release. The workflow is `.git
    Public. The VPS pulls without credentials. Until then the deploy fails with `denied`; re-run the
    `deploy` job once the package is public.
 
+## Public HTTPS (nginx behind Cloudflare)
+
+Cloudflare proxies `api.locker.center`; the existing nginx on the VPS terminates TLS with a Cloudflare
+Origin Certificate and proxies to the API on `127.0.0.1`. The server block is
+`deploy/nginx/api.locker.center.conf`. CI does not install it.
+
+1. In Cloudflare, zone `locker.center`: SSL/TLS → Origin Server → Create Certificate
+   (`*.locker.center`, `locker.center`). Save the certificate as `/etc/ssl/rokev-dynamics/locker/cert.pem`
+   (mode 644) and the private key as `key.pem` (mode 600). The key is shown only once.
+2. SSL/TLS mode for the zone: **Full (strict)**.
+3. On the VPS, as root, install the block with the port from the VPS `.env`:
+
+   ```bash
+   PORT=$(grep -m1 '^API_PORT=' <VPS_PATH>/.env | cut -d= -f2)
+   SITE=/etc/nginx/sites-available/api.locker.center
+   if [[ "$PORT" =~ ^[0-9]+$ ]]; then
+     (set -o pipefail
+      curl -fsSL https://raw.githubusercontent.com/orrrrli/locker/main/deploy/nginx/api.locker.center.conf \
+        | sed "s/__API_PORT__/$PORT/" > /tmp/api.locker.center) \
+     && mv /tmp/api.locker.center "$SITE" \
+     && ln -sf "$SITE" /etc/nginx/sites-enabled/ \
+     && { nginx -t && systemctl reload nginx || rm /etc/nginx/sites-enabled/api.locker.center; }
+   else
+     echo "API_PORT in .env is not a number"
+   fi
+   ```
+
+   If `nginx -t` fails, the symlink is removed so a later restart or reboot cannot fail for every site.
+4. In Cloudflare DNS, add `A api → <VPS IP>`, **Proxied**. Do this last, once nginx serves the block.
+5. Check: `curl https://api.locker.center/health` returns `ok`.
+6. Check the client IP, from your own machine:
+   - `curl -s -o /dev/null -w '%{http_code}\n' -X POST https://api.locker.center/auth/login -H 'Content-Type: application/json' -H 'X-Real-IP: 1.2.3.4' -H 'CF-Connecting-IP: 1.2.3.4' -d '{"email":"nobody@example.com","password":"wrong"}'`
+     returns 401: the forged headers have no effect.
+   - Repeat it with a different email each time. Within 21 attempts it returns 429: the limit keys on your
+     real IP. Logins from your IP stay blocked for 15 minutes.
+
+The client IP: behind Cloudflare the peer is a Cloudflare edge, so the block takes the visitor's IP from
+`CF-Connecting-IP`, trusted only from Cloudflare's ranges, and sends it to the API as `X-Real-IP`
+(the per-IP login limit keys on it). Cloudflare publishes its ranges at https://www.cloudflare.com/ips/;
+if they change, update the `set_real_ip_from` lines and reinstall.
+
 ## Deploy
 
 Every push to `main` that touches `api/**`, `docker-compose.yml` or the workflow runs test, build and deploy.
