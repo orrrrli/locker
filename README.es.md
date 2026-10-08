@@ -55,6 +55,7 @@ iOS app ──HTTPS──> nginx ──> Go API ──> Postgres
 ```
 api/         API en Go
 interface/   App de iOS (proyecto de Xcode)
+docs/        Operación: deploy y rollback
 ```
 
 ## Roadmap
