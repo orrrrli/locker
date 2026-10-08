@@ -3,9 +3,9 @@ name: api
 on:
   push:
     branches: [main]
-    paths: ["api/**", ".github/workflows/api.yml"]
+    paths: ["api/**", "docker-compose.yml", ".github/workflows/api.yml"]
   pull_request:
-    paths: ["api/**", ".github/workflows/api.yml"]
+    paths: ["api/**", "docker-compose.yml", ".github/workflows/api.yml"]
 
 permissions:
   contents: read
@@ -61,3 +61,29 @@ jobs:
         run: |
           echo "$TOKEN" | docker login ghcr.io -u "$ACTOR" --password-stdin
           docker push --all-tags $IMAGE
+
+  # The repo owns docker-compose.yml: each deploy copies it from the commit being deployed.
+  # .env stays on the VPS and CI never writes it.
+  deploy:
+    needs: build
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main' # never on pull_request
+    runs-on: ubuntu-latest
+    environment: production # VPS_* secrets live here, limited to main
+    steps:
+      - uses: actions/checkout@v5
+      # Secrets: VPS_PATH is absolute (no ~); VPS_KNOWN_HOSTS is the host's key line for port 22.
+      - env:
+          SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
+          KNOWN_HOSTS: ${{ secrets.VPS_KNOWN_HOSTS }}
+          TARGET: ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }}
+          DIR: ${{ secrets.VPS_PATH }}
+          SHA: ${{ github.sha }}
+        run: |
+          install -m 700 -d ~/.ssh
+          install -m 600 /dev/null ~/.ssh/deploy_key
+          echo "$SSH_KEY" > ~/.ssh/deploy_key
+          echo "$KNOWN_HOSTS" > ~/.ssh/known_hosts
+          SSH_OPTS="-i $HOME/.ssh/deploy_key -o StrictHostKeyChecking=yes"
+          scp $SSH_OPTS docker-compose.yml "$TARGET:$DIR/docker-compose.yml"
+          ssh $SSH_OPTS "$TARGET" \
+            "cd '$DIR' && export API_TAG=$SHA && docker compose pull api && docker compose up -d"
