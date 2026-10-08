@@ -64,6 +64,21 @@ The client IP: behind Cloudflare the peer is a Cloudflare edge, so the block tak
 (the per-IP login limit keys on it). Cloudflare publishes its ranges at https://www.cloudflare.com/ips/;
 if they change, update the `set_real_ip_from` lines and reinstall.
 
+## Backups
+
+The `backup` service runs `backup/backup.sh` every night at 09:00 UTC: `pg_dump -Fc`, encrypted with
+`age` to a public key, uploaded to Cloudflare R2. Then it deletes backups older than 31 days, but only
+after a successful upload, so while backups fail the old ones stay. Logs: `docker compose logs backup`.
+
+One-time setup in Cloudflare (R2):
+
+1. Create the bucket (for example `locker-backups`).
+2. Bucket → Settings → **Bucket lock rules** → add a rule for the whole bucket, **30 days**. Do it with
+   your account, never with the VPS token. While an object is locked nobody can delete or overwrite it,
+   not even with the VPS token, so someone who takes over the VPS cannot destroy the last 30 days of
+   backups. Retention deletes at 31 days, after the lock ends.
+3. R2 → Manage API tokens → create a token with **Object Read & Write**, limited to that bucket.
+
 ## Deploy
 
 Every push to `main` that touches `api/**`, `backup/**`, `docker-compose.yml` or the workflow runs test, build and deploy.
