@@ -4,7 +4,9 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"math"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -60,7 +62,8 @@ func unauthorized(w http.ResponseWriter) {
 }
 
 type authHandlers struct {
-	svc authService
+	svc    authService
+	limits *LoginLimiter
 }
 
 type registerRequest struct {
@@ -103,7 +106,22 @@ func (h authHandlers) login(w http.ResponseWriter, r *http.Request) {
 	if !decodeJSON(w, r, &req) {
 		return
 	}
+	attempt, retryAfter, ok := h.limits.begin(req.Email, clientIP(r))
+	if !ok {
+		// Same answer for known and unknown emails.
+		w.Header().Set("Retry-After", strconv.Itoa(int(math.Ceil(retryAfter.Seconds()))))
+		writeError(w, http.StatusTooManyRequests, "too_many_attempts")
+		return
+	}
 	token, err := h.svc.Login(r.Context(), req.Email, req.Password)
+	switch {
+	case err == nil:
+		attempt.succeeded()
+	case errors.Is(err, auth.ErrInvalidCredentials):
+		attempt.failed()
+	default:
+		attempt.cancelled()
+	}
 	if err != nil {
 		writeAuthError(w, r, err)
 		return

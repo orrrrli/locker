@@ -94,7 +94,11 @@ func (s *Service) Login(ctx context.Context, email, password string) (string, er
 		if err != nil {
 			return "", err
 		}
-		_, _ = s.hasher.Verify(ctx, password, dummy)
+		// Return Verify's error like the known-email branch does, so a
+		// cancelled request looks the same whether or not the email exists.
+		if _, err := s.hasher.Verify(ctx, password, dummy); err != nil {
+			return "", err
+		}
 		return "", ErrInvalidCredentials
 	}
 	if err != nil {
