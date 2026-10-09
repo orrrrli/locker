@@ -11,6 +11,31 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const createMembership = `-- name: CreateMembership :one
+INSERT INTO membership (team_id, user_id, role, status)
+VALUES ($1, $2, $3, $4)
+RETURNING id
+`
+
+type CreateMembershipParams struct {
+	TeamID int64
+	UserID pgtype.Int8
+	Role   string
+	Status string
+}
+
+func (q *Queries) CreateMembership(ctx context.Context, arg CreateMembershipParams) (int64, error) {
+	row := q.db.QueryRow(ctx, createMembership,
+		arg.TeamID,
+		arg.UserID,
+		arg.Role,
+		arg.Status,
+	)
+	var id int64
+	err := row.Scan(&id)
+	return id, err
+}
+
 const getMembershipByTeamAndUser = `-- name: GetMembershipByTeamAndUser :one
 SELECT id, team_id, user_id, role, status, shirt_number, position, display_name_override, push_muted, created_at FROM membership
 WHERE team_id = $1 AND user_id = $2
