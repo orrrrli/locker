@@ -14,7 +14,8 @@ func TestMembershipByTeamAndUser(t *testing.T) {
 	if err := Migrate(ctx, pool); err != nil {
 		t.Fatal(err)
 	}
-	// Run inside a rolled-back transaction so the shared schema stays empty.
+	// Run inside a rolled-back transaction, as use cases do: the repository
+	// must work on the transaction carried by ctx.
 	err := NewTxRunner(pool).InTx(ctx, func(ctx context.Context) error {
 		db := Conn(ctx, pool)
 		var userID, teamID, otherTeamID int64

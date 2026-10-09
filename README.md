@@ -57,6 +57,18 @@ interface/   iOS app (Xcode project)
 docs/        Operations: deploy and rollback
 ```
 
+## Running the tests
+
+The API tests run against a real Postgres, never mocks. With Docker running:
+
+```bash
+api/scripts/test.sh                                   # go vet + every test
+api/scripts/test.sh -run TestUpdateTeam ./internal/http/
+```
+
+The script starts a throwaway `postgres:17-alpine` container on `127.0.0.1:55432` and stops it when
+it ends. Each test gets its own empty database, so tests never share state. Run one at a time.
+
 ## Roadmap
 
 | Phase | Name | Scope |
