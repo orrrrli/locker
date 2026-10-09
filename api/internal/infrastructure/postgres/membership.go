@@ -38,6 +38,19 @@ func (r *Memberships) MembershipByTeamAndUser(ctx context.Context, teamID, userI
 	return membershipFromRow(row), nil
 }
 
+func (r *Memberships) CreateMembership(ctx context.Context, teamID, userID int64, role domain.Role, status domain.MembershipStatus) (int64, error) {
+	id, err := sqlcdb.New(Conn(ctx, r.pool)).CreateMembership(ctx, sqlcdb.CreateMembershipParams{
+		TeamID: teamID,
+		UserID: pgtype.Int8{Int64: userID, Valid: true},
+		Role:   string(role),
+		Status: string(status),
+	})
+	if err != nil {
+		return 0, fmt.Errorf("postgres: create membership: %w", err)
+	}
+	return id, nil
+}
+
 func membershipFromRow(row sqlcdb.Membership) domain.Membership {
 	m := domain.Membership{
 		ID:                  row.ID,
