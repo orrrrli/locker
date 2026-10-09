@@ -73,6 +73,15 @@ func TestCreateRejectsInvalidInput(t *testing.T) {
 		{"unknown zone", "Pumas", "America/Ensenada_Norte", teams.ErrInvalidTimezone},
 		{"empty zone", "Pumas", "", teams.ErrInvalidTimezone},
 		{"server zone", "Pumas", "Local", teams.ErrInvalidTimezone},
+		{"NUL in name", "Pu\x00mas", "America/Tijuana", teams.ErrInvalidName},
+		{"bidi override in name", "Pumas\u202e", "America/Tijuana", teams.ErrInvalidName},
+		{"zero-width space in name", "Pu\u200bmas", "America/Tijuana", teams.ErrInvalidName},
+		{"dot segment zone", "Pumas", "America/./Tijuana", teams.ErrInvalidTimezone},
+		{"double slash zone", "Pumas", "America//Tijuana", teams.ErrInvalidTimezone},
+		{"leading dot zone", "Pumas", "./America/Tijuana", teams.ErrInvalidTimezone},
+		{"posixrules", "Pumas", "posixrules", teams.ErrInvalidTimezone},
+		{"Factory", "Pumas", "Factory", teams.ErrInvalidTimezone},
+		{"bare UTC", "Pumas", "UTC", teams.ErrInvalidTimezone},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			if _, err := svc.Create(ctx, userID, tc.team, tc.tz); !errors.Is(err, tc.want) {
@@ -84,6 +93,18 @@ func TestCreateRejectsInvalidInput(t *testing.T) {
 	// 35 characters with accents fit: the limit counts characters, not bytes.
 	if _, err := svc.Create(ctx, userID, strings.Repeat("ñ", 35), "America/Tijuana"); err != nil {
 		t.Fatalf("35 characters: %v", err)
+	}
+	// Valid shapes that must keep working: a compound emoji (zero-width
+	// joiner), a sub-location zone, and zones with + and -.
+	for _, ok := range []struct{ team, tz string }{
+		{"Familia \U0001F468\u200d\U0001F469\u200d\U0001F467", "America/Argentina/Buenos_Aires"},
+		{"Pumas", "Etc/GMT+5"},
+		{"Pumas", "America/Port-au-Prince"},
+		{"Pumas", "Etc/UTC"},
+	} {
+		if _, err := svc.Create(ctx, userID, ok.team, ok.tz); err != nil {
+			t.Fatalf("%q %q: %v", ok.team, ok.tz, err)
+		}
 	}
 }
 
