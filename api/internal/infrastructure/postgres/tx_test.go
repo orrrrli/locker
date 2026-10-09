@@ -3,35 +3,28 @@ package postgres
 import (
 	"context"
 	"errors"
-	"fmt"
-	"os"
 	"testing"
-	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/orrrrli/locker/api/internal/testdb/emptydb"
 )
 
-// testPool connects to TEST_DATABASE_URL and creates a fresh table for the test.
-// It fails instead of skipping, so a missing database never hides as a pass.
+// testPool gives the test its own empty, unmigrated database (no state from
+// other tests or earlier runs) with one scratch table. Tests that need the
+// schema call Migrate themselves.
 func testPool(t *testing.T) (*pgxpool.Pool, string) {
 	t.Helper()
-	url := os.Getenv("TEST_DATABASE_URL")
-	if url == "" {
-		t.Fatal("TEST_DATABASE_URL is not set; start a Postgres and point it there")
-	}
 	ctx := context.Background()
-	pool, err := NewPool(ctx, url)
+	pool, err := NewPool(ctx, emptydb.New(t))
 	if err != nil {
 		t.Fatal(err)
 	}
-	table := fmt.Sprintf("tx_test_%d", time.Now().UnixNano())
+	t.Cleanup(pool.Close)
+	const table = "tx_test"
 	if _, err := pool.Exec(ctx, "CREATE TABLE "+table+" (v int)"); err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() {
-		_, _ = pool.Exec(context.Background(), "DROP TABLE "+table)
-		pool.Close()
-	})
 	return pool, table
 }
 
