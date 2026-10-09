@@ -81,8 +81,9 @@ One-time setup in Cloudflare (R2):
 
 The encryption key, on your machine (never on the VPS):
 
-4. `age-keygen -o locker-backup.key`. Keep the file off the VPS: your machine plus a password manager.
-   Without it no backup can be read. The command prints the public key (`age1...`).
+4. `mkdir -p ~/.config/locker && age-keygen -o ~/.config/locker/backup-age.key`.
+   Keep the file off the VPS: your machine plus a password manager. Without it no backup can be read.
+   The command prints the public key (`age1...`). The restore drill reads the key from this path.
 
 On the VPS:
 
@@ -109,6 +110,120 @@ On the VPS:
    backup older than 31 days, if any. If it fails with `R2_ACCOUNT_ID: parameter not set` (or another
    name), the container does not have the file: check step 5, then step 6. The deploy succeeds without
    `.env.backup`; only the nightly runs fail, with the missing name in `docker compose logs backup`.
+
+## Restore drill
+
+Proves a backup in R2 can be decrypted, restored and served by the API. Run it before the first real
+team is onboarded, and again after any change to `backup/`.
+
+**Restore only with `pg_restore`, only into a throwaway container.** Never into prod, never into a
+Postgres installed on your machine, never through `psql`: a forged archive can still run SQL on the
+server it is restored into.
+
+**Any failed step fails the drill.** Step 4 matters most: after a failed restore the API migrates the
+empty database, and while production has no rows the counts in step 7 still match. So while
+production is empty, register a test account through the API before step 1, so the backup has rows
+to compare.
+
+Steps 1, 2 and 7 run on the VPS (as the deploy user, over SSH). The rest run on your machine, the one
+with the age private key.
+
+1. On the VPS, in `VPS_PATH`: take a fresh backup, so its schema matches the running image, and
+   print the commit the API runs (`<sha>` below):
+
+   ```bash
+   docker compose exec backup backup.sh
+   docker inspect --format '{{.Config.Image}}' "$(docker compose ps -q api)" | cut -d: -f2
+   ```
+
+   The first command prints `backup uploaded: <name> (<n> bytes)`. Use that exact `<name>` in step 2,
+   never "the newest object" in the bucket: the VPS token can upload, so a planted file could sort last.
+
+2. Download that backup. It stays encrypted; the VPS backup container fetches it, so no new R2 token
+   is needed. `backup.sh` sets the rclone remote only while it runs, so the command sets it again.
+   Never add `-vv`: it prints the R2 secret.
+
+   ```bash
+   mkdir -p ~/locker-drill
+   ssh <deploy user>@<VPS host> 'cd <VPS_PATH> && docker compose exec -T backup sh -c '"'"'
+     export RCLONE_CONFIG= RCLONE_CONFIG_R2_TYPE=s3 RCLONE_CONFIG_R2_PROVIDER=Cloudflare \
+       RCLONE_CONFIG_R2_ACCESS_KEY_ID="$R2_ACCESS_KEY_ID" RCLONE_CONFIG_R2_SECRET_ACCESS_KEY="$R2_SECRET_ACCESS_KEY" \
+       RCLONE_CONFIG_R2_ENDPOINT="https://$R2_ACCOUNT_ID.r2.cloudflarestorage.com" RCLONE_CONFIG_R2_NO_CHECK_BUCKET=true
+     rclone cat "r2:$R2_BUCKET/<name>"'"'"'' > ~/locker-drill/backup.dump.age
+   wc -c < ~/locker-drill/backup.dump.age   # same <n> bytes as step 1
+   head -c 21 ~/locker-drill/backup.dump.age   # age-encryption.org/v1
+   ```
+
+3. Start a throwaway Postgres on its own network:
+
+   ```bash
+   docker network create locker-drill
+   docker run -d --name locker-drill-db --network locker-drill \
+     -e POSTGRES_PASSWORD=drill -e POSTGRES_DB=locker postgres:17-alpine
+   docker exec locker-drill-db pg_isready -h 127.0.0.1 -U postgres -d locker   # repeat until "accepting connections"
+   ```
+
+4. Decrypt and restore in one pipe, so the plaintext dump never touches disk. `age` runs inside the
+   backup image (no local install), with the key mounted read-only and no network.
+   `--platform linux/amd64` because CI builds amd64 images only. `--no-owner` goes on `pg_restore`:
+   `pg_dump -Fc` ignores it, and the prod roles do not exist here. If the key path is wrong, Docker
+   mounts an empty directory and `age` fails with `is a directory`.
+
+   ```bash
+   docker run --rm -i --platform linux/amd64 --network none \
+     -v ~/.config/locker/backup-age.key:/key:ro \
+     ghcr.io/orrrrli/locker-backup:<sha> age -d -i /key < ~/locker-drill/backup.dump.age \
+     | docker exec -i locker-drill-db pg_restore --no-owner --exit-on-error -U postgres -d locker
+   echo $pipestatus   # zsh; in bash: echo "${PIPESTATUS[@]}"
+   ```
+
+   It must print `0 0`. The shell's own exit status shows only `pg_restore`.
+
+5. Start the API against the restored database:
+
+   ```bash
+   docker run -d --name locker-drill-api --platform linux/amd64 --network locker-drill \
+     -p 127.0.0.1:18080:8080 -e API_PORT=8080 \
+     -e 'DATABASE_URL=postgres://postgres:drill@locker-drill-db:5432/locker?sslmode=disable' \
+     ghcr.io/orrrrli/locker-api:<sha>
+   until curl -fsS http://127.0.0.1:18080/health; do sleep 1; done   # ok
+   docker logs locker-drill-api   # no "migration applied" lines
+   ```
+
+   A `migration applied` line fails the drill: the backup from step 1 was taken by the same release,
+   so its schema must already be complete.
+
+6. Count rows per table in the restored database:
+
+   ```bash
+   Q="select table_name || ' ' || (xpath('/row/c/text()', query_to_xml(format('select count(*) as c from public.%I', table_name), false, true, '')))[1]::text from information_schema.tables where table_schema='public' and table_type='BASE TABLE' order by 1"
+   docker exec locker-drill-db psql -U postgres -d locker -At -c "$Q" > ~/locker-drill/restore.txt
+   ```
+
+7. Same counts in production, read-only:
+
+   ```bash
+   ssh <deploy user>@<VPS host> 'cd <VPS_PATH> && docker compose exec -T postgres sh -c "psql -U \$POSTGRES_USER -d \$POSTGRES_DB -At -q"' \
+     <<< "set default_transaction_read_only = on; $Q;" > ~/locker-drill/prod.txt
+   diff ~/locker-drill/restore.txt ~/locker-drill/prod.txt
+   ```
+
+   Rows written after the backup ran show up as differences (for example `session`). Any other
+   difference fails the drill.
+
+8. Clean up:
+
+   ```bash
+   docker rm -f -v locker-drill-api locker-drill-db
+   docker network rm locker-drill
+   rm -r ~/locker-drill
+   ```
+
+Last drills:
+
+- 2026-10-09: backup `locker-20261009T062600Z`, image `57598ae`. Restore exited `0 0`, `/health` ok,
+  no migrations applied, counts identical. Production had no rows yet (schema only), so this proved
+  the pipeline, not row data. Repeat with a test account before onboarding.
 
 ## Deploy
 
