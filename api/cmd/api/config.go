@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
+	"regexp"
 	"strconv"
 	"strings"
 )
@@ -14,7 +15,15 @@ type config struct {
 	// PublicBaseURL is where clients reach the API, like
 	// https://api.locker.center. Invite links are built from it.
 	PublicBaseURL string
+	// AppleAppID is "<team id>.<bundle id>", the app Universal Links open.
+	// Empty until the Apple Developer account exists.
+	AppleAppID string
 }
+
+var (
+	appleTeamIDPattern   = regexp.MustCompile(`^[A-Z0-9]{10}$`)
+	appleBundleIDPattern = regexp.MustCompile(`^[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)+$`)
+)
 
 // loadConfig reads the API configuration through getenv (os.Getenv in production).
 // It reports every missing variable at once instead of failing on the first one.
@@ -46,6 +55,22 @@ func loadConfig(getenv func(string) string) (config, error) {
 		// Only the origin: a stray "?" or "#" in the variable would otherwise
 		// put the invite token in a query string or fragment.
 		cfg.PublicBaseURL = u.Scheme + "://" + u.Host
+	}
+
+	// Both or neither: one without the other is a half-done setup that would
+	// otherwise ship without anyone noticing.
+	team, bundle := getenv("APPLE_TEAM_ID"), getenv("APPLE_BUNDLE_ID")
+	switch {
+	case team == "" && bundle == "":
+		// Not configured yet: apple-app-site-association is a 404.
+	case team == "" || bundle == "":
+		errs = append(errs, errors.New("set both APPLE_TEAM_ID and APPLE_BUNDLE_ID, or neither"))
+	case !appleTeamIDPattern.MatchString(team):
+		errs = append(errs, fmt.Errorf("APPLE_TEAM_ID must be 10 uppercase letters or digits, got %q", team))
+	case !appleBundleIDPattern.MatchString(bundle):
+		errs = append(errs, fmt.Errorf("APPLE_BUNDLE_ID must look like center.locker.app, got %q", bundle))
+	default:
+		cfg.AppleAppID = team + "." + bundle
 	}
 
 	if len(missing) > 0 {

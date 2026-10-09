@@ -11,6 +11,9 @@ type Deps struct {
 	Auth    authService
 	Teams   teamService
 	Invites inviteService
+	// AppleAppID ("<team id>.<bundle id>") is the app invite links open;
+	// empty until the Apple Developer account exists.
+	AppleAppID string
 	// Memberships backs requireActiveMember and requireRole.
 	Memberships membershipFinder
 	// LoginLimiter throttles failed logins; nil gets a fresh one on the
@@ -22,6 +25,7 @@ type Deps struct {
 func NewRouter(d Deps) http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /health", health)
+	mux.HandleFunc("GET /.well-known/apple-app-site-association", aasa(d.AppleAppID))
 
 	if d.LoginLimiter == nil {
 		d.LoginLimiter = NewLoginLimiter(nil)

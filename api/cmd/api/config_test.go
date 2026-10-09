@@ -33,6 +33,33 @@ func TestLoadConfig(t *testing.T) {
 		}
 	}
 
+	t.Run("apple", func(t *testing.T) {
+		for _, tc := range []struct {
+			team, bundle, appID string
+			ok                  bool
+			msg                 string // part of the error, when it fails
+		}{
+			{"", "", "", true, ""},
+			{"ABCDE12345", "center.locker.app", "ABCDE12345.center.locker.app", true, ""},
+			{"ABCDE12345", "", "", false, "set both"},
+			{"", "center.locker.app", "", false, "set both"},
+			{"abcde12345", "center.locker.app", "", false, ""},
+			{"ABCDE1234", "center.locker.app", "", false, ""},
+			{"ABCDE12345", "locker", "", false, ""},
+			{"ABCDE12345", "center.locker.app/../x", "", false, ""},
+		} {
+			vars := map[string]string{"API_PORT": "8080", "DATABASE_URL": "x", "PUBLIC_BASE_URL": "https://x.test",
+				"APPLE_TEAM_ID": tc.team, "APPLE_BUNDLE_ID": tc.bundle}
+			cfg, err := loadConfig(env(vars))
+			if (err == nil) != tc.ok || cfg.AppleAppID != tc.appID {
+				t.Fatalf("%q %q: app id %q, err %v; want %q, ok %v", tc.team, tc.bundle, cfg.AppleAppID, err, tc.appID, tc.ok)
+			}
+			if tc.msg != "" && !strings.Contains(err.Error(), tc.msg) {
+				t.Fatalf("%q %q: err %v, want it to say %q", tc.team, tc.bundle, err, tc.msg)
+			}
+		}
+	})
+
 	tests := []struct {
 		name string
 		vars map[string]string
