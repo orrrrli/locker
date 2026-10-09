@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
@@ -45,10 +46,28 @@ func (r *Memberships) CreateMembership(ctx context.Context, teamID, userID int64
 		Role:   string(role),
 		Status: string(status),
 	})
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) && pgErr.Code == uniqueViolationCode {
+		return 0, domain.ErrAlreadyExists
+	}
 	if err != nil {
 		return 0, fmt.Errorf("postgres: create membership: %w", err)
 	}
 	return id, nil
+}
+
+// RejoinMembership turns a `left` membership back into a pending player,
+// keeping the row and its history (R8.4). It returns domain.ErrNotFound when
+// the row is no longer `left`.
+func (r *Memberships) RejoinMembership(ctx context.Context, id int64) error {
+	n, err := sqlcdb.New(Conn(ctx, r.pool)).RejoinMembership(ctx, id)
+	if err != nil {
+		return fmt.Errorf("postgres: rejoin membership: %w", err)
+	}
+	if n == 0 {
+		return domain.ErrNotFound
+	}
+	return nil
 }
 
 func membershipFromRow(row sqlcdb.Membership) domain.Membership {

@@ -63,3 +63,21 @@ func (q *Queries) GetMembershipByTeamAndUser(ctx context.Context, arg GetMembers
 	)
 	return i, err
 }
+
+const rejoinMembership = `-- name: RejoinMembership :execrows
+UPDATE membership
+SET role = 'player', status = 'pending'
+WHERE id = $1 AND status = 'left'
+`
+
+// A member who left comes back through an invite: the same row, keeping its
+// history, number and position (R8.4), as a pending player waiting for an
+// admin (R7.2). Only a row that is still `left` changes, so a stale read can
+// never demote an active member.
+func (q *Queries) RejoinMembership(ctx context.Context, id int64) (int64, error) {
+	result, err := q.db.Exec(ctx, rejoinMembership, id)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}

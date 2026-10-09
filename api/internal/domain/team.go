@@ -44,8 +44,8 @@ type Membership struct {
 type Invite struct {
 	ID        int64
 	TeamID    int64
-	Token     string
-	CreatedBy int64 // membership
+	TokenHash []byte // SHA-256; the token itself is never stored
+	CreatedBy int64  // membership
 	ExpiresAt time.Time
 	RevokedAt *time.Time
 }
