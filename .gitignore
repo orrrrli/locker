@@ -28,5 +28,3 @@ CLAUDE.md
 .claude/
 **/docs/brain
 
-# Design exports (local only)
-/design/
