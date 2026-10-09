@@ -19,6 +19,12 @@ How the API gets to the VPS and how to undo a bad release. The workflow is `.git
    | `VPS_PATH` | Absolute path of the compose directory on the VPS. No `~` |
 
 5. On the VPS, put the real `.env` in `VPS_PATH`. Start from `.env.example`. CI never writes it.
+   The API refuses to start without `API_PORT`, `DATABASE_URL` and `PUBLIC_BASE_URL`
+   (`https://api.locker.center`; invite links are built from it). Optional until the Apple
+   Developer account exists: `APPLE_TEAM_ID` and `APPLE_BUNDLE_ID` (set both or neither; without
+   them `/.well-known/apple-app-site-association` is a 404) and `TESTFLIGHT_URL` (the invite page's
+   download button; needs the Apple pair, or the installed app could not open the link). The API reads `.env` only when its container is created: after an edit, run
+   `docker compose up -d api` with `API_TAG` set (see "Running compose by hand").
 6. After the first push to `main`, open the `locker-api` and `locker-backup` packages in GHCR and set
    both to Public. The VPS pulls without credentials. Until then the deploy fails with `denied`; re-run
    the `deploy` job once both are public.
@@ -58,6 +64,16 @@ Origin Certificate and proxies to the API on `127.0.0.1`. The server block is
      returns 401: the forged headers have no effect.
    - Repeat it with a different email each time. Within 21 attempts it returns 429: the limit keys on your
      real IP. Logins from your IP stay blocked for 15 minutes.
+7. After any change to `deploy/nginx/api.locker.center.conf` on `main`, run step 3 again: CI does not
+   install it. Check that invite links stay out of the logs (their path carries the token). The
+   `/health` line proves you are reading the right log:
+
+   ```bash
+   curl -s -o /dev/null https://api.locker.center/health?drill-check
+   curl -s -o /dev/null https://api.locker.center/i/drill-check
+   grep -c 'health?drill-check' /var/log/nginx/access.log                              # 1 or more
+   grep -c '/i/drill-check' /var/log/nginx/access.log /var/log/nginx/error.log         # 0 and 0
+   ```
 
 The client IP: behind Cloudflare the peer is a Cloudflare edge, so the block takes the visitor's IP from
 `CF-Connecting-IP`, trusted only from Cloudflare's ranges, and sends it to the API as `X-Real-IP`
@@ -183,7 +199,7 @@ with the age private key.
 
    ```bash
    docker run -d --name locker-drill-api --platform linux/amd64 --network locker-drill \
-     -p 127.0.0.1:18080:8080 -e API_PORT=8080 \
+     -p 127.0.0.1:18080:8080 -e API_PORT=8080 -e PUBLIC_BASE_URL=http://127.0.0.1:18080 \
      -e 'DATABASE_URL=postgres://postgres:drill@locker-drill-db:5432/locker?sslmode=disable' \
      ghcr.io/orrrrli/locker-api:<sha>
    until curl -fsS http://127.0.0.1:18080/health; do sleep 1; done   # ok

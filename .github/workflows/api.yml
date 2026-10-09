@@ -19,7 +19,7 @@ jobs:
     runs-on: ubuntu-latest
     services:
       postgres:
-        image: postgres:17-alpine # same image as docker-compose.yml
+        image: public.ecr.aws/docker/library/postgres:17-alpine # same image as docker-compose.yml
         env:
           POSTGRES_PASSWORD: test
           POSTGRES_DB: locker_test

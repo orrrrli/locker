@@ -2,8 +2,6 @@ package http
 
 import (
 	"context"
-	"errors"
-	"log/slog"
 	"net/http"
 	"time"
 
@@ -55,7 +53,7 @@ func (h teamHandlers) create(w http.ResponseWriter, r *http.Request) {
 	userID, _ := userIDFrom(r.Context())
 	t, err := h.svc.Create(r.Context(), userID, req.Name, req.Timezone)
 	if err != nil {
-		writeTeamError(w, r, err)
+		teamErrors.write(w, r, "teams", err)
 		return
 	}
 	writeJSON(w, http.StatusCreated, toTeamJSON(t))
@@ -65,7 +63,7 @@ func (h teamHandlers) list(w http.ResponseWriter, r *http.Request) {
 	userID, _ := userIDFrom(r.Context())
 	ts, err := h.svc.List(r.Context(), userID)
 	if err != nil {
-		writeTeamError(w, r, err)
+		teamErrors.write(w, r, "teams", err)
 		return
 	}
 	out := make([]teamJSON, len(ts))
@@ -81,7 +79,7 @@ func (h teamHandlers) get(w http.ResponseWriter, r *http.Request) {
 	m, _ := membershipFrom(r.Context())
 	t, err := h.svc.Get(r.Context(), m.TeamID)
 	if err != nil {
-		writeTeamError(w, r, err)
+		teamErrors.write(w, r, "teams", err)
 		return
 	}
 	writeJSON(w, http.StatusOK, toTeamJSON(t))
@@ -100,30 +98,15 @@ func (h teamHandlers) update(w http.ResponseWriter, r *http.Request) {
 	m, _ := membershipFrom(r.Context())
 	t, err := h.svc.Update(r.Context(), m.TeamID, req.Name, req.Timezone)
 	if err != nil {
-		writeTeamError(w, r, err)
+		teamErrors.write(w, r, "teams", err)
 		return
 	}
 	writeJSON(w, http.StatusOK, toTeamJSON(t))
 }
 
-var teamErrors = []struct {
-	err    error
-	status int
-	code   string
-}{
+var teamErrors = errorMap{
 	{teams.ErrInvalidName, http.StatusUnprocessableEntity, "invalid_name"},
 	{teams.ErrInvalidTimezone, http.StatusUnprocessableEntity, "invalid_timezone"},
 	{teams.ErrNothingToUpdate, http.StatusUnprocessableEntity, "nothing_to_update"},
 	{domain.ErrNotFound, http.StatusNotFound, "not_found"},
-}
-
-func writeTeamError(w http.ResponseWriter, r *http.Request, err error) {
-	for _, e := range teamErrors {
-		if errors.Is(err, e.err) {
-			writeError(w, e.status, e.code)
-			return
-		}
-	}
-	slog.ErrorContext(r.Context(), "teams", "path", r.URL.Path, "err", err)
-	writeError(w, http.StatusInternalServerError, "internal")
 }

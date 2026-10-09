@@ -1,6 +1,6 @@
 # Nightly encrypted database backup. Same base as the postgres service, so pg_dump
 # always matches the server's major version.
-FROM postgres:17-alpine
+FROM public.ecr.aws/docker/library/postgres:17-alpine
 RUN apk add --no-cache age rclone
 COPY backup.sh /usr/local/bin/backup.sh
 COPY crontab /etc/crontabs/root

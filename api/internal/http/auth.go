@@ -90,7 +90,7 @@ func (h authHandlers) register(w http.ResponseWriter, r *http.Request) {
 
 	reg, err := h.svc.Register(r.Context(), in)
 	if err != nil {
-		writeAuthError(w, r, err)
+		authErrors.write(w, r, "auth", err)
 		return
 	}
 	writeJSON(w, http.StatusCreated, map[string]any{"user_id": reg.UserID, "token": reg.Token})
@@ -128,7 +128,7 @@ func (h authHandlers) login(w http.ResponseWriter, r *http.Request) {
 		attempt.cancelled()
 	}
 	if err != nil {
-		writeAuthError(w, r, err)
+		authErrors.write(w, r, "auth", err)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"token": token})
@@ -138,18 +138,14 @@ func (h authHandlers) login(w http.ResponseWriter, r *http.Request) {
 func (h authHandlers) logout(w http.ResponseWriter, r *http.Request) {
 	sessionID, _ := r.Context().Value(sessionIDKey).(int64)
 	if err := h.svc.Logout(r.Context(), sessionID); err != nil {
-		writeAuthError(w, r, err)
+		authErrors.write(w, r, "auth", err)
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
 }
 
 // authErrors maps use-case errors to a status and a stable error code.
-var authErrors = []struct {
-	err    error
-	status int
-	code   string
-}{
+var authErrors = errorMap{
 	{auth.ErrInvalidName, http.StatusUnprocessableEntity, "invalid_name"},
 	{auth.ErrInvalidEmail, http.StatusUnprocessableEntity, "invalid_email"},
 	{auth.ErrPasswordTooShort, http.StatusUnprocessableEntity, "password_too_short"},
@@ -160,15 +156,4 @@ var authErrors = []struct {
 	{auth.ErrEmailTaken, http.StatusConflict, "email_taken"},
 	// Same response for an unknown email and a wrong password.
 	{auth.ErrInvalidCredentials, http.StatusUnauthorized, "invalid_credentials"},
-}
-
-func writeAuthError(w http.ResponseWriter, r *http.Request, err error) {
-	for _, e := range authErrors {
-		if errors.Is(err, e.err) {
-			writeError(w, e.status, e.code)
-			return
-		}
-	}
-	slog.ErrorContext(r.Context(), "auth", "path", r.URL.Path, "err", err)
-	writeError(w, http.StatusInternalServerError, "internal")
 }

@@ -20,7 +20,7 @@ services:
           memory: 256M
 
   postgres:
-    image: postgres:17-alpine
+    image: public.ecr.aws/docker/library/postgres:17-alpine
     environment: # only what postgres needs, not the whole .env
       POSTGRES_USER: ${POSTGRES_USER:?}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?}

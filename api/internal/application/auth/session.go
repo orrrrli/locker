@@ -2,19 +2,15 @@ package auth
 
 import (
 	"context"
-	"crypto/rand"
-	"crypto/sha256"
-	"encoding/base64"
 	"errors"
-	"fmt"
 	"sync"
 	"time"
 
+	"github.com/orrrrli/locker/api/internal/application/token"
 	"github.com/orrrrli/locker/api/internal/domain"
 )
 
 const (
-	tokenBytes = 32
 	// SessionIdleTimeout invalidates a session unused for this long.
 	SessionIdleTimeout = 60 * 24 * time.Hour
 	// sessionTouchEvery limits last_used_at writes to one per hour per
@@ -46,38 +42,16 @@ type Auth struct {
 	SessionID int64
 }
 
-// newToken returns an opaque 32-byte random token, base64url-encoded for the
-// client, and the SHA-256 hash stored in the session row.
-func newToken() (string, []byte, error) {
-	raw := make([]byte, tokenBytes)
-	if _, err := rand.Read(raw); err != nil {
-		return "", nil, fmt.Errorf("auth: token: %w", err)
-	}
-	sum := sha256.Sum256(raw)
-	return base64.RawURLEncoding.EncodeToString(raw), sum[:], nil
-}
-
-// hashToken decodes a client token and hashes it. Anything that is not a
-// well-formed 32-byte token is rejected before touching the database.
-func hashToken(token string) ([]byte, error) {
-	raw, err := base64.RawURLEncoding.DecodeString(token)
-	if err != nil || len(raw) != tokenBytes {
-		return nil, ErrUnauthenticated
-	}
-	sum := sha256.Sum256(raw)
-	return sum[:], nil
-}
-
 // createSession stores a new session for userID and returns its token.
 func (s *Service) createSession(ctx context.Context, userID int64) (string, error) {
-	token, hash, err := newToken()
+	t, hash, err := token.New()
 	if err != nil {
 		return "", err
 	}
 	if _, err := s.sessions.Create(ctx, userID, hash, s.now()); err != nil {
 		return "", err
 	}
-	return token, nil
+	return t, nil
 }
 
 // Login checks an email and password and opens a session. An unknown email
@@ -134,10 +108,11 @@ func (s *Service) dummyHash(ctx context.Context) (string, error) {
 // 60 days is deleted and its token rejected. Tokens are not rotated: a
 // rotation makes parallel requests and lost responses log the user out, and
 // a token stored in the Keychain gains little from it.
-func (s *Service) Authenticate(ctx context.Context, token string) (Auth, error) {
-	hash, err := hashToken(token)
-	if err != nil {
-		return Auth{}, err
+func (s *Service) Authenticate(ctx context.Context, bearer string) (Auth, error) {
+	// A malformed token is rejected before touching the database.
+	hash, ok := token.Hash(bearer)
+	if !ok {
+		return Auth{}, ErrUnauthenticated
 	}
 	now := s.now()
 

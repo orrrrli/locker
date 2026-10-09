@@ -52,7 +52,7 @@ type DeviceToken struct {
 type Invite struct {
 	ID        int64
 	TeamID    int64
-	Token     string
+	TokenHash []byte
 	CreatedBy int64
 	ExpiresAt pgtype.Timestamptz
 	RevokedAt pgtype.Timestamptz
