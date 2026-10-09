@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/orrrrli/locker/api/internal/application/auth"
+	"github.com/orrrrli/locker/api/internal/application/teams"
 	apihttp "github.com/orrrrli/locker/api/internal/http"
 	"github.com/orrrrli/locker/api/internal/infrastructure/password"
 	"github.com/orrrrli/locker/api/internal/infrastructure/postgres"
@@ -58,7 +59,18 @@ func start() error {
 		Hasher:   password.NewHasher(password.DefaultParams),
 	})
 	loginLimiter := apihttp.NewLoginLimiter(nil)
-	router := apihttp.NewRouter(apihttp.Deps{Auth: authSvc, LoginLimiter: loginLimiter})
+	memberships := postgres.NewMemberships(pool)
+	teamSvc := teams.NewService(teams.Deps{
+		Tx:          postgres.NewTxRunner(pool),
+		Teams:       postgres.NewTeams(pool),
+		Memberships: memberships,
+	})
+	router := apihttp.NewRouter(apihttp.Deps{
+		Auth:         authSvc,
+		Teams:        teamSvc,
+		Memberships:  memberships,
+		LoginLimiter: loginLimiter,
+	})
 
 	go tick(ctx, tickEvery, func(ctx context.Context) {
 		loginLimiter.Prune()

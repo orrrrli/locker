@@ -13,6 +13,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/orrrrli/locker/api/internal/application/auth"
+	"github.com/orrrrli/locker/api/internal/application/teams"
 	"github.com/orrrrli/locker/api/internal/infrastructure/password"
 	"github.com/orrrrli/locker/api/internal/infrastructure/postgres"
 	"github.com/orrrrli/locker/api/internal/testdb"
@@ -42,7 +43,13 @@ func newAPI(t *testing.T, now func() time.Time) apiTest {
 	// The real router, plus GET /test/whoami behind requireAuth so tests can
 	// exercise sessions without a feature endpoint.
 	mux := http.NewServeMux()
-	mux.Handle("/", NewRouter(Deps{Auth: svc}))
+	memberships := postgres.NewMemberships(pool)
+	teamSvc := teams.NewService(teams.Deps{
+		Tx:          postgres.NewTxRunner(pool),
+		Teams:       postgres.NewTeams(pool),
+		Memberships: memberships,
+	})
+	mux.Handle("/", NewRouter(Deps{Auth: svc, Teams: teamSvc, Memberships: memberships}))
 	mux.Handle("GET /test/whoami", authHandlers{svc: svc}.requireAuth(http.HandlerFunc(
 		func(w http.ResponseWriter, r *http.Request) {
 			userID, _ := userIDFrom(r.Context())

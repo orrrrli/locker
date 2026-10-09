@@ -1,10 +1,17 @@
 package http
 
-import "net/http"
+import (
+	"net/http"
+
+	"github.com/orrrrli/locker/api/internal/domain"
+)
 
 // Deps are the use cases the handlers call.
 type Deps struct {
-	Auth authService
+	Auth  authService
+	Teams teamService
+	// Memberships backs requireActiveMember and requireRole.
+	Memberships membershipFinder
 	// LoginLimiter throttles failed logins; nil gets a fresh one on the
 	// real clock.
 	LoginLimiter *LoginLimiter
@@ -22,6 +29,14 @@ func NewRouter(d Deps) http.Handler {
 	mux.HandleFunc("POST /auth/register", a.register)
 	mux.HandleFunc("POST /auth/login", a.login)
 	mux.Handle("POST /auth/logout", a.requireAuth(http.HandlerFunc(a.logout)))
+
+	z := authz{memberships: d.Memberships}
+	t := teamHandlers{svc: d.Teams}
+	team := teamFromPath("id")
+	mux.Handle("POST /teams", a.requireAuth(http.HandlerFunc(t.create)))
+	mux.Handle("GET /teams", a.requireAuth(http.HandlerFunc(t.list)))
+	mux.Handle("GET /teams/{id}", a.requireAuth(z.requireActiveMember(team, http.HandlerFunc(t.get))))
+	mux.Handle("PATCH /teams/{id}", a.requireAuth(z.requireRole(team, domain.RoleAdmin, http.HandlerFunc(t.update))))
 	return mux
 }
 
