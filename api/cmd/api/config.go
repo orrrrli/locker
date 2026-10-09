@@ -3,6 +3,7 @@ package main
 import (
 	"errors"
 	"fmt"
+	"net/url"
 	"strconv"
 	"strings"
 )
@@ -10,6 +11,9 @@ import (
 type config struct {
 	Port        int
 	DatabaseURL string
+	// PublicBaseURL is where clients reach the API, like
+	// https://api.locker.center. Invite links are built from it.
+	PublicBaseURL string
 }
 
 // loadConfig reads the API configuration through getenv (os.Getenv in production).
@@ -31,6 +35,17 @@ func loadConfig(getenv func(string) string) (config, error) {
 	cfg.DatabaseURL = getenv("DATABASE_URL")
 	if cfg.DatabaseURL == "" {
 		missing = append(missing, "DATABASE_URL")
+	}
+
+	if base := getenv("PUBLIC_BASE_URL"); base == "" {
+		missing = append(missing, "PUBLIC_BASE_URL")
+	} else if u, err := url.Parse(base); err != nil || (u.Scheme != "https" && u.Scheme != "http") ||
+		u.Host == "" || strings.Trim(u.Path, "/") != "" || u.RawQuery != "" || u.Fragment != "" || u.User != nil {
+		errs = append(errs, fmt.Errorf("PUBLIC_BASE_URL must be an http(s) origin like https://api.locker.center, got %q", base))
+	} else {
+		// Only the origin: a stray "?" or "#" in the variable would otherwise
+		// put the invite token in a query string or fragment.
+		cfg.PublicBaseURL = u.Scheme + "://" + u.Host
 	}
 
 	if len(missing) > 0 {

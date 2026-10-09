@@ -30,7 +30,8 @@ func signUp(t *testing.T, api apiTest, email string) (int64, string) {
 	return body.UserID, body.Token
 }
 
-// addMember inserts a membership directly: invites do not exist yet.
+// addMember inserts a membership directly, in any status: approve, leave and
+// remove do not exist yet.
 func addMember(t *testing.T, api apiTest, teamID, userID int64, role, status string) {
 	t.Helper()
 	if _, err := api.pool.Exec(context.Background(),

@@ -8,8 +8,9 @@ import (
 
 // Deps are the use cases the handlers call.
 type Deps struct {
-	Auth  authService
-	Teams teamService
+	Auth    authService
+	Teams   teamService
+	Invites inviteService
 	// Memberships backs requireActiveMember and requireRole.
 	Memberships membershipFinder
 	// LoginLimiter throttles failed logins; nil gets a fresh one on the
@@ -37,6 +38,11 @@ func NewRouter(d Deps) http.Handler {
 	mux.Handle("GET /teams", a.requireAuth(http.HandlerFunc(t.list)))
 	mux.Handle("GET /teams/{id}", a.requireAuth(z.requireActiveMember(team, http.HandlerFunc(t.get))))
 	mux.Handle("PATCH /teams/{id}", a.requireAuth(z.requireRole(team, domain.RoleAdmin, http.HandlerFunc(t.update))))
+
+	inv := inviteHandlers{svc: d.Invites}
+	mux.Handle("POST /teams/{id}/invites", a.requireAuth(z.requireRole(team, domain.RoleAdmin, http.HandlerFunc(inv.create))))
+	mux.Handle("DELETE /teams/{id}/invites/{inviteId}", a.requireAuth(z.requireRole(team, domain.RoleAdmin, http.HandlerFunc(inv.revoke))))
+	mux.Handle("POST /invites/accept", a.requireAuth(http.HandlerFunc(inv.accept)))
 	return mux
 }
 

@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/orrrrli/locker/api/internal/application/auth"
+	"github.com/orrrrli/locker/api/internal/application/invites"
 	"github.com/orrrrli/locker/api/internal/application/teams"
 	apihttp "github.com/orrrrli/locker/api/internal/http"
 	"github.com/orrrrli/locker/api/internal/infrastructure/password"
@@ -65,9 +66,16 @@ func start() error {
 		Teams:       postgres.NewTeams(pool),
 		Memberships: memberships,
 	})
+	inviteSvc := invites.NewService(invites.Deps{
+		Tx:            postgres.NewTxRunner(pool),
+		Invites:       postgres.NewInvites(pool),
+		Memberships:   memberships,
+		PublicBaseURL: cfg.PublicBaseURL,
+	})
 	router := apihttp.NewRouter(apihttp.Deps{
 		Auth:         authSvc,
 		Teams:        teamSvc,
+		Invites:      inviteSvc,
 		Memberships:  memberships,
 		LoginLimiter: loginLimiter,
 	})

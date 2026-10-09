@@ -13,6 +13,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/orrrrli/locker/api/internal/application/auth"
+	"github.com/orrrrli/locker/api/internal/application/invites"
 	"github.com/orrrrli/locker/api/internal/application/teams"
 	"github.com/orrrrli/locker/api/internal/infrastructure/password"
 	"github.com/orrrrli/locker/api/internal/infrastructure/postgres"
@@ -49,7 +50,14 @@ func newAPI(t *testing.T, now func() time.Time) apiTest {
 		Teams:       postgres.NewTeams(pool),
 		Memberships: memberships,
 	})
-	mux.Handle("/", NewRouter(Deps{Auth: svc, Teams: teamSvc, Memberships: memberships}))
+	inviteSvc := invites.NewService(invites.Deps{
+		Tx:            postgres.NewTxRunner(pool),
+		Invites:       postgres.NewInvites(pool),
+		Memberships:   memberships,
+		PublicBaseURL: "https://api.example.test",
+		Now:           now,
+	})
+	mux.Handle("/", NewRouter(Deps{Auth: svc, Teams: teamSvc, Invites: inviteSvc, Memberships: memberships}))
 	mux.Handle("GET /test/whoami", authHandlers{svc: svc}.requireAuth(http.HandlerFunc(
 		func(w http.ResponseWriter, r *http.Request) {
 			userID, _ := userIDFrom(r.Context())

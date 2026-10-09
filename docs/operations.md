@@ -183,7 +183,7 @@ with the age private key.
 
    ```bash
    docker run -d --name locker-drill-api --platform linux/amd64 --network locker-drill \
-     -p 127.0.0.1:18080:8080 -e API_PORT=8080 \
+     -p 127.0.0.1:18080:8080 -e API_PORT=8080 -e PUBLIC_BASE_URL=http://127.0.0.1:18080 \
      -e 'DATABASE_URL=postgres://postgres:drill@locker-drill-db:5432/locker?sslmode=disable' \
      ghcr.io/orrrrli/locker-api:<sha>
    until curl -fsS http://127.0.0.1:18080/health; do sleep 1; done   # ok
