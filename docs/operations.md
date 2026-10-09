@@ -19,9 +19,9 @@ How the API gets to the VPS and how to undo a bad release. The workflow is `.git
    | `VPS_PATH` | Absolute path of the compose directory on the VPS. No `~` |
 
 5. On the VPS, put the real `.env` in `VPS_PATH`. Start from `.env.example`. CI never writes it.
-6. After the first push to `main`, open the `locker-api` package in GHCR and set its visibility to
-   Public. The VPS pulls without credentials. Until then the deploy fails with `denied`; re-run the
-   `deploy` job once the package is public.
+6. After the first push to `main`, open the `locker-api` and `locker-backup` packages in GHCR and set
+   both to Public. The VPS pulls without credentials. Until then the deploy fails with `denied`; re-run
+   the `deploy` job once both are public.
 
 ## Public HTTPS (nginx behind Cloudflare)
 
@@ -64,13 +64,59 @@ The client IP: behind Cloudflare the peer is a Cloudflare edge, so the block tak
 (the per-IP login limit keys on it). Cloudflare publishes its ranges at https://www.cloudflare.com/ips/;
 if they change, update the `set_real_ip_from` lines and reinstall.
 
+## Backups
+
+The `backup` service runs `backup/backup.sh` every night at 09:00 UTC: `pg_dump -Fc`, encrypted with
+`age` to a public key, uploaded to Cloudflare R2. Then it deletes backups older than 31 days, but only
+after a successful upload, so while backups fail the old ones stay. Logs: `docker compose logs backup`.
+
+One-time setup in Cloudflare (R2):
+
+1. Create the bucket (for example `locker-backups`).
+2. Bucket → Settings → **Bucket lock rules** → add a rule for the whole bucket, **30 days**. Do it with
+   your account, never with the VPS token. While an object is locked nobody can delete or overwrite it,
+   not even with the VPS token, so someone who takes over the VPS cannot destroy the last 30 days of
+   backups. Retention deletes at 31 days, after the lock ends.
+3. R2 → Manage API tokens → create a token with **Object Read & Write**, limited to that bucket.
+
+The encryption key, on your machine (never on the VPS):
+
+4. `age-keygen -o locker-backup.key`. Keep the file off the VPS: your machine plus a password manager.
+   Without it no backup can be read. The command prints the public key (`age1...`).
+
+On the VPS:
+
+5. In `VPS_PATH`, create `.env.backup` from `.env.backup.example`: the R2 account ID, the token's keys,
+   the bucket name and the **public** key from step 4. Then `chown deploy:deploy .env.backup` and
+   `chmod 600 .env.backup`. Only the backup service reads it; the api never gets these keys.
+6. Recreate the backup container so it reads the file. Compose reads `env_file` only when it creates
+   a container, so a container started before `.env.backup` existed never sees it. Do the same after
+   any later edit to `.env.backup` (for example, rotating the R2 keys):
+
+   ```bash
+   # The tag the running api uses, so backup starts with the same commit's image.
+   export API_TAG=$(docker inspect --format '{{.Config.Image}}' "$(docker compose ps -q api)" | cut -d: -f2)
+   docker compose up -d backup
+   ```
+
+7. Run one backup by hand and check it reaches R2:
+
+   ```bash
+   docker compose exec backup backup.sh
+   ```
+
+   It prints `backup uploaded: locker-<UTC time>.dump.age (<n> bytes)`, then one `Deleted` line per
+   backup older than 31 days, if any. If it fails with `R2_ACCOUNT_ID: parameter not set` (or another
+   name), the container does not have the file: check step 5, then step 6. The deploy succeeds without
+   `.env.backup`; only the nightly runs fail, with the missing name in `docker compose logs backup`.
+
 ## Deploy
 
-Every push to `main` that touches `api/**`, `docker-compose.yml` or the workflow runs test, build and deploy.
+Every push to `main` that touches `api/**`, `backup/**`, `docker-compose.yml` or the workflow runs test, build and deploy.
 
-- The image is pushed as `ghcr.io/orrrrli/locker-api:<commit sha>` and `:latest`.
+- The images are pushed as `ghcr.io/orrrrli/locker-api` and `locker-backup`, each tagged `<commit sha>` and `:latest`.
 - The deploy copies `docker-compose.yml` from that commit to the VPS, then runs
-  `docker compose pull api && docker compose up -d` with `API_TAG=<commit sha>` exported for both.
+  `docker compose pull api backup && docker compose up -d` with `API_TAG=<commit sha>` exported for both.
 - The repo owns `docker-compose.yml`. Edits made by hand on the VPS are overwritten on the next deploy.
 - Pull requests run test and build only. They never push an image or deploy.
 
@@ -101,8 +147,9 @@ From `VPS_PATH`, always pass the tag that should be running, as the full 40-char
 
 ```bash
 export API_TAG=<full commit sha>
-docker compose pull api && docker compose up -d
+docker compose pull api backup && docker compose up -d
 ```
 
-A plain `docker compose up -d` without `API_TAG` falls back to `:latest`, the newest build on `main`.
+`locker-backup:<sha>` exists only for commits since the backup service was added; for an older
+commit, pull `api` alone. A plain `docker compose up -d` without `API_TAG` falls back to `:latest`, the newest build on `main`.
 After a rollback, that brings the bad release back.
