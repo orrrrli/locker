@@ -60,6 +60,30 @@ func TestLoadConfig(t *testing.T) {
 		}
 	})
 
+	t.Run("testflight url", func(t *testing.T) {
+		base := map[string]string{"API_PORT": "8080", "DATABASE_URL": "x", "PUBLIC_BASE_URL": "https://x.test"}
+		if cfg, err := loadConfig(env(base)); err != nil || cfg.DownloadURL != "" {
+			t.Fatalf("unset: %q, %v", cfg.DownloadURL, err)
+		}
+		base["TESTFLIGHT_URL"] = "https://testflight.apple.com/join/AbC"
+		if _, err := loadConfig(env(base)); err == nil || !strings.Contains(err.Error(), "APPLE_TEAM_ID") {
+			t.Fatalf("without the Apple pair: err %v, want it to name APPLE_TEAM_ID", err)
+		}
+		base["APPLE_TEAM_ID"], base["APPLE_BUNDLE_ID"] = "ABCDE12345", "center.locker.app"
+		for url, ok := range map[string]bool{
+			"https://testflight.apple.com/join/AbC": true,
+			"http://testflight.apple.com/join/AbC":  false,
+			"javascript:alert(1)":                   false,
+			"testflight.apple.com/join/AbC":         false,
+		} {
+			base["TESTFLIGHT_URL"] = url
+			cfg, err := loadConfig(env(base))
+			if (err == nil) != ok || (ok && cfg.DownloadURL != url) {
+				t.Fatalf("%q: url %q, err %v; want ok %v", url, cfg.DownloadURL, err, ok)
+			}
+		}
+	})
+
 	tests := []struct {
 		name string
 		vars map[string]string

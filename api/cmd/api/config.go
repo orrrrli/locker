@@ -18,6 +18,9 @@ type config struct {
 	// AppleAppID is "<team id>.<bundle id>", the app Universal Links open.
 	// Empty until the Apple Developer account exists.
 	AppleAppID string
+	// DownloadURL is the public TestFlight link the invite landing points to.
+	// Optional: without it the page says the app is not out yet.
+	DownloadURL string
 }
 
 var (
@@ -71,6 +74,19 @@ func loadConfig(getenv func(string) string) (config, error) {
 		errs = append(errs, fmt.Errorf("APPLE_BUNDLE_ID must look like center.locker.app, got %q", bundle))
 	default:
 		cfg.AppleAppID = team + "." + bundle
+	}
+
+	// The download button tells people to reopen the link once the app is
+	// installed; without the Apple pair there is no apple-app-site-association,
+	// iOS keeps opening the link in the browser, and the page would loop.
+	if dl := getenv("TESTFLIGHT_URL"); dl != "" {
+		if u, err := url.Parse(dl); err != nil || u.Scheme != "https" || u.Host == "" {
+			errs = append(errs, fmt.Errorf("TESTFLIGHT_URL must be an https URL, got %q", dl))
+		} else if team == "" || bundle == "" {
+			errs = append(errs, errors.New("TESTFLIGHT_URL needs APPLE_TEAM_ID and APPLE_BUNDLE_ID"))
+		} else {
+			cfg.DownloadURL = dl
+		}
 	}
 
 	if len(missing) > 0 {

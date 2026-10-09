@@ -14,6 +14,9 @@ type Deps struct {
 	// AppleAppID ("<team id>.<bundle id>") is the app invite links open;
 	// empty until the Apple Developer account exists.
 	AppleAppID string
+	// DownloadURL is where the invite landing sends people without the app
+	// (the public TestFlight link); empty until there is one.
+	DownloadURL string
 	// Memberships backs requireActiveMember and requireRole.
 	Memberships membershipFinder
 	// LoginLimiter throttles failed logins; nil gets a fresh one on the
@@ -26,6 +29,7 @@ func NewRouter(d Deps) http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /health", health)
 	mux.HandleFunc("GET /.well-known/apple-app-site-association", aasa(d.AppleAppID))
+	mux.HandleFunc("GET /i/{token}", landing(d.DownloadURL))
 
 	if d.LoginLimiter == nil {
 		d.LoginLimiter = NewLoginLimiter(nil)

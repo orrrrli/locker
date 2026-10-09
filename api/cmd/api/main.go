@@ -77,6 +77,7 @@ func start() error {
 		Teams:        teamSvc,
 		Invites:      inviteSvc,
 		AppleAppID:   cfg.AppleAppID,
+		DownloadURL:  cfg.DownloadURL,
 		Memberships:  memberships,
 		LoginLimiter: loginLimiter,
 	})
