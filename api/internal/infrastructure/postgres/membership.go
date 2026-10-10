@@ -61,6 +61,37 @@ func (r *Memberships) UpdateRole(ctx context.Context, id int64, role domain.Role
 	return membershipOrNotFound(row, err, "update membership role")
 }
 
+// ApprovePending makes a pending membership an active player and returns it,
+// or domain.ErrNotFound when the row is not pending.
+func (r *Memberships) ApprovePending(ctx context.Context, id int64) (domain.Membership, error) {
+	row, err := sqlcdb.New(Conn(ctx, r.pool)).ApprovePendingMembership(ctx, id)
+	return membershipOrNotFound(row, err, "approve pending membership")
+}
+
+// RejectPending discards a pending membership (R7.4). Someone who never
+// joined is deleted, so the request leaves nothing behind (R13.6). A member
+// who left and came back is pending on the row that holds their number,
+// position and history (R8.4); it goes back to left instead. joined_at tells
+// them apart. Either way the user can ask again. It returns
+// domain.ErrNotFound when the row is not pending.
+func (r *Memberships) RejectPending(ctx context.Context, id int64) error {
+	q := sqlcdb.New(Conn(ctx, r.pool))
+	n, err := q.DeleteNeverJoinedPendingMembership(ctx, id)
+	if err != nil {
+		return fmt.Errorf("postgres: reject pending membership: %w", err)
+	}
+	if n == 0 {
+		n, err = q.SetReturningPendingMembershipLeft(ctx, id)
+		if err != nil {
+			return fmt.Errorf("postgres: reject pending membership: %w", err)
+		}
+	}
+	if n == 0 {
+		return domain.ErrNotFound
+	}
+	return nil
+}
+
 func membershipOrNotFound(row sqlcdb.Membership, err error, op string) (domain.Membership, error) {
 	if errors.Is(err, pgx.ErrNoRows) {
 		return domain.Membership{}, domain.ErrNotFound

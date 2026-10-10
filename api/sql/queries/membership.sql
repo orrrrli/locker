@@ -3,8 +3,10 @@ SELECT * FROM membership
 WHERE team_id = $1 AND user_id = $2;
 
 -- name: CreateMembership :one
-INSERT INTO membership (team_id, user_id, role, status)
-VALUES ($1, $2, $3, $4)
+-- A membership created active (the team's creator) joins now; a pending one
+-- joins when it is approved.
+INSERT INTO membership (team_id, user_id, role, status, joined_at)
+VALUES ($1, $2, $3, $4, CASE WHEN $4 = 'active' THEN now() END)
 RETURNING id;
 
 -- name: RejoinMembership :execrows
@@ -34,3 +36,23 @@ UPDATE membership
 SET role = $2
 WHERE id = $1
 RETURNING *;
+
+-- name: ApprovePendingMembership :one
+-- Approval makes a pending membership an active player (R7.3). Only a row
+-- that is still pending changes. A member coming back keeps the date they
+-- first joined.
+UPDATE membership
+SET status = 'active', role = 'player', joined_at = coalesce(joined_at, now())
+WHERE id = $1 AND status = 'pending'
+RETURNING *;
+
+-- name: DeleteNeverJoinedPendingMembership :execrows
+-- Rejecting someone who never joined leaves nothing behind (R13.6).
+DELETE FROM membership
+WHERE id = $1 AND status = 'pending' AND joined_at IS NULL;
+
+-- name: SetReturningPendingMembershipLeft :execrows
+-- Rejecting a member who came back keeps their row and history (R8.4).
+UPDATE membership
+SET status = 'left'
+WHERE id = $1 AND status = 'pending' AND joined_at IS NOT NULL;

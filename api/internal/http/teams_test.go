@@ -34,8 +34,10 @@ func signUp(t *testing.T, api apiTest, email string) (int64, string) {
 // remove do not exist yet.
 func addMember(t *testing.T, api apiTest, teamID, userID int64, role, status string) {
 	t.Helper()
+	// joined_at as the app sets it: every active or left row has joined.
 	if _, err := api.pool.Exec(context.Background(),
-		`INSERT INTO membership (team_id, user_id, role, status) VALUES ($1, $2, $3, $4)`,
+		`INSERT INTO membership (team_id, user_id, role, status, joined_at)
+		 VALUES ($1, $2, $3, $4, CASE WHEN $4 IN ('active', 'left') THEN now() END)`,
 		teamID, userID, role, status); err != nil {
 		t.Fatal(err)
 	}

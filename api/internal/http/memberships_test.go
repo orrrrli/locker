@@ -97,3 +97,68 @@ func TestPatchMembershipRole(t *testing.T) {
 		t.Fatalf("no session: status %d", rec.Code)
 	}
 }
+
+func TestPatchMembershipApproveReject(t *testing.T) {
+	api := newAPI(t, func() time.Time { return today })
+	_, adminToken := signUp(t, api, "admin@example.com")
+	aID, _ := signUp(t, api, "a@example.com")
+	bID, _ := signUp(t, api, "b@example.com")
+	cID, cToken := signUp(t, api, "c@example.com")
+	team := createTeam(t, api, adminToken, "Halcones", "America/Tijuana")
+	addMember(t, api, team.ID, aID, "player", "pending")
+	addMember(t, api, team.ID, bID, "player", "pending")
+	addMember(t, api, team.ID, cID, "player", "active")
+	a := membershipID(t, api, team.ID, aID)
+	b := membershipID(t, api, team.ID, bID)
+	path := func(id int64) string { return "/memberships/" + strconv.FormatInt(id, 10) }
+
+	// A player cannot approve.
+	if rec := api.do(t, http.MethodPatch, path(a), cToken, map[string]string{"status": "active"}); rec.Code != http.StatusForbidden {
+		t.Fatalf("player approves: status %d, body %s", rec.Code, rec.Body)
+	}
+
+	// Approve (R7.3).
+	rec := api.do(t, http.MethodPatch, path(a), adminToken, map[string]string{"status": "active"})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("approve: status %d, body %s", rec.Code, rec.Body)
+	}
+	var got membershipJSON
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatal(err)
+	}
+	if got.ID != a || got.Status != "active" || got.Role != "player" {
+		t.Fatalf("approved = %+v", got)
+	}
+
+	// Approving again: no longer pending.
+	rec = api.do(t, http.MethodPatch, path(a), adminToken, map[string]string{"status": "active"})
+	if rec.Code != http.StatusConflict || errorCode(t, rec) != "not_pending" {
+		t.Fatalf("approve twice: status %d, body %s", rec.Code, rec.Body)
+	}
+
+	// Reject (R7.4): 204, and the row is gone.
+	if rec := api.do(t, http.MethodPatch, path(b), adminToken, map[string]string{"status": "rejected"}); rec.Code != http.StatusNoContent {
+		t.Fatalf("reject: status %d, body %s", rec.Code, rec.Body)
+	}
+	var n int
+	if err := api.pool.QueryRow(context.Background(), `SELECT count(*) FROM membership WHERE id = $1`, b).Scan(&n); err != nil || n != 0 {
+		t.Fatalf("rejected rows = %d, err = %v; want 0", n, err)
+	}
+
+	for _, tc := range []struct {
+		name string
+		body any
+		code string
+	}{
+		{"unknown status", map[string]string{"status": "left"}, "invalid_status"},
+		{"role and status together", map[string]string{"role": "admin", "status": "active"}, "one_change_at_a_time"},
+		{"empty body", map[string]string{}, "nothing_to_update"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			rec := api.do(t, http.MethodPatch, path(a), adminToken, tc.body)
+			if rec.Code != http.StatusUnprocessableEntity || errorCode(t, rec) != tc.code {
+				t.Fatalf("status %d, body %s", rec.Code, rec.Body)
+			}
+		})
+	}
+}

@@ -227,3 +227,53 @@ func TestSchemaConstraints(t *testing.T) {
 		})
 	}
 }
+
+// TestJoinedAtBackfill: migration 8 gives every active or left membership a
+// joined_at (its created_at), and leaves pending ones without, so rejecting a
+// returning member keeps their row.
+func TestJoinedAtBackfill(t *testing.T) {
+	pool, _ := testPool(t)
+	ctx := context.Background()
+	db := stdlib.OpenDBFromPool(pool)
+	defer db.Close()
+	provider, err := goose.NewProvider(goose.DialectPostgres, db, migrations.FS)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := provider.UpTo(ctx, 7); err != nil {
+		t.Fatal(err)
+	}
+	var team int64
+	if err := pool.QueryRow(ctx, `INSERT INTO team (name, timezone) VALUES ('Pumas', 'America/Tijuana') RETURNING id`).Scan(&team); err != nil {
+		t.Fatal(err)
+	}
+	for _, status := range []string{"active", "left", "pending"} {
+		if _, err := pool.Exec(ctx, `INSERT INTO membership (team_id, role, status) VALUES ($1, 'player', $2)`, team, status); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := Migrate(ctx, pool); err != nil {
+		t.Fatal(err)
+	}
+	rows, err := pool.Query(ctx, `SELECT status, joined_at IS NOT DISTINCT FROM created_at, joined_at IS NULL FROM membership`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var status string
+		var fromCreated, null bool
+		if err := rows.Scan(&status, &fromCreated, &null); err != nil {
+			t.Fatal(err)
+		}
+		if status == "pending" && !null {
+			t.Errorf("pending: joined_at set, want NULL")
+		}
+		if status != "pending" && !fromCreated {
+			t.Errorf("%s: joined_at not backfilled from created_at", status)
+		}
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatal(err)
+	}
+}
