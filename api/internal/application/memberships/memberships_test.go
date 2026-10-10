@@ -77,7 +77,7 @@ func TestChangeRole(t *testing.T) {
 	player := f.member(t, team, domain.RolePlayer, domain.MembershipActive)
 
 	// Promote (R6.2): the team now has two admins (R6.3).
-	m, err := f.svc.ChangeRole(ctx, team, player, domain.RoleAdmin)
+	m, err := f.svc.ChangeRole(ctx, team, admin, player, domain.RoleAdmin)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -86,7 +86,7 @@ func TestChangeRole(t *testing.T) {
 	}
 
 	// Demote while another admin remains.
-	if _, err := f.svc.ChangeRole(ctx, team, admin, domain.RolePlayer); err != nil {
+	if _, err := f.svc.ChangeRole(ctx, team, admin, admin, domain.RolePlayer); err != nil {
 		t.Fatal(err)
 	}
 	if got := f.role(t, admin); got != domain.RolePlayer {
@@ -94,7 +94,7 @@ func TestChangeRole(t *testing.T) {
 	}
 
 	// The only admin left cannot be demoted (R6.4).
-	if _, err := f.svc.ChangeRole(ctx, team, player, domain.RolePlayer); !errors.Is(err, domain.ErrLastAdmin) {
+	if _, err := f.svc.ChangeRole(ctx, team, player, player, domain.RolePlayer); !errors.Is(err, domain.ErrLastAdmin) {
 		t.Fatalf("demote last admin: err = %v, want domain.ErrLastAdmin", err)
 	}
 	if got := f.role(t, player); got != domain.RoleAdmin {
@@ -102,7 +102,7 @@ func TestChangeRole(t *testing.T) {
 	}
 
 	// Same role: no change, no error, even for the last admin.
-	if m, err := f.svc.ChangeRole(ctx, team, player, domain.RoleAdmin); err != nil || m.Role != domain.RoleAdmin {
+	if m, err := f.svc.ChangeRole(ctx, team, player, player, domain.RoleAdmin); err != nil || m.Role != domain.RoleAdmin {
 		t.Fatalf("same role: m = %+v, err = %v", m, err)
 	}
 }
@@ -111,27 +111,32 @@ func TestChangeRoleRejects(t *testing.T) {
 	f := newFixture(t)
 	ctx := context.Background()
 	team, other := f.team(t), f.team(t)
-	f.member(t, team, domain.RoleAdmin, domain.MembershipActive)
+	admin := f.member(t, team, domain.RoleAdmin, domain.MembershipActive)
+	player := f.member(t, team, domain.RolePlayer, domain.MembershipActive)
 	pending := f.member(t, team, domain.RolePlayer, domain.MembershipPending)
 	left := f.member(t, team, domain.RoleAdmin, domain.MembershipLeft)
 	elsewhere := f.member(t, other, domain.RolePlayer, domain.MembershipActive)
 
 	for _, tc := range []struct {
-		name string
-		team int64
-		id   int64
-		role domain.Role
-		want error
+		name   string
+		team   int64
+		caller int64
+		id     int64
+		role   domain.Role
+		want   error
 	}{
-		{"invalid role", team, pending, "captain", memberships.ErrInvalidRole},
-		{"pending membership", team, pending, domain.RoleAdmin, memberships.ErrNotActive},
-		{"left membership", team, left, domain.RolePlayer, memberships.ErrNotActive},
-		{"membership of another team", team, elsewhere, domain.RoleAdmin, domain.ErrNotFound},
-		{"unknown membership", team, 999999, domain.RoleAdmin, domain.ErrNotFound},
-		{"unknown team", 999999, elsewhere, domain.RoleAdmin, domain.ErrNotFound},
+		{"invalid role", team, admin, pending, "captain", memberships.ErrInvalidRole},
+		{"pending membership", team, admin, pending, domain.RoleAdmin, memberships.ErrNotActive},
+		{"left membership", team, admin, left, domain.RolePlayer, memberships.ErrNotActive},
+		{"membership of another team", team, admin, elsewhere, domain.RoleAdmin, domain.ErrNotFound},
+		{"unknown membership", team, admin, 999999, domain.RoleAdmin, domain.ErrNotFound},
+		{"unknown team", 999999, admin, elsewhere, domain.RoleAdmin, domain.ErrNotFound},
+		{"caller is a player", team, player, player, domain.RoleAdmin, memberships.ErrForbidden},
+		{"caller left the team", team, left, player, domain.RoleAdmin, memberships.ErrForbidden},
+		{"caller from another team", team, elsewhere, player, domain.RoleAdmin, memberships.ErrForbidden},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			if _, err := f.svc.ChangeRole(ctx, tc.team, tc.id, tc.role); !errors.Is(err, tc.want) {
+			if _, err := f.svc.ChangeRole(ctx, tc.team, tc.caller, tc.id, tc.role); !errors.Is(err, tc.want) {
 				t.Fatalf("err = %v, want %v", err, tc.want)
 			}
 		})

@@ -15,6 +15,10 @@ var (
 	// ErrNotActive rejects a role change on a pending or left membership:
 	// approving and rejoining have their own flows (R7, R8).
 	ErrNotActive = errors.New("only an active membership can change role")
+	// ErrForbidden rejects a caller who is not an active admin of the team
+	// under the team lock: usually one demoted after requireRole let the
+	// request in.
+	ErrForbidden = errors.New("the caller is not an active admin of the team")
 )
 
 // Memberships is what the membership use cases need from the membership table.
@@ -41,11 +45,12 @@ func NewService(d Deps) *Service {
 	return &Service{tx: d.Tx, memberships: d.Memberships}
 }
 
-// ChangeRole promotes or demotes a membership of the team (R6.2, R6.3). It
-// rejects a demotion that would leave the team with no active admin, checked
-// under the team lock in the same transaction as the write (R6.4). Callers
-// must have checked the user is an admin of the team.
-func (s *Service) ChangeRole(ctx context.Context, teamID, membershipID int64, role domain.Role) (domain.Membership, error) {
+// ChangeRole lets the admin callerID promote or demote a membership of the
+// team (R6.2, R6.3). It rejects a demotion that would leave the team with no
+// active admin, checked under the team lock in the same transaction as the
+// write (R6.4). callerID is the caller's membership, already checked by
+// requireRole; it is checked again under the lock.
+func (s *Service) ChangeRole(ctx context.Context, teamID, callerID, membershipID int64, role domain.Role) (domain.Membership, error) {
 	if role != domain.RoleAdmin && role != domain.RolePlayer {
 		return domain.Membership{}, ErrInvalidRole
 	}
@@ -53,7 +58,7 @@ func (s *Service) ChangeRole(ctx context.Context, teamID, membershipID int64, ro
 	err := s.tx.InTx(ctx, func(ctx context.Context) error {
 		// Lock first, then read the target: a target read before the lock
 		// can be stale and let the last admin go.
-		admins, err := s.memberships.LockTeamForAdminChange(ctx, teamID)
+		admins, err := s.lockTeamAsAdmin(ctx, teamID, callerID)
 		if err != nil {
 			return err
 		}
@@ -80,4 +85,27 @@ func (s *Service) ChangeRole(ctx context.Context, teamID, membershipID int64, ro
 		return domain.Membership{}, err
 	}
 	return out, nil
+}
+
+// lockTeamAsAdmin locks the team, then checks callerID is still an active
+// admin of it, and returns the active admin count. requireRole read the
+// caller's role before the lock, so a demotion that committed in between
+// would let a former admin finish the request. Admin actions that take the
+// team lock must go through here, not LockTeamForAdminChange directly.
+func (s *Service) lockTeamAsAdmin(ctx context.Context, teamID, callerID int64) (int, error) {
+	admins, err := s.memberships.LockTeamForAdminChange(ctx, teamID)
+	if err != nil {
+		return 0, err
+	}
+	c, err := s.memberships.MembershipInTeam(ctx, teamID, callerID)
+	if errors.Is(err, domain.ErrNotFound) {
+		return 0, ErrForbidden
+	}
+	if err != nil {
+		return 0, err
+	}
+	if c.Role != domain.RoleAdmin || c.Status != domain.MembershipActive {
+		return 0, ErrForbidden
+	}
+	return admins, nil
 }
