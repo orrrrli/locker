@@ -3,12 +3,14 @@ package teams_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/orrrrli/locker/api/internal/application"
 	"github.com/orrrrli/locker/api/internal/application/teams"
 	"github.com/orrrrli/locker/api/internal/domain"
 	"github.com/orrrrli/locker/api/internal/infrastructure/postgres"
@@ -123,5 +125,88 @@ func TestCreateRollsBackTeamWhenMembershipFails(t *testing.T) {
 	}
 	if n != 0 {
 		t.Fatalf("teams = %d, want 0", n)
+	}
+}
+
+// TestUpdateRechecksTheCaller: Update checks the caller again under the team
+// lock, so a player, or an admin who has since been demoted or left, cannot
+// rename the team.
+func TestUpdateRechecksTheCaller(t *testing.T) {
+	svc, pool := newService(t)
+	ctx := context.Background()
+	team, err := svc.Create(ctx, newUser(t, pool), "Pumas", "America/Tijuana")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i, tc := range []struct{ name, role, status string }{
+		{"player", "player", "active"},
+		{"admin who left", "admin", "left"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			user, err := postgres.NewUsers(pool).CreateUser(ctx, tc.name, fmt.Sprintf("u%d@example.com", i), time.Date(2000, 1, 1, 0, 0, 0, 0, time.UTC))
+			if err != nil {
+				t.Fatal(err)
+			}
+			var caller int64
+			if err := pool.QueryRow(ctx,
+				`INSERT INTO membership (team_id, user_id, role, status) VALUES ($1, $2, $3, $4) RETURNING id`,
+				team.ID, user, tc.role, tc.status).Scan(&caller); err != nil {
+				t.Fatal(err)
+			}
+			name := "Halcones"
+			if _, err := svc.Update(ctx, team.ID, caller, &name, nil); !errors.Is(err, application.ErrForbidden) {
+				t.Fatalf("err = %v, want application.ErrForbidden", err)
+			}
+		})
+	}
+	got, err := svc.Get(ctx, team.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Name != "Pumas" {
+		t.Fatalf("name = %q, want Pumas", got.Name)
+	}
+}
+
+// probedTeams records whether the team lock is held while UpdateTeam runs.
+type probedTeams struct {
+	*postgres.Teams
+	t      *testing.T
+	pool   *pgxpool.Pool
+	locked *bool
+}
+
+func (p probedTeams) UpdateTeam(ctx context.Context, id int64, name, timezone *string) (domain.Team, error) {
+	*p.locked = testdb.TeamLocked(p.t, p.pool, id)
+	return p.Teams.UpdateTeam(ctx, id, name, timezone)
+}
+
+// TestUpdateWritesUnderTheTeamLock: the caller check and the write share one
+// transaction and one lock, so a demotion cannot commit between them.
+func TestUpdateWritesUnderTheTeamLock(t *testing.T) {
+	pool := testdb.New(t)
+	ctx := context.Background()
+	var locked bool
+	members := postgres.NewMemberships(pool)
+	svc := teams.NewService(teams.Deps{
+		Tx:          postgres.NewTxRunner(pool),
+		Teams:       probedTeams{Teams: postgres.NewTeams(pool), t: t, pool: pool, locked: &locked},
+		Memberships: members,
+	})
+	user := newUser(t, pool)
+	team, err := svc.Create(ctx, user, "Pumas", "America/Tijuana")
+	if err != nil {
+		t.Fatal(err)
+	}
+	admin, err := members.MembershipByTeamAndUser(ctx, team.ID, user)
+	if err != nil {
+		t.Fatal(err)
+	}
+	name := "Halcones"
+	if _, err := svc.Update(ctx, team.ID, admin.ID, &name, nil); err != nil {
+		t.Fatal(err)
+	}
+	if !locked {
+		t.Fatal("UpdateTeam ran without the team lock")
 	}
 }

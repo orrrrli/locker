@@ -4,8 +4,10 @@ package testdb
 
 import (
 	"context"
+	"errors"
 	"testing"
 
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/orrrrli/locker/api/internal/infrastructure/postgres"
@@ -28,3 +30,22 @@ func New(t *testing.T) *pgxpool.Pool {
 	}
 	return pool
 }
+
+// TeamLocked reports whether another transaction holds the team row lock
+// that admin writes take (LockTeamForAdminChange). It tries the same lock
+// with NOWAIT on a separate connection, so it never blocks. Call it from
+// inside a repository write to prove the write runs under that lock.
+func TeamLocked(t *testing.T, pool *pgxpool.Pool, teamID int64) bool {
+	t.Helper()
+	_, err := pool.Exec(context.Background(), `SELECT 1 FROM team WHERE id = $1 FOR NO KEY UPDATE NOWAIT`, teamID)
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) && pgErr.Code == lockNotAvailable {
+		return true
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+	return false
+}
+
+const lockNotAvailable = "55P03"

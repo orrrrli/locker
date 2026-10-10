@@ -15,19 +15,11 @@ var (
 	// ErrNotActive rejects a role change on a pending or left membership:
 	// approving and rejoining have their own flows (R7, R8).
 	ErrNotActive = errors.New("only an active membership can change role")
-	// ErrForbidden rejects a caller who is not an active admin of the team
-	// under the team lock: usually one demoted after requireRole let the
-	// request in.
-	ErrForbidden = errors.New("the caller is not an active admin of the team")
 )
 
 // Memberships is what the membership use cases need from the membership table.
 type Memberships interface {
-	// LockTeamForAdminChange locks the team and returns its active admin
-	// count; domain.ErrNotFound for an unknown team.
-	LockTeamForAdminChange(ctx context.Context, teamID int64) (int, error)
-	// MembershipInTeam returns domain.ErrNotFound when the id is not in the team.
-	MembershipInTeam(ctx context.Context, teamID, id int64) (domain.Membership, error)
+	application.AdminLocker
 	UpdateRole(ctx context.Context, id int64, role domain.Role) (domain.Membership, error)
 }
 
@@ -58,7 +50,7 @@ func (s *Service) ChangeRole(ctx context.Context, teamID, callerID, membershipID
 	err := s.tx.InTx(ctx, func(ctx context.Context) error {
 		// Lock first, then read the target: a target read before the lock
 		// can be stale and let the last admin go.
-		admins, err := s.lockTeamAsAdmin(ctx, teamID, callerID)
+		admins, err := application.LockTeamAsAdmin(ctx, s.memberships, teamID, callerID)
 		if err != nil {
 			return err
 		}
@@ -85,27 +77,4 @@ func (s *Service) ChangeRole(ctx context.Context, teamID, callerID, membershipID
 		return domain.Membership{}, err
 	}
 	return out, nil
-}
-
-// lockTeamAsAdmin locks the team, then checks callerID is still an active
-// admin of it, and returns the active admin count. requireRole read the
-// caller's role before the lock, so a demotion that committed in between
-// would let a former admin finish the request. Admin actions that take the
-// team lock must go through here, not LockTeamForAdminChange directly.
-func (s *Service) lockTeamAsAdmin(ctx context.Context, teamID, callerID int64) (int, error) {
-	admins, err := s.memberships.LockTeamForAdminChange(ctx, teamID)
-	if err != nil {
-		return 0, err
-	}
-	c, err := s.memberships.MembershipInTeam(ctx, teamID, callerID)
-	if errors.Is(err, domain.ErrNotFound) {
-		return 0, ErrForbidden
-	}
-	if err != nil {
-		return 0, err
-	}
-	if c.Role != domain.RoleAdmin || c.Status != domain.MembershipActive {
-		return 0, ErrForbidden
-	}
-	return admins, nil
 }

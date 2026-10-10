@@ -8,6 +8,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/orrrrli/locker/api/internal/application"
 	"github.com/orrrrli/locker/api/internal/application/memberships"
 	"github.com/orrrrli/locker/api/internal/domain"
 	"github.com/orrrrli/locker/api/internal/infrastructure/postgres"
@@ -131,9 +132,9 @@ func TestChangeRoleRejects(t *testing.T) {
 		{"membership of another team", team, admin, elsewhere, domain.RoleAdmin, domain.ErrNotFound},
 		{"unknown membership", team, admin, 999999, domain.RoleAdmin, domain.ErrNotFound},
 		{"unknown team", 999999, admin, elsewhere, domain.RoleAdmin, domain.ErrNotFound},
-		{"caller is a player", team, player, player, domain.RoleAdmin, memberships.ErrForbidden},
-		{"caller left the team", team, left, player, domain.RoleAdmin, memberships.ErrForbidden},
-		{"caller from another team", team, elsewhere, player, domain.RoleAdmin, memberships.ErrForbidden},
+		{"caller is a player", team, player, player, domain.RoleAdmin, application.ErrForbidden},
+		{"caller left the team", team, left, player, domain.RoleAdmin, application.ErrForbidden},
+		{"caller from another team", team, elsewhere, player, domain.RoleAdmin, application.ErrForbidden},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			if _, err := f.svc.ChangeRole(ctx, tc.team, tc.caller, tc.id, tc.role); !errors.Is(err, tc.want) {
@@ -143,5 +144,39 @@ func TestChangeRoleRejects(t *testing.T) {
 	}
 	if got := f.role(t, elsewhere); got != domain.RolePlayer {
 		t.Fatalf("other team's membership role = %s, want player", got)
+	}
+}
+
+// probedMemberships records whether the team lock is held while UpdateRole runs.
+type probedMemberships struct {
+	*postgres.Memberships
+	t      *testing.T
+	pool   *pgxpool.Pool
+	teamID int64
+	locked *bool
+}
+
+func (p probedMemberships) UpdateRole(ctx context.Context, id int64, role domain.Role) (domain.Membership, error) {
+	*p.locked = testdb.TeamLocked(p.t, p.pool, p.teamID)
+	return p.Memberships.UpdateRole(ctx, id, role)
+}
+
+// TestChangeRoleWritesUnderTheTeamLock: the admin count, the caller check and
+// the role write share one transaction and one lock (R6.4).
+func TestChangeRoleWritesUnderTheTeamLock(t *testing.T) {
+	f := newFixture(t)
+	team := f.team(t)
+	admin := f.member(t, team, domain.RoleAdmin, domain.MembershipActive)
+	player := f.member(t, team, domain.RolePlayer, domain.MembershipActive)
+	var locked bool
+	svc := memberships.NewService(memberships.Deps{
+		Tx:          postgres.NewTxRunner(f.pool),
+		Memberships: probedMemberships{Memberships: postgres.NewMemberships(f.pool), t: t, pool: f.pool, teamID: team, locked: &locked},
+	})
+	if _, err := svc.ChangeRole(context.Background(), team, admin, player, domain.RoleAdmin); err != nil {
+		t.Fatal(err)
+	}
+	if !locked {
+		t.Fatal("UpdateRole ran without the team lock")
 	}
 }

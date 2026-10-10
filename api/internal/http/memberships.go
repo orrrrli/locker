@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 
+	"github.com/orrrrli/locker/api/internal/application"
 	"github.com/orrrrli/locker/api/internal/application/memberships"
 	"github.com/orrrrli/locker/api/internal/domain"
 )
@@ -58,7 +59,7 @@ func (h membershipHandlers) update(w http.ResponseWriter, r *http.Request) {
 var membershipErrors = errorMap{
 	{memberships.ErrInvalidRole, http.StatusUnprocessableEntity, "invalid_role"},
 	{memberships.ErrNotActive, http.StatusConflict, "not_active"},
-	{memberships.ErrForbidden, http.StatusForbidden, "forbidden"},
+	{application.ErrForbidden, http.StatusForbidden, "forbidden"},
 	{domain.ErrLastAdmin, http.StatusConflict, "last_admin"},
 	{domain.ErrNotFound, http.StatusNotFound, "not_found"},
 }

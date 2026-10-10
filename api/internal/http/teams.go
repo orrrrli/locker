@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/orrrrli/locker/api/internal/application"
 	"github.com/orrrrli/locker/api/internal/application/teams"
 	"github.com/orrrrli/locker/api/internal/domain"
 )
@@ -13,7 +14,7 @@ type teamService interface {
 	Create(ctx context.Context, userID int64, name, timezone string) (domain.Team, error)
 	List(ctx context.Context, userID int64) ([]domain.Team, error)
 	Get(ctx context.Context, teamID int64) (domain.Team, error)
-	Update(ctx context.Context, teamID int64, name, timezone *string) (domain.Team, error)
+	Update(ctx context.Context, teamID, callerID int64, name, timezone *string) (domain.Team, error)
 }
 
 type teamHandlers struct {
@@ -96,7 +97,7 @@ func (h teamHandlers) update(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	m, _ := membershipFrom(r.Context())
-	t, err := h.svc.Update(r.Context(), m.TeamID, req.Name, req.Timezone)
+	t, err := h.svc.Update(r.Context(), m.TeamID, m.ID, req.Name, req.Timezone)
 	if err != nil {
 		teamErrors.write(w, r, "teams", err)
 		return
@@ -108,5 +109,6 @@ var teamErrors = errorMap{
 	{teams.ErrInvalidName, http.StatusUnprocessableEntity, "invalid_name"},
 	{teams.ErrInvalidTimezone, http.StatusUnprocessableEntity, "invalid_timezone"},
 	{teams.ErrNothingToUpdate, http.StatusUnprocessableEntity, "nothing_to_update"},
+	{application.ErrForbidden, http.StatusForbidden, "forbidden"},
 	{domain.ErrNotFound, http.StatusNotFound, "not_found"},
 }

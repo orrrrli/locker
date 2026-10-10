@@ -9,6 +9,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/orrrrli/locker/api/internal/application"
 	"github.com/orrrrli/locker/api/internal/application/invites"
 	"github.com/orrrrli/locker/api/internal/application/teams"
 	"github.com/orrrrli/locker/api/internal/application/token"
@@ -160,11 +161,11 @@ func TestRevokedInviteIsRejected(t *testing.T) {
 	ctx := context.Background()
 	inv := f.invite(t)
 
-	if err := f.svc.Revoke(ctx, f.teamID, inv.ID); err != nil {
+	if err := f.svc.Revoke(ctx, f.teamID, f.adminID, inv.ID); err != nil {
 		t.Fatal(err)
 	}
 	*f.now = start.Add(time.Hour)
-	if err := f.svc.Revoke(ctx, f.teamID, inv.ID); err != nil {
+	if err := f.svc.Revoke(ctx, f.teamID, f.adminID, inv.ID); err != nil {
 		t.Fatal(err)
 	}
 	var revokedAt time.Time
@@ -236,15 +237,20 @@ func TestRevokeIsScopedToTheTeam(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// The same user is admin of both teams, so only the invite's team differs.
+	otherAdmin, err := f.members.MembershipByTeamAndUser(ctx, otherTeam.ID, f.admin)
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	for _, tc := range []struct {
-		name           string
-		teamID, invite int64
+		name                   string
+		teamID, caller, invite int64
 	}{
-		{"invite of another team", otherTeam.ID, inv.ID},
-		{"unknown invite", f.teamID, inv.ID + 1000},
+		{"invite of another team", otherTeam.ID, otherAdmin.ID, inv.ID},
+		{"unknown invite", f.teamID, f.adminID, inv.ID + 1000},
 	} {
-		if err := f.svc.Revoke(ctx, tc.teamID, tc.invite); !errors.Is(err, domain.ErrNotFound) {
+		if err := f.svc.Revoke(ctx, tc.teamID, tc.caller, tc.invite); !errors.Is(err, domain.ErrNotFound) {
 			t.Fatalf("%s: err = %v, want domain.ErrNotFound", tc.name, err)
 		}
 	}
@@ -321,5 +327,86 @@ func TestAcceptNeverDemotesARowThatStoppedBeingLeft(t *testing.T) {
 	}
 	if m.Status != domain.MembershipActive || m.Role != domain.RoleAdmin {
 		t.Fatalf("membership became %s/%s, want active/admin", m.Status, m.Role)
+	}
+}
+
+// TestAdminActionsRecheckTheCaller: Create and Revoke check the caller again
+// under the team lock, so a player, or an admin who has since been demoted
+// or left, cannot create or revoke an invite.
+func TestAdminActionsRecheckTheCaller(t *testing.T) {
+	f := setup(t)
+	ctx := context.Background()
+	inv := f.invite(t)
+	for _, tc := range []struct{ name, role, status string }{
+		{"player", "player", "active"},
+		{"admin who left", "admin", "left"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			user := newUser(t, f.pool, tc.name+"@example.com")
+			var caller int64
+			if err := f.pool.QueryRow(ctx,
+				`INSERT INTO membership (team_id, user_id, role, status) VALUES ($1, $2, $3, $4) RETURNING id`,
+				f.teamID, user, tc.role, tc.status).Scan(&caller); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := f.svc.Create(ctx, f.teamID, caller); !errors.Is(err, application.ErrForbidden) {
+				t.Fatalf("create: err = %v, want application.ErrForbidden", err)
+			}
+			if err := f.svc.Revoke(ctx, f.teamID, caller, inv.ID); !errors.Is(err, application.ErrForbidden) {
+				t.Fatalf("revoke: err = %v, want application.ErrForbidden", err)
+			}
+		})
+	}
+	var invites int
+	var revoked bool
+	if err := f.pool.QueryRow(ctx, `SELECT count(*), bool_or(revoked_at IS NOT NULL) FROM invite WHERE team_id = $1`, f.teamID).Scan(&invites, &revoked); err != nil {
+		t.Fatal(err)
+	}
+	if invites != 1 || revoked {
+		t.Fatalf("invites = %d, revoked = %v; want 1 untouched invite", invites, revoked)
+	}
+}
+
+// probedInvites records whether the team lock is held while each write runs.
+type probedInvites struct {
+	*postgres.Invites
+	t      *testing.T
+	pool   *pgxpool.Pool
+	locked map[string]bool
+}
+
+func (p probedInvites) CreateInvite(ctx context.Context, teamID int64, tokenHash []byte, createdBy int64, expiresAt time.Time) (int64, error) {
+	p.locked["create"] = testdb.TeamLocked(p.t, p.pool, teamID)
+	return p.Invites.CreateInvite(ctx, teamID, tokenHash, createdBy, expiresAt)
+}
+
+func (p probedInvites) RevokeInvite(ctx context.Context, teamID, id int64, now time.Time) error {
+	p.locked["revoke"] = testdb.TeamLocked(p.t, p.pool, teamID)
+	return p.Invites.RevokeInvite(ctx, teamID, id, now)
+}
+
+// TestAdminWritesRunUnderTheTeamLock: the caller check and each write share
+// one transaction and one lock, so a demotion cannot commit between them.
+func TestAdminWritesRunUnderTheTeamLock(t *testing.T) {
+	f := setup(t)
+	ctx := context.Background()
+	locked := map[string]bool{}
+	svc := invites.NewService(invites.Deps{
+		Tx:            postgres.NewTxRunner(f.pool),
+		Invites:       probedInvites{Invites: postgres.NewInvites(f.pool), t: t, pool: f.pool, locked: locked},
+		Memberships:   f.members,
+		PublicBaseURL: "https://api.example.test",
+	})
+	inv, err := svc.Create(ctx, f.teamID, f.adminID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.Revoke(ctx, f.teamID, f.adminID, inv.ID); err != nil {
+		t.Fatal(err)
+	}
+	for _, op := range []string{"create", "revoke"} {
+		if !locked[op] {
+			t.Errorf("%s ran without the team lock", op)
+		}
 	}
 }

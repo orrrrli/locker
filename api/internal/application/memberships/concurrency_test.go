@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/orrrrli/locker/api/internal/application"
 	"github.com/orrrrli/locker/api/internal/application/memberships"
 	"github.com/orrrrli/locker/api/internal/domain"
 	"github.com/orrrrli/locker/api/internal/infrastructure/postgres"
@@ -72,7 +73,7 @@ func TestConcurrentDemotesKeepAnAdmin(t *testing.T) {
 		eachSelf bool
 		loser    error
 	}{
-		{"each other", false, memberships.ErrForbidden},
+		{"each other", false, application.ErrForbidden},
 		{"each themselves", true, domain.ErrLastAdmin},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -181,8 +182,8 @@ func TestDemotedCallerCannotFinishInFlightChange(t *testing.T) {
 			}
 			release()
 
-			if err := <-done; !errors.Is(err, memberships.ErrForbidden) {
-				t.Fatalf("err = %v, want memberships.ErrForbidden", err)
+			if err := <-done; !errors.Is(err, application.ErrForbidden) {
+				t.Fatalf("err = %v, want application.ErrForbidden", err)
 			}
 			if got := f.role(t, beto); got != domain.RolePlayer {
 				t.Fatalf("beto role = %s, want player", got)
