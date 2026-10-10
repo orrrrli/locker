@@ -132,9 +132,12 @@ func TestChangeRoleRejects(t *testing.T) {
 		{"membership of another team", team, admin, elsewhere, domain.RoleAdmin, domain.ErrNotFound},
 		{"unknown membership", team, admin, 999999, domain.RoleAdmin, domain.ErrNotFound},
 		{"unknown team", 999999, admin, elsewhere, domain.RoleAdmin, domain.ErrNotFound},
-		{"caller is a player", team, player, player, domain.RoleAdmin, application.ErrForbidden},
-		{"caller left the team", team, left, player, domain.RoleAdmin, application.ErrForbidden},
-		{"caller from another team", team, elsewhere, player, domain.RoleAdmin, application.ErrForbidden},
+		{"caller is a player", team, player, player, domain.RoleAdmin, application.ErrNotAdmin},
+		{"caller left the team", team, left, player, domain.RoleAdmin, domain.ErrNotFound},
+		// Status is checked before role, like requireRole: a pending player
+		// is not found, not forbidden.
+		{"caller is a pending player", team, pending, player, domain.RoleAdmin, domain.ErrNotFound},
+		{"caller from another team", team, elsewhere, player, domain.RoleAdmin, domain.ErrNotFound},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			if _, err := f.svc.ChangeRole(ctx, tc.team, tc.caller, tc.id, tc.role); !errors.Is(err, tc.want) {

@@ -59,7 +59,8 @@ func (h membershipHandlers) update(w http.ResponseWriter, r *http.Request) {
 var membershipErrors = errorMap{
 	{memberships.ErrInvalidRole, http.StatusUnprocessableEntity, "invalid_role"},
 	{memberships.ErrNotActive, http.StatusConflict, "not_active"},
-	{application.ErrForbidden, http.StatusForbidden, "forbidden"},
+	{application.ErrNotAdmin, http.StatusForbidden, "forbidden"},
+	{domain.ErrTeamBusy, http.StatusServiceUnavailable, "team_busy"},
 	{domain.ErrLastAdmin, http.StatusConflict, "last_admin"},
 	{domain.ErrNotFound, http.StatusNotFound, "not_found"},
 }

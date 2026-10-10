@@ -109,6 +109,7 @@ var teamErrors = errorMap{
 	{teams.ErrInvalidName, http.StatusUnprocessableEntity, "invalid_name"},
 	{teams.ErrInvalidTimezone, http.StatusUnprocessableEntity, "invalid_timezone"},
 	{teams.ErrNothingToUpdate, http.StatusUnprocessableEntity, "nothing_to_update"},
-	{application.ErrForbidden, http.StatusForbidden, "forbidden"},
+	{application.ErrNotAdmin, http.StatusForbidden, "forbidden"},
+	{domain.ErrTeamBusy, http.StatusServiceUnavailable, "team_busy"},
 	{domain.ErrNotFound, http.StatusNotFound, "not_found"},
 }

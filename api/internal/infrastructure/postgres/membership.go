@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
@@ -101,11 +102,22 @@ func (r *Memberships) RejoinMembership(ctx context.Context, id int64) error {
 	return nil
 }
 
+// lockTimeout caps the wait for the team lock. An admin change holds it for
+// milliseconds, so waiting this long means a transaction is stuck; failing
+// with domain.ErrTeamBusy beats queueing every admin write of the team behind
+// it. It is SET LOCAL, so it also caps any later lock wait in the same
+// transaction; only the team lock maps to ErrTeamBusy, a later timeout is a
+// plain error and the transaction rolls back. A var so tests can shorten it.
+var lockTimeout = 5 * time.Second
+
+const lockNotAvailableCode = "55P03"
+
 // LockTeamForAdminChange locks the team row and returns its active admin
 // count, which stays exact until the transaction ends: every change that can
 // remove an admin calls this first, so they run one at a time per team (R6.4).
 // It must run inside a transaction, or the lock would be released at once.
-// It returns domain.ErrNotFound for an unknown team.
+// It returns domain.ErrNotFound for an unknown team, and domain.ErrTeamBusy
+// when the lock stays held past lockTimeout.
 //
 // Lock and count are two statements on purpose. In READ COMMITTED each
 // statement takes a new snapshot, so the count runs after the lock is granted
@@ -116,8 +128,15 @@ func (r *Memberships) LockTeamForAdminChange(ctx context.Context, teamID int64) 
 		return 0, errors.New("postgres: lock team for admin change: no transaction in ctx")
 	}
 	q := sqlcdb.New(Conn(ctx, r.pool))
+	// LOCAL: the timeout ends with this transaction. SET takes no parameters.
+	if _, err := Conn(ctx, r.pool).Exec(ctx, fmt.Sprintf("SET LOCAL lock_timeout = '%dms'", lockTimeout.Milliseconds())); err != nil {
+		return 0, fmt.Errorf("postgres: set lock timeout: %w", err)
+	}
+	var pgErr *pgconn.PgError
 	if _, err := q.LockTeam(ctx, teamID); errors.Is(err, pgx.ErrNoRows) {
 		return 0, domain.ErrNotFound
+	} else if errors.As(err, &pgErr) && pgErr.Code == lockNotAvailableCode {
+		return 0, domain.ErrTeamBusy
 	} else if err != nil {
 		return 0, fmt.Errorf("postgres: lock team: %w", err)
 	}

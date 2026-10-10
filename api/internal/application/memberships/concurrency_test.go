@@ -64,7 +64,7 @@ func (f *fixture) activeAdmins(t *testing.T, team int64) int {
 
 // TestConcurrentDemotesKeepAnAdmin: two admins demote at the same time and
 // exactly one wins (R6.4). When they demote each other, the loser is no
-// longer an admin once it gets the lock (ErrForbidden). When each demotes
+// longer an admin once it gets the lock (ErrNotAdmin). When each demotes
 // themselves, the loser is the last admin (ErrLastAdmin). Both runs must end
 // with one active admin.
 func TestConcurrentDemotesKeepAnAdmin(t *testing.T) {
@@ -73,7 +73,7 @@ func TestConcurrentDemotesKeepAnAdmin(t *testing.T) {
 		eachSelf bool
 		loser    error
 	}{
-		{"each other", false, application.ErrForbidden},
+		{"each other", false, application.ErrNotAdmin},
 		{"each themselves", true, domain.ErrLastAdmin},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -182,8 +182,8 @@ func TestDemotedCallerCannotFinishInFlightChange(t *testing.T) {
 			}
 			release()
 
-			if err := <-done; !errors.Is(err, application.ErrForbidden) {
-				t.Fatalf("err = %v, want application.ErrForbidden", err)
+			if err := <-done; !errors.Is(err, application.ErrNotAdmin) {
+				t.Fatalf("err = %v, want application.ErrNotAdmin", err)
 			}
 			if got := f.role(t, beto); got != domain.RolePlayer {
 				t.Fatalf("beto role = %s, want player", got)

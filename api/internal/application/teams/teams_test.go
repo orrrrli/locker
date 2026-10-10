@@ -138,9 +138,13 @@ func TestUpdateRechecksTheCaller(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for i, tc := range []struct{ name, role, status string }{
-		{"player", "player", "active"},
-		{"admin who left", "admin", "left"},
+	for i, tc := range []struct {
+		name, role, status string
+		want               error
+	}{
+		{"player", "player", "active", application.ErrNotAdmin},
+		// Like requireRole: someone who left sees the team as not found.
+		{"admin who left", "admin", "left", domain.ErrNotFound},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			user, err := postgres.NewUsers(pool).CreateUser(ctx, tc.name, fmt.Sprintf("u%d@example.com", i), time.Date(2000, 1, 1, 0, 0, 0, 0, time.UTC))
@@ -154,8 +158,8 @@ func TestUpdateRechecksTheCaller(t *testing.T) {
 				t.Fatal(err)
 			}
 			name := "Halcones"
-			if _, err := svc.Update(ctx, team.ID, caller, &name, nil); !errors.Is(err, application.ErrForbidden) {
-				t.Fatalf("err = %v, want application.ErrForbidden", err)
+			if _, err := svc.Update(ctx, team.ID, caller, &name, nil); !errors.Is(err, tc.want) {
+				t.Fatalf("err = %v, want %v", err, tc.want)
 			}
 		})
 	}

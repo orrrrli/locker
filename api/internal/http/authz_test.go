@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/orrrrli/locker/api/internal/application"
 	"github.com/orrrrli/locker/api/internal/domain"
 )
 
@@ -172,5 +173,29 @@ func TestTeamFromMembership(t *testing.T) {
 				t.Fatalf("inner handler reached = %v with status %d", reached, rec.Code)
 			}
 		})
+	}
+}
+
+// TestAdminWritesMapLockErrors: what LockTeamAsAdmin can return inside an
+// admin write maps to the same answers requireRole gives, in every admin
+// feature. These errors only show up under a race, so the maps are checked
+// directly.
+func TestAdminWritesMapLockErrors(t *testing.T) {
+	for _, tc := range []struct {
+		err    error
+		status int
+		code   string
+	}{
+		{application.ErrNotAdmin, http.StatusForbidden, "forbidden"},     // demoted mid-request
+		{domain.ErrNotFound, http.StatusNotFound, "not_found"},           // left mid-request
+		{domain.ErrTeamBusy, http.StatusServiceUnavailable, "team_busy"}, // lock timeout
+	} {
+		for name, m := range map[string]errorMap{"teams": teamErrors, "invites": inviteErrors, "memberships": membershipErrors} {
+			rec := httptest.NewRecorder()
+			m.write(rec, httptest.NewRequest(http.MethodPatch, "/", nil), name, tc.err)
+			if rec.Code != tc.status || errorCode(t, rec) != tc.code {
+				t.Errorf("%s, %v: status %d, body %s", name, tc.err, rec.Code, rec.Body)
+			}
+		}
 	}
 }

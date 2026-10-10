@@ -337,9 +337,13 @@ func TestAdminActionsRecheckTheCaller(t *testing.T) {
 	f := setup(t)
 	ctx := context.Background()
 	inv := f.invite(t)
-	for _, tc := range []struct{ name, role, status string }{
-		{"player", "player", "active"},
-		{"admin who left", "admin", "left"},
+	for _, tc := range []struct {
+		name, role, status string
+		want               error
+	}{
+		{"player", "player", "active", application.ErrNotAdmin},
+		// Like requireRole: someone who left sees the team as not found.
+		{"admin who left", "admin", "left", domain.ErrNotFound},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			user := newUser(t, f.pool, tc.name+"@example.com")
@@ -349,11 +353,11 @@ func TestAdminActionsRecheckTheCaller(t *testing.T) {
 				f.teamID, user, tc.role, tc.status).Scan(&caller); err != nil {
 				t.Fatal(err)
 			}
-			if _, err := f.svc.Create(ctx, f.teamID, caller); !errors.Is(err, application.ErrForbidden) {
-				t.Fatalf("create: err = %v, want application.ErrForbidden", err)
+			if _, err := f.svc.Create(ctx, f.teamID, caller); !errors.Is(err, tc.want) {
+				t.Fatalf("create: err = %v, want %v", err, tc.want)
 			}
-			if err := f.svc.Revoke(ctx, f.teamID, caller, inv.ID); !errors.Is(err, application.ErrForbidden) {
-				t.Fatalf("revoke: err = %v, want application.ErrForbidden", err)
+			if err := f.svc.Revoke(ctx, f.teamID, caller, inv.ID); !errors.Is(err, tc.want) {
+				t.Fatalf("revoke: err = %v, want %v", err, tc.want)
 			}
 		})
 	}

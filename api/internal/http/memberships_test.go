@@ -4,12 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
-	"net/http/httptest"
 	"strconv"
 	"testing"
 	"time"
-
-	"github.com/orrrrli/locker/api/internal/application"
 )
 
 func membershipID(t *testing.T, api apiTest, teamID, userID int64) int64 {
@@ -98,18 +95,5 @@ func TestPatchMembershipRole(t *testing.T) {
 
 	if rec := api.do(t, http.MethodPatch, path(player), "", map[string]string{"role": "player"}); rec.Code != http.StatusUnauthorized {
 		t.Fatalf("no session: status %d", rec.Code)
-	}
-}
-
-// TestAdminWritesMapForbidden: an admin demoted mid-request gets 403, not a
-// 500. The use cases return application.ErrForbidden only under a race, so
-// the mapping is checked directly.
-func TestAdminWritesMapForbidden(t *testing.T) {
-	for name, m := range map[string]errorMap{"teams": teamErrors, "invites": inviteErrors, "memberships": membershipErrors} {
-		rec := httptest.NewRecorder()
-		m.write(rec, httptest.NewRequest(http.MethodPatch, "/", nil), name, application.ErrForbidden)
-		if rec.Code != http.StatusForbidden || errorCode(t, rec) != "forbidden" {
-			t.Errorf("%s: status %d, body %s", name, rec.Code, rec.Body)
-		}
 	}
 }
