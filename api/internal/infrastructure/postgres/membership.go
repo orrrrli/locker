@@ -39,6 +39,37 @@ func (r *Memberships) MembershipByTeamAndUser(ctx context.Context, teamID, userI
 	return membershipFromRow(row), nil
 }
 
+// MembershipByID returns the membership with that id, in any team and status,
+// or domain.ErrNotFound.
+func (r *Memberships) MembershipByID(ctx context.Context, id int64) (domain.Membership, error) {
+	row, err := sqlcdb.New(Conn(ctx, r.pool)).GetMembership(ctx, id)
+	return membershipOrNotFound(row, err, "membership by id")
+}
+
+// MembershipInTeam returns the team's membership with that id, or
+// domain.ErrNotFound when the id belongs to another team or to none.
+func (r *Memberships) MembershipInTeam(ctx context.Context, teamID, id int64) (domain.Membership, error) {
+	row, err := sqlcdb.New(Conn(ctx, r.pool)).GetMembershipInTeam(ctx, sqlcdb.GetMembershipInTeamParams{TeamID: teamID, ID: id})
+	return membershipOrNotFound(row, err, "membership in team")
+}
+
+// UpdateRole sets the membership's role and returns the updated row, or
+// domain.ErrNotFound.
+func (r *Memberships) UpdateRole(ctx context.Context, id int64, role domain.Role) (domain.Membership, error) {
+	row, err := sqlcdb.New(Conn(ctx, r.pool)).UpdateMembershipRole(ctx, sqlcdb.UpdateMembershipRoleParams{ID: id, Role: string(role)})
+	return membershipOrNotFound(row, err, "update membership role")
+}
+
+func membershipOrNotFound(row sqlcdb.Membership, err error, op string) (domain.Membership, error) {
+	if errors.Is(err, pgx.ErrNoRows) {
+		return domain.Membership{}, domain.ErrNotFound
+	}
+	if err != nil {
+		return domain.Membership{}, fmt.Errorf("postgres: %s: %w", op, err)
+	}
+	return membershipFromRow(row), nil
+}
+
 func (r *Memberships) CreateMembership(ctx context.Context, teamID, userID int64, role domain.Role, status domain.MembershipStatus) (int64, error) {
 	id, err := sqlcdb.New(Conn(ctx, r.pool)).CreateMembership(ctx, sqlcdb.CreateMembershipParams{
 		TeamID: teamID,
