@@ -15,3 +15,7 @@ RETURNING id;
 UPDATE membership
 SET role = 'player', status = 'pending'
 WHERE id = $1 AND status = 'left';
+
+-- name: CountActiveAdmins :one
+SELECT count(*) FROM membership
+WHERE team_id = $1 AND role = 'admin' AND status = 'active';

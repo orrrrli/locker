@@ -11,6 +11,18 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const countActiveAdmins = `-- name: CountActiveAdmins :one
+SELECT count(*) FROM membership
+WHERE team_id = $1 AND role = 'admin' AND status = 'active'
+`
+
+func (q *Queries) CountActiveAdmins(ctx context.Context, teamID int64) (int64, error) {
+	row := q.db.QueryRow(ctx, countActiveAdmins, teamID)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const createMembership = `-- name: CreateMembership :one
 INSERT INTO membership (team_id, user_id, role, status)
 VALUES ($1, $2, $3, $4)

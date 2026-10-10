@@ -70,6 +70,33 @@ func (r *Memberships) RejoinMembership(ctx context.Context, id int64) error {
 	return nil
 }
 
+// LockTeamForAdminChange locks the team row and returns its active admin
+// count, which stays exact until the transaction ends: every change that can
+// remove an admin calls this first, so they run one at a time per team (R6.4).
+// It must run inside a transaction, or the lock would be released at once.
+// It returns domain.ErrNotFound for an unknown team.
+//
+// Lock and count are two statements on purpose. In READ COMMITTED each
+// statement takes a new snapshot, so the count runs after the lock is granted
+// and sees the change of the transaction it waited for. A single statement
+// would count from the snapshot it took before waiting.
+func (r *Memberships) LockTeamForAdminChange(ctx context.Context, teamID int64) (int, error) {
+	if _, ok := ctx.Value(txKey{}).(pgx.Tx); !ok {
+		return 0, errors.New("postgres: lock team for admin change: no transaction in ctx")
+	}
+	q := sqlcdb.New(Conn(ctx, r.pool))
+	if _, err := q.LockTeam(ctx, teamID); errors.Is(err, pgx.ErrNoRows) {
+		return 0, domain.ErrNotFound
+	} else if err != nil {
+		return 0, fmt.Errorf("postgres: lock team: %w", err)
+	}
+	n, err := q.CountActiveAdmins(ctx, teamID)
+	if err != nil {
+		return 0, fmt.Errorf("postgres: count active admins: %w", err)
+	}
+	return int(n), nil
+}
+
 func membershipFromRow(row sqlcdb.Membership) domain.Membership {
 	m := domain.Membership{
 		ID:                  row.ID,

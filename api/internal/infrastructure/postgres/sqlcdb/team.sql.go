@@ -86,6 +86,23 @@ func (q *Queries) ListActiveTeamsForUser(ctx context.Context, userID pgtype.Int8
 	return items, nil
 }
 
+const lockTeam = `-- name: LockTeam :one
+SELECT id FROM team
+WHERE id = $1
+FOR NO KEY UPDATE
+`
+
+// Serializes every change that can remove an admin from the team (R6.4).
+// NO KEY UPDATE still conflicts with itself but not with the KEY SHARE lock
+// that foreign-key checks take, so inserts that reference the team (invites,
+// matches, charges) are not blocked.
+func (q *Queries) LockTeam(ctx context.Context, id int64) (int64, error) {
+	row := q.db.QueryRow(ctx, lockTeam, id)
+	var id_2 int64
+	err := row.Scan(&id_2)
+	return id_2, err
+}
+
 const updateTeam = `-- name: UpdateTeam :one
 UPDATE team
 SET name     = coalesce($1, name),
