@@ -29,11 +29,15 @@ func NewTxRunner(pool *pgxpool.Pool) *TxRunner {
 // InTx commits when fn returns nil and rolls back when it returns an error or
 // panics. If ctx already carries a transaction, fn joins it instead of opening
 // a second one, so a use case calling another stays in a single transaction.
+//
+// The isolation is pinned to READ COMMITTED, whatever the server default:
+// the lock-then-read pattern (LockTeamForAdminChange, LockTeamAsAdmin) needs
+// each statement after the lock to see what committed while it waited.
 func (r *TxRunner) InTx(ctx context.Context, fn func(ctx context.Context) error) error {
 	if _, ok := ctx.Value(txKey{}).(pgx.Tx); ok {
 		return fn(ctx)
 	}
-	return pgx.BeginFunc(ctx, r.pool, func(tx pgx.Tx) error {
+	return pgx.BeginTxFunc(ctx, r.pool, pgx.TxOptions{IsoLevel: pgx.ReadCommitted}, func(tx pgx.Tx) error {
 		return fn(context.WithValue(ctx, txKey{}, tx))
 	})
 }

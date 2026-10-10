@@ -108,3 +108,45 @@ func TestNestedInTxJoinsOuterTransaction(t *testing.T) {
 		t.Fatalf("rows = %d, want 0: the inner InTx did not join the outer transaction", n)
 	}
 }
+
+// TestInTxPinsReadCommitted: even when the database defaults to REPEATABLE
+// READ, InTx runs at READ COMMITTED, which the lock-then-read pattern needs.
+func TestInTxPinsReadCommitted(t *testing.T) {
+	ctx := context.Background()
+	dsn := emptydb.New(t)
+	setup, err := NewPool(ctx, dsn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := setup.Exec(ctx, `DO $$ BEGIN
+		EXECUTE format('ALTER DATABASE %I SET default_transaction_isolation = %L', current_database(), 'repeatable read');
+	END $$`); err != nil {
+		t.Fatal(err)
+	}
+	setup.Close()
+
+	// A new pool, so its sessions start with the new default.
+	pool, err := NewPool(ctx, dsn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(pool.Close)
+	var def string
+	if err := pool.QueryRow(ctx, "SHOW default_transaction_isolation").Scan(&def); err != nil {
+		t.Fatal(err)
+	}
+	if def != "repeatable read" {
+		t.Fatalf("setup: default = %q, want repeatable read", def)
+	}
+
+	var got string
+	err = NewTxRunner(pool).InTx(ctx, func(ctx context.Context) error {
+		return Conn(ctx, pool).QueryRow(ctx, "SHOW transaction_isolation").Scan(&got)
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != "read committed" {
+		t.Fatalf("isolation = %q, want read committed", got)
+	}
+}
