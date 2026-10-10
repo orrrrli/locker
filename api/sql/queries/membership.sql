@@ -15,3 +15,22 @@ RETURNING id;
 UPDATE membership
 SET role = 'player', status = 'pending'
 WHERE id = $1 AND status = 'left';
+
+-- name: CountActiveAdmins :one
+SELECT count(*) FROM membership
+WHERE team_id = $1 AND role = 'admin' AND status = 'active';
+
+-- name: GetMembership :one
+SELECT * FROM membership
+WHERE id = $1;
+
+-- name: GetMembershipInTeam :one
+-- Scoped to the team, so an id from another team is not found.
+SELECT * FROM membership
+WHERE team_id = $1 AND id = $2;
+
+-- name: UpdateMembershipRole :one
+UPDATE membership
+SET role = $2
+WHERE id = $1
+RETURNING *;

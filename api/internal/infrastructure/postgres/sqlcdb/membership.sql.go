@@ -11,6 +11,18 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const countActiveAdmins = `-- name: CountActiveAdmins :one
+SELECT count(*) FROM membership
+WHERE team_id = $1 AND role = 'admin' AND status = 'active'
+`
+
+func (q *Queries) CountActiveAdmins(ctx context.Context, teamID int64) (int64, error) {
+	row := q.db.QueryRow(ctx, countActiveAdmins, teamID)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const createMembership = `-- name: CreateMembership :one
 INSERT INTO membership (team_id, user_id, role, status)
 VALUES ($1, $2, $3, $4)
@@ -36,6 +48,29 @@ func (q *Queries) CreateMembership(ctx context.Context, arg CreateMembershipPara
 	return id, err
 }
 
+const getMembership = `-- name: GetMembership :one
+SELECT id, team_id, user_id, role, status, shirt_number, position, display_name_override, push_muted, created_at FROM membership
+WHERE id = $1
+`
+
+func (q *Queries) GetMembership(ctx context.Context, id int64) (Membership, error) {
+	row := q.db.QueryRow(ctx, getMembership, id)
+	var i Membership
+	err := row.Scan(
+		&i.ID,
+		&i.TeamID,
+		&i.UserID,
+		&i.Role,
+		&i.Status,
+		&i.ShirtNumber,
+		&i.Position,
+		&i.DisplayNameOverride,
+		&i.PushMuted,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
 const getMembershipByTeamAndUser = `-- name: GetMembershipByTeamAndUser :one
 SELECT id, team_id, user_id, role, status, shirt_number, position, display_name_override, push_muted, created_at FROM membership
 WHERE team_id = $1 AND user_id = $2
@@ -48,6 +83,35 @@ type GetMembershipByTeamAndUserParams struct {
 
 func (q *Queries) GetMembershipByTeamAndUser(ctx context.Context, arg GetMembershipByTeamAndUserParams) (Membership, error) {
 	row := q.db.QueryRow(ctx, getMembershipByTeamAndUser, arg.TeamID, arg.UserID)
+	var i Membership
+	err := row.Scan(
+		&i.ID,
+		&i.TeamID,
+		&i.UserID,
+		&i.Role,
+		&i.Status,
+		&i.ShirtNumber,
+		&i.Position,
+		&i.DisplayNameOverride,
+		&i.PushMuted,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
+const getMembershipInTeam = `-- name: GetMembershipInTeam :one
+SELECT id, team_id, user_id, role, status, shirt_number, position, display_name_override, push_muted, created_at FROM membership
+WHERE team_id = $1 AND id = $2
+`
+
+type GetMembershipInTeamParams struct {
+	TeamID int64
+	ID     int64
+}
+
+// Scoped to the team, so an id from another team is not found.
+func (q *Queries) GetMembershipInTeam(ctx context.Context, arg GetMembershipInTeamParams) (Membership, error) {
+	row := q.db.QueryRow(ctx, getMembershipInTeam, arg.TeamID, arg.ID)
 	var i Membership
 	err := row.Scan(
 		&i.ID,
@@ -80,4 +144,34 @@ func (q *Queries) RejoinMembership(ctx context.Context, id int64) (int64, error)
 		return 0, err
 	}
 	return result.RowsAffected(), nil
+}
+
+const updateMembershipRole = `-- name: UpdateMembershipRole :one
+UPDATE membership
+SET role = $2
+WHERE id = $1
+RETURNING id, team_id, user_id, role, status, shirt_number, position, display_name_override, push_muted, created_at
+`
+
+type UpdateMembershipRoleParams struct {
+	ID   int64
+	Role string
+}
+
+func (q *Queries) UpdateMembershipRole(ctx context.Context, arg UpdateMembershipRoleParams) (Membership, error) {
+	row := q.db.QueryRow(ctx, updateMembershipRole, arg.ID, arg.Role)
+	var i Membership
+	err := row.Scan(
+		&i.ID,
+		&i.TeamID,
+		&i.UserID,
+		&i.Role,
+		&i.Status,
+		&i.ShirtNumber,
+		&i.Position,
+		&i.DisplayNameOverride,
+		&i.PushMuted,
+		&i.CreatedAt,
+	)
+	return i, err
 }

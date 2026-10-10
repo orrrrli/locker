@@ -6,13 +6,14 @@ import (
 	"net/http"
 	"strconv"
 
+	"github.com/orrrrli/locker/api/internal/application"
 	"github.com/orrrrli/locker/api/internal/application/invites"
 	"github.com/orrrrli/locker/api/internal/domain"
 )
 
 type inviteService interface {
 	Create(ctx context.Context, teamID, createdBy int64) (invites.Created, error)
-	Revoke(ctx context.Context, teamID, inviteID int64) error
+	Revoke(ctx context.Context, teamID, callerID, inviteID int64) error
 	Accept(ctx context.Context, userID int64, token string) (invites.Accepted, error)
 }
 
@@ -46,7 +47,7 @@ func (h inviteHandlers) revoke(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, "not_found")
 		return
 	}
-	if err := h.svc.Revoke(r.Context(), m.TeamID, inviteID); err != nil {
+	if err := h.svc.Revoke(r.Context(), m.TeamID, m.ID, inviteID); err != nil {
 		inviteErrors.write(w, r, "invites", err)
 		return
 	}
@@ -86,5 +87,7 @@ var inviteErrors = errorMap{
 	{invites.ErrInviteNotFound, http.StatusNotFound, "invite_not_found"},
 	{invites.ErrInviteExpired, http.StatusGone, "invite_expired"},
 	{invites.ErrInviteRevoked, http.StatusGone, "invite_revoked"},
+	{application.ErrNotAdmin, http.StatusForbidden, "forbidden"},
+	{domain.ErrTeamBusy, http.StatusServiceUnavailable, "team_busy"},
 	{domain.ErrNotFound, http.StatusNotFound, "not_found"},
 }

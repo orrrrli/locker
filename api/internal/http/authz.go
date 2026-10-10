@@ -40,18 +40,47 @@ func membershipFrom(ctx context.Context) (domain.Membership, bool) {
 // status. It returns domain.ErrNotFound when there is none.
 type membershipFinder interface {
 	MembershipByTeamAndUser(ctx context.Context, teamID, userID int64) (domain.Membership, error)
+	// MembershipByID returns the membership in any team, or
+	// domain.ErrNotFound. Routes on /memberships/{id} use it to find the team.
+	MembershipByID(ctx context.Context, id int64) (domain.Membership, error)
 }
 
 // teamOf extracts the team a request is about. Routes under /teams/{id} use
-// teamFromPath; routes on a child resource (/matches/{id}) resolve it from
-// that resource.
-type teamOf func(*http.Request) (int64, bool)
+// teamFromPath; routes on a child resource (/memberships/{id}) resolve it
+// from that resource. domain.ErrNotFound means there is no such team or
+// resource; any other error is a server fault.
+type teamOf func(*http.Request) (int64, error)
 
 func teamFromPath(name string) teamOf {
-	return func(r *http.Request) (int64, bool) {
-		id, err := strconv.ParseInt(r.PathValue(name), 10, 64)
-		return id, err == nil && id > 0
+	return func(r *http.Request) (int64, error) {
+		return idFromPath(r, name)
 	}
+}
+
+// teamFromMembership resolves the team of the membership in the path. An
+// unknown membership is a 404, the same answer a stranger to the team gets,
+// so membership ids from other teams reveal nothing.
+func teamFromMembership(name string, f membershipFinder) teamOf {
+	return func(r *http.Request) (int64, error) {
+		id, err := idFromPath(r, name)
+		if err != nil {
+			return 0, err
+		}
+		m, err := f.MembershipByID(r.Context(), id)
+		if err != nil {
+			return 0, err
+		}
+		return m.TeamID, nil
+	}
+}
+
+// idFromPath parses a positive id path value; anything else is not found.
+func idFromPath(r *http.Request, name string) (int64, error) {
+	id, err := strconv.ParseInt(r.PathValue(name), 10, 64)
+	if err != nil || id <= 0 {
+		return 0, domain.ErrNotFound
+	}
+	return id, nil
 }
 
 // authz holds the single authorization helpers every team endpoint goes
@@ -81,9 +110,14 @@ func (a authz) require(team teamOf, role domain.Role, next http.Handler) http.Ha
 			unauthorized(w)
 			return
 		}
-		teamID, ok := team(r)
-		if !ok {
+		teamID, err := team(r)
+		if errors.Is(err, domain.ErrNotFound) {
 			writeError(w, http.StatusNotFound, "not_found")
+			return
+		}
+		if err != nil {
+			slog.ErrorContext(r.Context(), "authz: team lookup", "path", r.URL.Path, "err", err)
+			writeError(w, http.StatusInternalServerError, "internal")
 			return
 		}
 		m, err := a.memberships.MembershipByTeamAndUser(r.Context(), teamID, userID)

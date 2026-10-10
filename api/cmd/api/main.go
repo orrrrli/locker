@@ -15,6 +15,7 @@ import (
 
 	"github.com/orrrrli/locker/api/internal/application/auth"
 	"github.com/orrrrli/locker/api/internal/application/invites"
+	applicationmemberships "github.com/orrrrli/locker/api/internal/application/memberships"
 	"github.com/orrrrli/locker/api/internal/application/teams"
 	apihttp "github.com/orrrrli/locker/api/internal/http"
 	"github.com/orrrrli/locker/api/internal/infrastructure/password"
@@ -72,10 +73,15 @@ func start() error {
 		Memberships:   memberships,
 		PublicBaseURL: cfg.PublicBaseURL,
 	})
+	memberSvc := applicationmemberships.NewService(applicationmemberships.Deps{
+		Tx:          postgres.NewTxRunner(pool),
+		Memberships: memberships,
+	})
 	router := apihttp.NewRouter(apihttp.Deps{
 		Auth:         authSvc,
 		Teams:        teamSvc,
 		Invites:      inviteSvc,
+		Members:      memberSvc,
 		AppleAppID:   cfg.AppleAppID,
 		DownloadURL:  cfg.DownloadURL,
 		Memberships:  memberships,

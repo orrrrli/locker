@@ -33,6 +33,7 @@ type Teams interface {
 
 // Memberships is what the team use cases need from the membership table.
 type Memberships interface {
+	application.AdminLocker
 	CreateMembership(ctx context.Context, teamID, userID int64, role domain.Role, status domain.MembershipStatus) (int64, error)
 }
 
@@ -92,9 +93,10 @@ func (s *Service) Get(ctx context.Context, teamID int64) (domain.Team, error) {
 	return s.teams.GetTeam(ctx, teamID)
 }
 
-// Update changes the name, the timezone or both (R6.7). A nil field keeps
-// its value. Callers must have checked the user is an admin of the team.
-func (s *Service) Update(ctx context.Context, teamID int64, name, timezone *string) (domain.Team, error) {
+// Update lets the admin callerID change the name, the timezone or both
+// (R6.7). A nil field keeps its value. callerID is the caller's membership,
+// checked by requireRole and again under the team lock.
+func (s *Service) Update(ctx context.Context, teamID, callerID int64, name, timezone *string) (domain.Team, error) {
 	if name == nil && timezone == nil {
 		return domain.Team{}, ErrNothingToUpdate
 	}
@@ -110,7 +112,19 @@ func (s *Service) Update(ctx context.Context, teamID int64, name, timezone *stri
 			return domain.Team{}, err
 		}
 	}
-	return s.teams.UpdateTeam(ctx, teamID, name, timezone)
+	var team domain.Team
+	err := s.tx.InTx(ctx, func(ctx context.Context) error {
+		if _, err := application.LockTeamAsAdmin(ctx, s.memberships, teamID, callerID); err != nil {
+			return err
+		}
+		t, err := s.teams.UpdateTeam(ctx, teamID, name, timezone)
+		team = t
+		return err
+	})
+	if err != nil {
+		return domain.Team{}, err
+	}
+	return team, nil
 }
 
 // checkName trims the name and counts characters, not bytes, so accents and
