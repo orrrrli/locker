@@ -87,6 +87,25 @@ func TestHashRespectsCancelledContext(t *testing.T) {
 	if _, err := h.Hash(ctx, "pw"); err == nil {
 		t.Fatal("Hash ran with no free slot and a cancelled context")
 	}
+	if n := len(h.line); n != 0 {
+		t.Fatalf("a cancelled wait kept its place in line (%d taken)", n)
+	}
+}
+
+// TestHashGivesBackItsPlaces: a leaked place would turn every later login
+// into 503 once the line fills up.
+func TestHashGivesBackItsPlaces(t *testing.T) {
+	h := NewHasher(cheap)
+	encoded, err := h.Hash(context.Background(), "pw")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.Verify(context.Background(), "pw", encoded); err != nil {
+		t.Fatal(err)
+	}
+	if len(h.line) != 0 || len(h.slots) != 0 {
+		t.Fatalf("after Hash and Verify line = %d, slots = %d; want 0 0", len(h.line), len(h.slots))
+	}
 }
 
 func TestHashRejectsWhenLineFull(t *testing.T) {

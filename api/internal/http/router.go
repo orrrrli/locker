@@ -47,8 +47,8 @@ func NewRouter(d Deps) http.Handler {
 	if d.Limits.InviteAccept == nil {
 		d.Limits.InviteAccept = defaults.InviteAccept
 	}
-	a := authHandlers{svc: d.Auth, limits: d.LoginLimiter}
-	mux.Handle("POST /auth/register", limitBy(d.Limits.Register, clientIP, http.HandlerFunc(a.register)))
+	a := authHandlers{svc: d.Auth, limits: d.LoginLimiter, registers: d.Limits.Register}
+	mux.HandleFunc("POST /auth/register", a.register)
 	mux.HandleFunc("POST /auth/login", a.login)
 	mux.Handle("POST /auth/logout", a.requireAuth(http.HandlerFunc(a.logout)))
 

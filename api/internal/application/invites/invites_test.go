@@ -384,6 +384,11 @@ func (p probedInvites) CreateInvite(ctx context.Context, teamID int64, tokenHash
 	return p.Invites.CreateInvite(ctx, teamID, tokenHash, createdBy, expiresAt)
 }
 
+func (p probedInvites) CountLiveInvites(ctx context.Context, teamID int64, now time.Time) (int, error) {
+	p.locked["count"] = testdb.TeamLocked(p.t, p.pool, teamID)
+	return p.Invites.CountLiveInvites(ctx, teamID, now)
+}
+
 func (p probedInvites) RevokeInvite(ctx context.Context, teamID, id int64, now time.Time) error {
 	p.locked["revoke"] = testdb.TeamLocked(p.t, p.pool, teamID)
 	return p.Invites.RevokeInvite(ctx, teamID, id, now)
@@ -408,7 +413,9 @@ func TestAdminWritesRunUnderTheTeamLock(t *testing.T) {
 	if err := svc.Revoke(ctx, f.teamID, f.adminID, inv.ID); err != nil {
 		t.Fatal(err)
 	}
-	for _, op := range []string{"create", "revoke"} {
+	// The MaxLive count must see every committed invite: counted before the
+	// lock, two creates at MaxLive-1 would both pass.
+	for _, op := range []string{"count", "create", "revoke"} {
 		if !locked[op] {
 			t.Errorf("%s ran without the team lock", op)
 		}
