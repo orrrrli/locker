@@ -27,6 +27,7 @@ func newFixture(t *testing.T) *fixture {
 			Tx:          postgres.NewTxRunner(pool),
 			Teams:       postgres.NewTeams(pool),
 			Memberships: postgres.NewMemberships(pool),
+			Users:       postgres.NewUsers(pool),
 		}),
 		pool: pool,
 	}
@@ -52,9 +53,9 @@ func (f *fixture) team(t *testing.T, name string) int64 {
 	return f.exec(t, `INSERT INTO team (name, timezone) VALUES ($1, 'America/Tijuana') RETURNING id`, name)
 }
 
-func (f *fixture) member(t *testing.T, teamID, userID int64, role domain.Role, status domain.MembershipStatus) {
+func (f *fixture) member(t *testing.T, teamID, userID int64, role domain.Role, status domain.MembershipStatus) int64 {
 	t.Helper()
-	f.exec(t, `INSERT INTO membership (team_id, user_id, role, status, joined_at)
+	return f.exec(t, `INSERT INTO membership (team_id, user_id, role, status, joined_at)
 		VALUES ($1, $2, $3, $4, CASE WHEN $4 IN ('active', 'left') THEN now() END) RETURNING id`,
 		teamID, userID, role, status)
 }
@@ -62,7 +63,8 @@ func (f *fixture) member(t *testing.T, teamID, userID int64, role domain.Role, s
 func (f *fixture) check(t *testing.T, userID int64) error {
 	t.Helper()
 	return f.svc.tx.InTx(context.Background(), func(ctx context.Context) error {
-		return f.svc.checkLastAdmin(ctx, userID)
+		_, err := f.svc.checkLastAdmin(ctx, userID)
+		return err
 	})
 }
 
