@@ -5,6 +5,7 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
@@ -275,5 +276,69 @@ func TestJoinedAtBackfill(t *testing.T) {
 	}
 	if err := rows.Err(); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// TestJoinedAtTrigger: the database sets joined_at when a row becomes active
+// without one, as an older image would write it after a rollback, and leaves
+// pending rows, a never-joined row moved to left, and existing dates alone.
+func TestJoinedAtTrigger(t *testing.T) {
+	pool, _ := testPool(t)
+	ctx := context.Background()
+	if err := Migrate(ctx, pool); err != nil {
+		t.Fatal(err)
+	}
+	var team int64
+	if err := pool.QueryRow(ctx, `INSERT INTO team (name, timezone) VALUES ('Pumas', 'America/Tijuana') RETURNING id`).Scan(&team); err != nil {
+		t.Fatal(err)
+	}
+	insert := func(status string) int64 {
+		t.Helper()
+		var id int64
+		// The insert an older image runs: no joined_at.
+		if err := pool.QueryRow(ctx, `INSERT INTO membership (team_id, role, status) VALUES ($1, 'player', $2) RETURNING id`, team, status).Scan(&id); err != nil {
+			t.Fatal(err)
+		}
+		return id
+	}
+	joined := func(id int64) *time.Time {
+		t.Helper()
+		var at *time.Time
+		if err := pool.QueryRow(ctx, `SELECT joined_at FROM membership WHERE id = $1`, id).Scan(&at); err != nil {
+			t.Fatal(err)
+		}
+		return at
+	}
+
+	if joined(insert("active")) == nil {
+		t.Error("active inserted without joined_at: still NULL")
+	}
+	pending := insert("pending")
+	if joined(pending) != nil {
+		t.Error("pending: joined_at set, want NULL")
+	}
+	if _, err := pool.Exec(ctx, `UPDATE membership SET status = 'active' WHERE id = $1`, pending); err != nil {
+		t.Fatal(err)
+	}
+	if joined(pending) == nil {
+		t.Error("pending made active without joined_at: still NULL")
+	}
+
+	// A never-joined row moved to left must not look like a returning member.
+	never := insert("pending")
+	if _, err := pool.Exec(ctx, `UPDATE membership SET status = 'left' WHERE id = $1`, never); err != nil {
+		t.Fatal(err)
+	}
+	if joined(never) != nil {
+		t.Error("never-joined pending moved to left: joined_at set, want NULL")
+	}
+
+	first := time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC)
+	var kept int64
+	if err := pool.QueryRow(ctx, `INSERT INTO membership (team_id, role, status, joined_at) VALUES ($1, 'player', 'active', $2) RETURNING id`, team, first).Scan(&kept); err != nil {
+		t.Fatal(err)
+	}
+	if at := joined(kept); at == nil || !at.Equal(first) {
+		t.Errorf("explicit joined_at = %v, want %v", at, first)
 	}
 }
