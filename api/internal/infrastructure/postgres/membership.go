@@ -106,6 +106,19 @@ func (r *Memberships) UpdateProfile(ctx context.Context, id int64, p domain.Prof
 	return membershipOrNotFound(row, err, "update membership profile")
 }
 
+// SetLeft marks an active membership as left, keeping the row and its
+// history (R8.3). It returns domain.ErrNotFound when the row is not active.
+func (r *Memberships) SetLeft(ctx context.Context, id int64) error {
+	n, err := sqlcdb.New(Conn(ctx, r.pool)).SetMembershipLeft(ctx, id)
+	if err != nil {
+		return fmt.Errorf("postgres: set membership left: %w", err)
+	}
+	if n == 0 {
+		return domain.ErrNotFound
+	}
+	return nil
+}
+
 // Roster lists the team's active members, and its pending ones when
 // withPending is set. Left members never show.
 func (r *Memberships) Roster(ctx context.Context, teamID int64, withPending bool) ([]domain.RosterMember, error) {

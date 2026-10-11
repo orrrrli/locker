@@ -57,6 +57,13 @@ UPDATE membership
 SET status = 'left'
 WHERE id = $1 AND status = 'pending' AND joined_at IS NOT NULL;
 
+-- name: SetMembershipLeft :execrows
+-- A member leaves or is removed: the row stays with its history (R8.3). Only
+-- an active row changes, so a stale read cannot touch a pending or left one.
+UPDATE membership
+SET status = 'left'
+WHERE id = $1 AND status = 'active';
+
 -- name: ListRoster :many
 -- The team's active members, plus its pending ones when include_pending is
 -- set (an admin's approval list, R13.8). Left members never show (R8.1).

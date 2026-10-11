@@ -396,3 +396,69 @@ func TestPatchMembershipProfile(t *testing.T) {
 		})
 	}
 }
+
+// TestDeleteMembership: a member leaves, an admin removes, and the left
+// member loses access to the team (R8.3, R8.5).
+func TestDeleteMembership(t *testing.T) {
+	api := newAPI(t, func() time.Time { return today })
+	_, adminToken := signUp(t, api, "admin@example.com")
+	playerID, playerToken := signUp(t, api, "player@example.com")
+	otherID, otherToken := signUp(t, api, "other@example.com")
+	_, strangerToken := signUp(t, api, "stranger@example.com")
+
+	team := createTeam(t, api, adminToken, "Halcones", "America/Tijuana")
+	addMember(t, api, team.ID, playerID, "player", "active")
+	addMember(t, api, team.ID, otherID, "player", "active")
+	player := membershipID(t, api, team.ID, playerID)
+	other := membershipID(t, api, team.ID, otherID)
+	path := func(id int64) string { return "/memberships/" + strconv.FormatInt(id, 10) }
+	status := func(id int64) string {
+		t.Helper()
+		var s string
+		if err := api.pool.QueryRow(context.Background(), `SELECT status FROM membership WHERE id = $1`, id).Scan(&s); err != nil {
+			t.Fatal(err)
+		}
+		return s
+	}
+
+	if rec := api.do(t, http.MethodDelete, path(player), "", nil); rec.Code != http.StatusUnauthorized {
+		t.Fatalf("no session: status %d", rec.Code)
+	}
+	// A stranger gets 404: the id reveals nothing.
+	if rec := api.do(t, http.MethodDelete, path(player), strangerToken, nil); rec.Code != http.StatusNotFound {
+		t.Fatalf("stranger: status %d, body %s", rec.Code, rec.Body)
+	}
+	// A player cannot remove someone else.
+	if rec := api.do(t, http.MethodDelete, path(other), playerToken, nil); rec.Code != http.StatusForbidden {
+		t.Fatalf("player removes other: status %d, body %s", rec.Code, rec.Body)
+	}
+
+	// The player leaves; the row stays as left.
+	if rec := api.do(t, http.MethodDelete, path(player), playerToken, nil); rec.Code != http.StatusNoContent {
+		t.Fatalf("leave: status %d, body %s", rec.Code, rec.Body)
+	}
+	if s := status(player); s != "left" {
+		t.Fatalf("after leave: status %q, want left", s)
+	}
+	// A left member sees the team no more, and cannot act on it again.
+	if rec := api.do(t, http.MethodGet, "/teams/"+strconv.FormatInt(team.ID, 10), playerToken, nil); rec.Code != http.StatusNotFound {
+		t.Fatalf("left member reads team: status %d", rec.Code)
+	}
+	if rec := api.do(t, http.MethodDelete, path(player), playerToken, nil); rec.Code != http.StatusNotFound {
+		t.Fatalf("leave twice: status %d", rec.Code)
+	}
+
+	// The admin removes a player, and cannot remove the one who already left.
+	if rec := api.do(t, http.MethodDelete, path(other), adminToken, nil); rec.Code != http.StatusNoContent {
+		t.Fatalf("remove: status %d, body %s", rec.Code, rec.Body)
+	}
+	if s := status(other); s != "left" {
+		t.Fatalf("after remove: status %q, want left", s)
+	}
+	if rec := api.do(t, http.MethodDelete, path(player), adminToken, nil); rec.Code != http.StatusConflict || errorCode(t, rec) != "not_active" {
+		t.Fatalf("remove left member: status %d, body %s", rec.Code, rec.Body)
+	}
+	if rec := api.do(t, http.MethodDelete, path(other), otherToken, nil); rec.Code != http.StatusNotFound {
+		t.Fatalf("removed member: status %d", rec.Code)
+	}
+}

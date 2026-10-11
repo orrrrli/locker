@@ -16,6 +16,7 @@ type membershipService interface {
 	Reject(ctx context.Context, teamID, callerID, membershipID int64) error
 	Roster(ctx context.Context, caller domain.Membership) ([]domain.RosterMember, error)
 	UpdateProfile(ctx context.Context, teamID, callerID, membershipID int64, p domain.ProfileChange) (domain.Membership, error)
+	Leave(ctx context.Context, teamID, callerID, membershipID int64) error
 }
 
 type membershipHandlers struct {
@@ -152,6 +153,23 @@ func (h membershipHandlers) update(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, membershipJSON{ID: m.ID, TeamID: m.TeamID, Role: m.Role, Status: m.Status, ShirtNumber: m.ShirtNumber, Position: m.Position})
+}
+
+// leave runs behind requireActiveMember(teamFromMembership): a member leaves
+// with their own id; removing anyone else is admin-only, checked by the use
+// case with LockTeamAsAdmin (R8.3).
+func (h membershipHandlers) leave(w http.ResponseWriter, r *http.Request) {
+	id, err := idFromPath(r, "id")
+	if err != nil {
+		writeError(w, http.StatusNotFound, "not_found")
+		return
+	}
+	caller, _ := membershipFrom(r.Context())
+	if err := h.svc.Leave(r.Context(), caller.TeamID, caller.ID, id); err != nil {
+		membershipErrors.write(w, r, "memberships", err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 var membershipErrors = errorMap{

@@ -535,6 +535,7 @@ func TestPlayerNeverTakesTheTeamLock(t *testing.T) {
 		"change role": func() error { _, err := f.svc.ChangeRole(ctx, team, player, player, domain.RoleAdmin); return err },
 		"approve":     func() error { _, err := f.svc.Approve(ctx, team, player, pending); return err },
 		"reject":      func() error { return f.svc.Reject(ctx, team, player, pending) },
+		"remove":      func() error { return f.svc.Leave(ctx, team, player, admin) },
 		"edit other": func() error {
 			_, err := f.svc.UpdateProfile(ctx, team, player, admin, domain.ProfileChange{SetShirtNumber: true, ShirtNumber: number(1)})
 			return err
@@ -547,6 +548,109 @@ func TestPlayerNeverTakesTheTeamLock(t *testing.T) {
 			}
 			if d := time.Since(start); d > time.Second {
 				t.Fatalf("took %s: waited on the team lock", d)
+			}
+		})
+	}
+}
+
+func (p probedMemberships) SetLeft(ctx context.Context, id int64) error {
+	*p.locked = testdb.TeamLocked(p.t, p.pool, p.teamID)
+	return p.Memberships.SetLeft(ctx, id)
+}
+
+// TestLeave: a member leaves, or an admin removes them, and the row stays as
+// left with its history (R8.3).
+func TestLeave(t *testing.T) {
+	f := newFixture(t)
+	ctx := context.Background()
+	team := f.team(t)
+	admin := f.member(t, team, domain.RoleAdmin, domain.MembershipActive)
+	leaver := f.member(t, team, domain.RolePlayer, domain.MembershipActive)
+	removed := f.member(t, team, domain.RolePlayer, domain.MembershipActive)
+	if _, err := f.pool.Exec(ctx, `UPDATE membership SET shirt_number = 9 WHERE id = $1`, removed); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := f.svc.Leave(ctx, team, leaver, leaver); err != nil {
+		t.Fatalf("leave: %v", err)
+	}
+	if err := f.svc.Leave(ctx, team, admin, removed); err != nil {
+		t.Fatalf("remove: %v", err)
+	}
+	for _, id := range []int64{leaver, removed} {
+		if s, ok := f.status(t, id); !ok || s != domain.MembershipLeft {
+			t.Fatalf("membership %d: status %q, exists %v; want left", id, s, ok)
+		}
+	}
+	var shirt *int
+	if err := f.pool.QueryRow(ctx, `SELECT shirt_number FROM membership WHERE id = $1`, removed).Scan(&shirt); err != nil {
+		t.Fatal(err)
+	}
+	if shirt == nil || *shirt != 9 {
+		t.Fatalf("removed member's shirt number = %v, want 9 kept", shirt)
+	}
+}
+
+func TestLeaveRejects(t *testing.T) {
+	f := newFixture(t)
+	ctx := context.Background()
+	team := f.team(t)
+	admin := f.member(t, team, domain.RoleAdmin, domain.MembershipActive)
+	player := f.member(t, team, domain.RolePlayer, domain.MembershipActive)
+	other := f.member(t, team, domain.RolePlayer, domain.MembershipActive)
+	pending := f.member(t, team, domain.RolePlayer, domain.MembershipPending)
+	left := f.member(t, team, domain.RolePlayer, domain.MembershipLeft)
+	elsewhere := f.member(t, f.team(t), domain.RolePlayer, domain.MembershipActive)
+
+	for _, tc := range []struct {
+		name           string
+		caller, target int64
+		want           error
+	}{
+		{"player removes another", player, other, application.ErrNotAdmin},
+		{"pending target", admin, pending, memberships.ErrNotActive},
+		{"left target", admin, left, memberships.ErrNotActive},
+		{"other team's membership", admin, elsewhere, domain.ErrNotFound},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if err := f.svc.Leave(ctx, team, tc.caller, tc.target); !errors.Is(err, tc.want) {
+				t.Fatalf("err = %v, want %v", err, tc.want)
+			}
+		})
+	}
+	for _, id := range []int64{other, elsewhere} {
+		if s, _ := f.status(t, id); s != domain.MembershipActive {
+			t.Fatalf("membership %d: status %q, want active", id, s)
+		}
+	}
+	if s, _ := f.status(t, pending); s != domain.MembershipPending {
+		t.Fatalf("pending membership: status %q, want pending", s)
+	}
+}
+
+// TestLeaveWritesUnderTheTeamLock: leaving and removing both check the admin
+// count under the team lock, in the same transaction as the write (R6.4).
+func TestLeaveWritesUnderTheTeamLock(t *testing.T) {
+	f := newFixture(t)
+	team := f.team(t)
+	admin := f.member(t, team, domain.RoleAdmin, domain.MembershipActive)
+	for _, op := range []string{"leave", "remove"} {
+		t.Run(op, func(t *testing.T) {
+			player := f.member(t, team, domain.RolePlayer, domain.MembershipActive)
+			var locked bool
+			svc := memberships.NewService(memberships.Deps{
+				Tx:          postgres.NewTxRunner(f.pool),
+				Memberships: probedMemberships{Memberships: postgres.NewMemberships(f.pool), t: t, pool: f.pool, teamID: team, locked: &locked},
+			})
+			caller := player
+			if op == "remove" {
+				caller = admin
+			}
+			if err := svc.Leave(context.Background(), team, caller, player); err != nil {
+				t.Fatal(err)
+			}
+			if !locked {
+				t.Fatalf("%s wrote without the team lock", op)
 			}
 		})
 	}
