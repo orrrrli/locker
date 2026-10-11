@@ -655,3 +655,31 @@ func TestLeaveWritesUnderTheTeamLock(t *testing.T) {
 		})
 	}
 }
+
+// TestLeaveLastAdmin: the team's only active admin cannot leave (R6.4). An
+// admin who left keeps role admin on the left row, and that row must not
+// count as an admin.
+func TestLeaveLastAdmin(t *testing.T) {
+	f := newFixture(t)
+	ctx := context.Background()
+	team := f.team(t)
+	a := f.member(t, team, domain.RoleAdmin, domain.MembershipActive)
+
+	if err := f.svc.Leave(ctx, team, a, a); !errors.Is(err, domain.ErrLastAdmin) {
+		t.Fatalf("only admin leaves: err = %v, want ErrLastAdmin", err)
+	}
+	if s, _ := f.status(t, a); s != domain.MembershipActive {
+		t.Fatalf("only admin: status %q, want active", s)
+	}
+
+	b := f.member(t, team, domain.RoleAdmin, domain.MembershipActive)
+	if err := f.svc.Leave(ctx, team, a, a); err != nil {
+		t.Fatalf("one of two admins leaves: %v", err)
+	}
+	if err := f.svc.Leave(ctx, team, b, b); !errors.Is(err, domain.ErrLastAdmin) {
+		t.Fatalf("last admin after the other left: err = %v, want ErrLastAdmin", err)
+	}
+	if n := f.activeAdmins(t, team); n != 1 {
+		t.Fatalf("active admins = %d, want 1", n)
+	}
+}

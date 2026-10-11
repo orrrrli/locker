@@ -401,7 +401,7 @@ func TestPatchMembershipProfile(t *testing.T) {
 // member loses access to the team (R8.3, R8.5).
 func TestDeleteMembership(t *testing.T) {
 	api := newAPI(t, func() time.Time { return today })
-	_, adminToken := signUp(t, api, "admin@example.com")
+	adminID, adminToken := signUp(t, api, "admin@example.com")
 	playerID, playerToken := signUp(t, api, "player@example.com")
 	otherID, otherToken := signUp(t, api, "other@example.com")
 	_, strangerToken := signUp(t, api, "stranger@example.com")
@@ -409,6 +409,7 @@ func TestDeleteMembership(t *testing.T) {
 	team := createTeam(t, api, adminToken, "Halcones", "America/Tijuana")
 	addMember(t, api, team.ID, playerID, "player", "active")
 	addMember(t, api, team.ID, otherID, "player", "active")
+	admin := membershipID(t, api, team.ID, adminID)
 	player := membershipID(t, api, team.ID, playerID)
 	other := membershipID(t, api, team.ID, otherID)
 	path := func(id int64) string { return "/memberships/" + strconv.FormatInt(id, 10) }
@@ -460,6 +461,14 @@ func TestDeleteMembership(t *testing.T) {
 	}
 	if rec := api.do(t, http.MethodDelete, path(other), otherToken, nil); rec.Code != http.StatusNotFound {
 		t.Fatalf("removed member: status %d", rec.Code)
+	}
+
+	// The only admin cannot leave (R6.4).
+	if rec := api.do(t, http.MethodDelete, path(admin), adminToken, nil); rec.Code != http.StatusConflict || errorCode(t, rec) != "last_admin" {
+		t.Fatalf("last admin leaves: status %d, body %s", rec.Code, rec.Body)
+	}
+	if s := status(admin); s != "active" {
+		t.Fatalf("last admin: status %q, want active", s)
 	}
 }
 
