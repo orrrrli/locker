@@ -3,10 +3,7 @@ package http
 import (
 	"context"
 	"errors"
-	"log/slog"
-	"math"
 	"net/http"
-	"strconv"
 	"strings"
 	"time"
 
@@ -37,8 +34,7 @@ func (h authHandlers) requireAuth(next http.Handler) http.Handler {
 			return
 		}
 		if err != nil {
-			slog.ErrorContext(r.Context(), "auth: authenticate", "err", err)
-			writeError(w, http.StatusInternalServerError, "internal")
+			errorMap{}.write(w, r, "auth: authenticate", err)
 			return
 		}
 		ctx := withUserID(r.Context(), a.UserID)
@@ -62,8 +58,9 @@ func unauthorized(w http.ResponseWriter) {
 }
 
 type authHandlers struct {
-	svc    authService
-	limits *LoginLimiter
+	svc       authService
+	limits    *LoginLimiter
+	registers *RateLimiter // per client IP
 }
 
 type registerRequest struct {
@@ -73,7 +70,26 @@ type registerRequest struct {
 	BirthDate string `json:"birth_date"` // YYYY-MM-DD
 }
 
+// register reserves one of the IP's registrations up front, so parallel
+// requests cannot all pass the limit, and returns it unless the request
+// reached the password hash: a new account or a taken email.
 func (h authHandlers) register(w http.ResponseWriter, r *http.Request) {
+	ip, ok := clientIP(r)
+	if !ok {
+		writeError(w, http.StatusBadRequest, "invalid_request")
+		return
+	}
+	if wait, ok := h.registers.take(ip); !ok {
+		tooManyAttempts(w, wait)
+		return
+	}
+	hashed := false
+	defer func() {
+		if !hashed {
+			h.registers.undo(ip)
+		}
+	}()
+
 	var req registerRequest
 	if !decodeJSON(w, r, &req) {
 		return
@@ -89,6 +105,7 @@ func (h authHandlers) register(w http.ResponseWriter, r *http.Request) {
 	}
 
 	reg, err := h.svc.Register(r.Context(), in)
+	hashed = err == nil || errors.Is(err, auth.ErrEmailTaken)
 	if err != nil {
 		authErrors.write(w, r, "auth", err)
 		return
@@ -114,8 +131,7 @@ func (h authHandlers) login(w http.ResponseWriter, r *http.Request) {
 	attempt, retryAfter, ok := h.limits.begin(req.Email, ip)
 	if !ok {
 		// Same answer for known and unknown emails.
-		w.Header().Set("Retry-After", strconv.Itoa(int(math.Ceil(retryAfter.Seconds()))))
-		writeError(w, http.StatusTooManyRequests, "too_many_attempts")
+		tooManyAttempts(w, retryAfter)
 		return
 	}
 	token, err := h.svc.Login(r.Context(), req.Email, req.Password)
@@ -156,4 +172,5 @@ var authErrors = errorMap{
 	{auth.ErrEmailTaken, http.StatusConflict, "email_taken"},
 	// Same response for an unknown email and a wrong password.
 	{auth.ErrInvalidCredentials, http.StatusUnauthorized, "invalid_credentials"},
+	{domain.ErrServerBusy, http.StatusServiceUnavailable, "server_busy"},
 }

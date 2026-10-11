@@ -87,6 +87,7 @@ var inviteErrors = errorMap{
 	{invites.ErrInviteNotFound, http.StatusNotFound, "invite_not_found"},
 	{invites.ErrInviteExpired, http.StatusGone, "invite_expired"},
 	{invites.ErrInviteRevoked, http.StatusGone, "invite_revoked"},
+	{invites.ErrTooManyInvites, http.StatusConflict, "too_many_invites"},
 	{application.ErrNotAdmin, http.StatusForbidden, "forbidden"},
 	{domain.ErrTeamBusy, http.StatusServiceUnavailable, "team_busy"},
 	{domain.ErrNotFound, http.StatusNotFound, "not_found"},

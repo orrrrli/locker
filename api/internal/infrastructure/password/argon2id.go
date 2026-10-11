@@ -11,6 +11,8 @@ import (
 	"strings"
 
 	"golang.org/x/crypto/argon2"
+
+	"github.com/orrrrli/locker/api/internal/domain"
 )
 
 // Params are the argon2id cost parameters. They are stored in every hash, so
@@ -31,6 +33,10 @@ const (
 	keyLen  = 32
 	// maxConcurrent caps the memory spent hashing: 4 × 19 MiB.
 	maxConcurrent = 4
+	// maxWaiting caps the requests waiting for a slot. Each one holds its
+	// body (up to ~71 KiB decoded), so an unbounded line OOM-kills the
+	// container under a login flood (#176).
+	maxWaiting = 32
 )
 
 var errMalformed = errors.New("password: malformed hash")
@@ -38,11 +44,18 @@ var errMalformed = errors.New("password: malformed hash")
 // Hasher implements the application's password hasher.
 type Hasher struct {
 	params Params
-	slots  chan struct{}
+	// line holds every request hashing or waiting to; slots only those
+	// hashing.
+	line  chan struct{}
+	slots chan struct{}
 }
 
 func NewHasher(p Params) *Hasher {
-	return &Hasher{params: p, slots: make(chan struct{}, maxConcurrent)}
+	return &Hasher{
+		params: p,
+		line:   make(chan struct{}, maxConcurrent+maxWaiting),
+		slots:  make(chan struct{}, maxConcurrent),
+	}
 }
 
 // Hash returns a PHC-format string: $argon2id$v=19$m=…,t=…,p=…$salt$key.
@@ -75,7 +88,16 @@ func (h *Hasher) Verify(ctx context.Context, password, encoded string) (bool, er
 	return subtle.ConstantTimeCompare(got, want) == 1, nil
 }
 
+// derive runs argon2id in a free slot. With the line full it answers
+// domain.ErrServerBusy at once instead of holding the request until a slot
+// frees.
 func (h *Hasher) derive(ctx context.Context, password string, salt []byte, p Params, n uint32) ([]byte, error) {
+	select {
+	case h.line <- struct{}{}:
+	default:
+		return nil, domain.ErrServerBusy
+	}
+	defer func() { <-h.line }()
 	select {
 	case h.slots <- struct{}{}:
 	case <-ctx.Done():

@@ -11,4 +11,7 @@ var (
 	// timeout, or that account deletion found the user joined a team it had
 	// not locked. The request changed nothing and can be retried.
 	ErrTeamBusy = errors.New("team busy, try again")
+	// ErrServerBusy reports that the server turned the request away at
+	// capacity before doing any work. It can be retried.
+	ErrServerBusy = errors.New("server busy, try again")
 )

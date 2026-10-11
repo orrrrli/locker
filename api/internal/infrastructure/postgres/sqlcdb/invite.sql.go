@@ -11,6 +11,24 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const countLiveInvites = `-- name: CountLiveInvites :one
+SELECT count(*) FROM invite
+WHERE team_id = $1 AND revoked_at IS NULL AND expires_at > $2
+`
+
+type CountLiveInvitesParams struct {
+	TeamID int64
+	Now    pgtype.Timestamptz
+}
+
+// Live: neither revoked nor expired at now.
+func (q *Queries) CountLiveInvites(ctx context.Context, arg CountLiveInvitesParams) (int64, error) {
+	row := q.db.QueryRow(ctx, countLiveInvites, arg.TeamID, arg.Now)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const createInvite = `-- name: CreateInvite :one
 INSERT INTO invite (team_id, token_hash, created_by, expires_at)
 VALUES ($1, $2, $3, $4)
@@ -34,6 +52,18 @@ func (q *Queries) CreateInvite(ctx context.Context, arg CreateInviteParams) (int
 	var id int64
 	err := row.Scan(&id)
 	return id, err
+}
+
+const deleteExpiredInvites = `-- name: DeleteExpiredInvites :execrows
+DELETE FROM invite WHERE expires_at <= $1
+`
+
+func (q *Queries) DeleteExpiredInvites(ctx context.Context, expiresAt pgtype.Timestamptz) (int64, error) {
+	result, err := q.db.Exec(ctx, deleteExpiredInvites, expiresAt)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }
 
 const getInviteByTokenHash = `-- name: GetInviteByTokenHash :one

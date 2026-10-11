@@ -3,7 +3,6 @@ package http
 import (
 	"context"
 	"errors"
-	"log/slog"
 	"net/http"
 	"strconv"
 
@@ -116,8 +115,7 @@ func (a authz) require(team teamOf, role domain.Role, next http.Handler) http.Ha
 			return
 		}
 		if err != nil {
-			slog.ErrorContext(r.Context(), "authz: team lookup", "path", r.URL.Path, "err", err)
-			writeError(w, http.StatusInternalServerError, "internal")
+			errorMap{}.write(w, r, "authz: team lookup", err)
 			return
 		}
 		m, err := a.memberships.MembershipByTeamAndUser(r.Context(), teamID, userID)
@@ -126,8 +124,7 @@ func (a authz) require(team teamOf, role domain.Role, next http.Handler) http.Ha
 			return
 		}
 		if err != nil {
-			slog.ErrorContext(r.Context(), "authz: membership lookup", "team_id", teamID, "err", err)
-			writeError(w, http.StatusInternalServerError, "internal")
+			errorMap{}.write(w, r, "authz: membership lookup", err)
 			return
 		}
 		if role != "" && m.Role != role {

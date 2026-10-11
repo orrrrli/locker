@@ -14,11 +14,14 @@ import (
 	"time"
 
 	"github.com/orrrrli/locker/api/internal/application/auth"
+	"github.com/orrrrli/locker/api/internal/application/invites"
+	"github.com/orrrrli/locker/api/internal/domain"
 )
 
 const (
 	rightPassword = "right password"
 	boomPassword  = "makes Login fail with an internal error"
+	busyPassword  = "makes Login find the hasher's line full"
 )
 
 // fakeAuth logs in only with rightPassword and counts Login calls, so a test
@@ -27,6 +30,10 @@ const (
 type fakeAuth struct {
 	calls atomic.Int64
 	delay time.Duration
+	// registerErr is what Register returns; nil registers.
+	registerErr error
+	// user, when set, is who every bearer token authenticates as.
+	user int64
 }
 
 func (f *fakeAuth) Login(_ context.Context, _, password string) (string, error) {
@@ -37,15 +44,23 @@ func (f *fakeAuth) Login(_ context.Context, _, password string) (string, error) 
 		return "token", nil
 	case boomPassword:
 		return "", errors.New("db down")
+	case busyPassword:
+		return "", domain.ErrServerBusy
 	}
 	return "", auth.ErrInvalidCredentials
 }
 
 func (f *fakeAuth) Register(context.Context, auth.RegisterInput) (auth.Registered, error) {
-	return auth.Registered{}, errors.New("not used")
+	if f.registerErr != nil {
+		return auth.Registered{}, f.registerErr
+	}
+	return auth.Registered{UserID: 1, Token: "token"}, nil
 }
 
 func (f *fakeAuth) Authenticate(context.Context, string) (auth.Auth, error) {
+	if f.user != 0 {
+		return auth.Auth{UserID: f.user, SessionID: 1}, nil
+	}
 	return auth.Auth{}, auth.ErrUnauthenticated
 }
 
@@ -185,6 +200,31 @@ func TestLoginLimits(t *testing.T) {
 		lt.expect(lt.login(ipA, "", ana, rightPassword), http.StatusOK)
 	})
 
+	t.Run("successes are budgeted per account", func(t *testing.T) {
+		lt := newLimitTest(t)
+		lt.fail(ipA, ana, 4) // a failure gives its success reservation back
+		for i := 0; i < loginMaxSuccessPerAccount; i++ {
+			lt.expect(lt.login(ipA, "", ana, rightPassword), http.StatusOK)
+		}
+		lt.expect(lt.login(ipB, "", ana, rightPassword), http.StatusTooManyRequests)
+		lt.expect(lt.login(ipA, "", "bob@example.com", rightPassword), http.StatusOK)
+		lt.clk.advance(loginSuccessWindow)
+		lt.expect(lt.login(ipA, "", ana, rightPassword), http.StatusOK)
+	})
+
+	t.Run("a full hasher line is 503 and refunds every reservation", func(t *testing.T) {
+		lt := newLimitTest(t)
+		for i := 0; i < 40; i++ {
+			rec := lt.login(ipA, "", ana, busyPassword)
+			if rec.Code != http.StatusServiceUnavailable || errorCode(t, rec) != "server_busy" {
+				t.Fatalf("status = %d, error = %q; want 503 server_busy", rec.Code, errorCode(t, rec))
+			}
+		}
+		if ip, pair, account := lt.entries(); ip+pair+account+len(lt.lim.success.keys) != 0 {
+			t.Fatal("a busy login left limiter entries behind")
+		}
+	})
+
 	t.Run("block lasts a full window from the last failure", func(t *testing.T) {
 		lt := newLimitTest(t)
 		lt.fail(ipA, ana, 4)
@@ -279,4 +319,120 @@ func TestClientIP(t *testing.T) {
 			t.Fatal("Login was called for a request with a malformed X-Real-IP")
 		}
 	})
+}
+
+func TestRegisterIsLimitedPerIP(t *testing.T) {
+	clk := &clock{t: today}
+	svc := &fakeAuth{}
+	h := NewRouter(Deps{Auth: svc, Limits: NewLimits(clk.now)})
+	register := func(peer, body string) int {
+		req := httptest.NewRequest(http.MethodPost, "/auth/register", strings.NewReader(body))
+		req.RemoteAddr = peer + ":40000"
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+		return rec.Code
+	}
+	// Requests that never reach the hash are free: bad JSON, invalid input.
+	for i := 0; i < 2*registerMaxPerIP; i++ {
+		register(ipA, "not json")
+	}
+	svc.registerErr = auth.ErrInvalidEmail
+	for i := 0; i < 2*registerMaxPerIP; i++ {
+		register(ipA, `{}`)
+	}
+	// A new account and a taken email both hashed, so both count.
+	svc.registerErr = nil
+	for i := 0; i < registerMaxPerIP-1; i++ {
+		if code := register(ipA, `{}`); code != http.StatusCreated {
+			t.Fatalf("registration %d = %d, want 201", i+1, code)
+		}
+	}
+	svc.registerErr = auth.ErrEmailTaken
+	register(ipA, `{}`)
+	svc.registerErr = nil
+	if code := register(ipA, `{}`); code != http.StatusTooManyRequests {
+		t.Fatalf("registration past the limit = %d, want 429", code)
+	}
+	if code := register(ipB, `{}`); code != http.StatusCreated {
+		t.Fatalf("another IP = %d, want 201", code)
+	}
+	clk.advance(registerWindow)
+	if code := register(ipA, `{}`); code != http.StatusCreated {
+		t.Fatalf("after the window = %d, want 201", code)
+	}
+}
+
+// fakeInvites answers every create with ErrTooManyInvites and every accept
+// with ErrInviteNotFound.
+type fakeInvites struct{}
+
+func (fakeInvites) Create(context.Context, int64, int64) (invites.Created, error) {
+	return invites.Created{}, invites.ErrTooManyInvites
+}
+
+func (fakeInvites) Revoke(context.Context, int64, int64, int64) error { return nil }
+
+func (fakeInvites) Accept(context.Context, int64, string) (invites.Accepted, error) {
+	return invites.Accepted{}, invites.ErrInviteNotFound
+}
+
+func TestInviteRoutesAreLimitedPerUser(t *testing.T) {
+	clk := &clock{t: today}
+	admin := domain.Membership{ID: 1, TeamID: teamID, Role: domain.RoleAdmin, Status: domain.MembershipActive}
+	h := NewRouter(Deps{
+		Auth:        &fakeAuth{user: userID},
+		Invites:     fakeInvites{},
+		Memberships: fakeMemberships{m: &admin},
+		Limits:      NewLimits(clk.now),
+	})
+	call := func(path, body string) *httptest.ResponseRecorder {
+		req := httptest.NewRequest(http.MethodPost, path, strings.NewReader(body))
+		req.Header.Set("Authorization", "Bearer x")
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+		return rec
+	}
+	routes := []struct {
+		path, body string
+		max        int
+		status     int
+		code       string
+	}{
+		{"/teams/" + strconv.Itoa(teamID) + "/invites", "", inviteCreateMaxPerUser, http.StatusConflict, "too_many_invites"},
+		{"/invites/accept", `{"token":"t"}`, inviteAcceptMaxPerUser, http.StatusNotFound, "invite_not_found"},
+	}
+	for _, rt := range routes {
+		for i := 0; i < rt.max; i++ {
+			if rec := call(rt.path, rt.body); rec.Code != rt.status || errorCode(t, rec) != rt.code {
+				t.Fatalf("%s call %d = %d %q, want %d %q", rt.path, i+1, rec.Code, errorCode(t, rec), rt.status, rt.code)
+			}
+		}
+		if rec := call(rt.path, rt.body); rec.Code != http.StatusTooManyRequests {
+			t.Fatalf("%s past the limit = %d, want 429", rt.path, rec.Code)
+		}
+	}
+}
+
+func TestLimitByUserKeysOnTheSignedInUser(t *testing.T) {
+	clk := &clock{t: today}
+	rl := NewRateLimiter(2, time.Minute, clk.now)
+	h := limitBy(rl, byUser, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	call := func(userID int64) *httptest.ResponseRecorder {
+		req := httptest.NewRequest(http.MethodPost, "/", nil)
+		req = req.WithContext(withUserID(req.Context(), userID))
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+		return rec
+	}
+	call(1)
+	call(1)
+	rec := call(1)
+	if rec.Code != http.StatusTooManyRequests || rec.Header().Get("Retry-After") != "60" {
+		t.Fatalf("third call = %d, Retry-After %q; want 429 and 60", rec.Code, rec.Header().Get("Retry-After"))
+	}
+	if code := call(2).Code; code != http.StatusNoContent {
+		t.Fatalf("other user = %d, want 204", code)
+	}
 }

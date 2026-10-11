@@ -62,6 +62,7 @@ func start() error {
 		Hasher:   password.NewHasher(password.DefaultParams),
 	})
 	loginLimiter := apihttp.NewLoginLimiter(nil)
+	limits := apihttp.NewLimits(nil)
 	memberships := postgres.NewMemberships(pool)
 	teamSvc := teams.NewService(teams.Deps{
 		Tx:          postgres.NewTxRunner(pool),
@@ -94,19 +95,14 @@ func start() error {
 		DownloadURL:  cfg.DownloadURL,
 		Memberships:  memberships,
 		LoginLimiter: loginLimiter,
+		Limits:       limits,
 	})
 
 	go tick(ctx, tickEvery, func(ctx context.Context) {
 		loginLimiter.Prune()
-		n, err := authSvc.DeleteIdleSessions(ctx)
-		if err != nil {
-			// A run cut short by shutdown is not an error.
-			if ctx.Err() == nil {
-				slog.ErrorContext(ctx, "ticker: delete idle sessions", "err", err)
-			}
-		} else if n > 0 {
-			slog.InfoContext(ctx, "ticker: deleted idle sessions", "count", n)
-		}
+		limits.Prune()
+		cleanup(ctx, "idle sessions", authSvc.DeleteIdleSessions)
+		cleanup(ctx, "expired invites", inviteSvc.DeleteExpired)
 	})
 
 	ln, err := net.Listen("tcp", ":"+strconv.Itoa(cfg.Port))
@@ -120,6 +116,19 @@ func start() error {
 	}
 	slog.Info("api stopped")
 	return nil
+}
+
+// cleanup runs one ticker deletion job and logs its outcome.
+func cleanup(ctx context.Context, what string, del func(context.Context) (int64, error)) {
+	n, err := del(ctx)
+	if err != nil {
+		// A run cut short by shutdown is not an error.
+		if ctx.Err() == nil {
+			slog.ErrorContext(ctx, "ticker: delete "+what, "err", err)
+		}
+	} else if n > 0 {
+		slog.InfoContext(ctx, "ticker: deleted "+what, "count", n)
+	}
 }
 
 // tick runs job every interval until ctx is cancelled. Jobs run one after
@@ -147,6 +156,10 @@ func run(ctx context.Context, ln net.Listener, handler http.Handler) error {
 	srv := &http.Server{
 		Handler:           handler,
 		ReadHeaderTimeout: 10 * time.Second,
+		// Defense in depth: nginx buffers bodies, but a client that reaches
+		// the port directly could otherwise trickle one forever.
+		ReadTimeout: 30 * time.Second,
+		IdleTimeout: 120 * time.Second,
 	}
 
 	serveErr := make(chan error, 1)

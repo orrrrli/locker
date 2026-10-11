@@ -64,3 +64,24 @@ func (r *Invites) RevokeInvite(ctx context.Context, teamID, id int64, now time.T
 	}
 	return nil
 }
+
+// CountLiveInvites counts the team's invites that are neither revoked nor
+// expired at now.
+func (r *Invites) CountLiveInvites(ctx context.Context, teamID int64, now time.Time) (int, error) {
+	n, err := sqlcdb.New(Conn(ctx, r.pool)).CountLiveInvites(ctx, sqlcdb.CountLiveInvitesParams{TeamID: teamID, Now: timestamptz(now)})
+	if err != nil {
+		return 0, fmt.Errorf("postgres: count live invites: %w", err)
+	}
+	return int(n), nil
+}
+
+// DeleteExpired deletes invites that expired at or before cutoff and reports
+// how many it deleted.
+// ponytail: seq scan on invite; add an index on expires_at if the table grows large.
+func (r *Invites) DeleteExpired(ctx context.Context, cutoff time.Time) (int64, error) {
+	n, err := sqlcdb.New(Conn(ctx, r.pool)).DeleteExpiredInvites(ctx, timestamptz(cutoff))
+	if err != nil {
+		return 0, fmt.Errorf("postgres: delete expired invites: %w", err)
+	}
+	return n, nil
+}

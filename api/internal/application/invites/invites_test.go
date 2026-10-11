@@ -384,6 +384,11 @@ func (p probedInvites) CreateInvite(ctx context.Context, teamID int64, tokenHash
 	return p.Invites.CreateInvite(ctx, teamID, tokenHash, createdBy, expiresAt)
 }
 
+func (p probedInvites) CountLiveInvites(ctx context.Context, teamID int64, now time.Time) (int, error) {
+	p.locked["count"] = testdb.TeamLocked(p.t, p.pool, teamID)
+	return p.Invites.CountLiveInvites(ctx, teamID, now)
+}
+
 func (p probedInvites) RevokeInvite(ctx context.Context, teamID, id int64, now time.Time) error {
 	p.locked["revoke"] = testdb.TeamLocked(p.t, p.pool, teamID)
 	return p.Invites.RevokeInvite(ctx, teamID, id, now)
@@ -408,9 +413,57 @@ func TestAdminWritesRunUnderTheTeamLock(t *testing.T) {
 	if err := svc.Revoke(ctx, f.teamID, f.adminID, inv.ID); err != nil {
 		t.Fatal(err)
 	}
-	for _, op := range []string{"create", "revoke"} {
+	// The MaxLive count must see every committed invite: counted before the
+	// lock, two creates at MaxLive-1 would both pass.
+	for _, op := range []string{"count", "create", "revoke"} {
 		if !locked[op] {
 			t.Errorf("%s ran without the team lock", op)
 		}
+	}
+}
+
+func TestCreateCapsLiveInvites(t *testing.T) {
+	f := setup(t)
+	ctx := context.Background()
+	var first invites.Created
+	for i := range invites.MaxLive {
+		inv := f.invite(t)
+		if i == 0 {
+			first = inv
+		}
+	}
+	if _, err := f.svc.Create(ctx, f.teamID, f.adminID); !errors.Is(err, invites.ErrTooManyInvites) {
+		t.Fatalf("invite past MaxLive: err = %v, want ErrTooManyInvites", err)
+	}
+
+	// A revoked invite is not live, so it frees a place.
+	if err := f.svc.Revoke(ctx, f.teamID, f.adminID, first.ID); err != nil {
+		t.Fatal(err)
+	}
+	f.invite(t)
+
+	// So does an expired one: a week later every invite has expired.
+	*f.now = start.Add(invites.Lifetime)
+	f.invite(t)
+}
+
+func TestDeleteExpiredKeepsThirtyDays(t *testing.T) {
+	f := setup(t)
+	ctx := context.Background()
+	old := f.invite(t)
+	*f.now = start.Add(time.Hour)
+	recent := f.invite(t)
+
+	// Exactly 30 days after old expired: old goes, recent (1h younger) stays.
+	*f.now = old.ExpiresAt.Add(30 * 24 * time.Hour)
+	n, err := f.svc.DeleteExpired(ctx)
+	if err != nil || n != 1 {
+		t.Fatalf("DeleteExpired = %d, %v; want 1 deleted", n, err)
+	}
+	if _, err := f.svc.Accept(ctx, f.admin, old.Token); !errors.Is(err, invites.ErrInviteNotFound) {
+		t.Fatalf("accept deleted invite: err = %v, want ErrInviteNotFound", err)
+	}
+	if _, err := f.svc.Accept(ctx, f.admin, recent.Token); !errors.Is(err, invites.ErrInviteExpired) {
+		t.Fatalf("accept kept invite: err = %v, want ErrInviteExpired", err)
 	}
 }
