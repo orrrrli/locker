@@ -83,8 +83,9 @@ func NewService(d Deps) *Service {
 //
 // ponytail: a request that authenticated before this commit but writes after
 // it still attaches to the deleted user: a login's new session, a created
-// team, an accepted invite or join request. Closing it needs those writes to
-// check user.deleted_at; sessions are handled in BE-TEAM-8-T3.
+// team, an accepted invite or join request. Such a session never
+// authenticates (GetSessionByTokenHash skips deleted users); the team and
+// membership writes still need to check user.deleted_at.
 func (s *Service) Delete(ctx context.Context, userID int64) error {
 	return s.tx.InTx(ctx, func(ctx context.Context) error {
 		locked, err := s.checkLastAdmin(ctx, userID)
