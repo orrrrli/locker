@@ -176,6 +176,61 @@ func (q *Queries) GetMembershipInTeam(ctx context.Context, arg GetMembershipInTe
 	return i, err
 }
 
+const listRoster = `-- name: ListRoster :many
+SELECT m.id, m.role, m.status, m.shirt_number, m.position,
+       coalesce(m.display_name_override, u.name, '')::text AS name
+FROM membership m
+LEFT JOIN "user" u ON u.id = m.user_id
+WHERE m.team_id = $1
+  AND (m.status = 'active' OR ($2::boolean AND m.status = 'pending'))
+ORDER BY m.status = 'pending', name, m.id
+`
+
+type ListRosterParams struct {
+	TeamID         int64
+	IncludePending bool
+}
+
+type ListRosterRow struct {
+	ID          int64
+	Role        string
+	Status      string
+	ShirtNumber pgtype.Int4
+	Position    pgtype.Text
+	Name        string
+}
+
+// The team's active members, plus its pending ones when include_pending is
+// set (an admin's approval list, R13.8). Left members never show (R8.1).
+// An anonymized member shows the override, "Ex-jugador #N" (R5.3).
+// Actives first, then pending.
+func (q *Queries) ListRoster(ctx context.Context, arg ListRosterParams) ([]ListRosterRow, error) {
+	rows, err := q.db.Query(ctx, listRoster, arg.TeamID, arg.IncludePending)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListRosterRow
+	for rows.Next() {
+		var i ListRosterRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Role,
+			&i.Status,
+			&i.ShirtNumber,
+			&i.Position,
+			&i.Name,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const rejoinMembership = `-- name: RejoinMembership :execrows
 UPDATE membership
 SET role = 'player', status = 'pending'
@@ -207,6 +262,50 @@ func (q *Queries) SetReturningPendingMembershipLeft(ctx context.Context, id int6
 		return 0, err
 	}
 	return result.RowsAffected(), nil
+}
+
+const updateMembershipProfile = `-- name: UpdateMembershipProfile :one
+UPDATE membership
+SET shirt_number = CASE WHEN $1::boolean THEN $2::integer ELSE shirt_number END,
+    position     = CASE WHEN $3::boolean THEN $4::text ELSE position END
+WHERE id = $5 AND status = 'active'
+RETURNING id, team_id, user_id, role, status, shirt_number, position, display_name_override, push_muted, created_at, joined_at
+`
+
+type UpdateMembershipProfileParams struct {
+	SetShirtNumber bool
+	ShirtNumber    pgtype.Int4
+	SetPosition    bool
+	Position       pgtype.Text
+	ID             int64
+}
+
+// Sets shirt number and position, per membership (R8.2). A field whose set_
+// flag is false keeps its value; a set field with NULL clears it. Only an
+// active membership changes.
+func (q *Queries) UpdateMembershipProfile(ctx context.Context, arg UpdateMembershipProfileParams) (Membership, error) {
+	row := q.db.QueryRow(ctx, updateMembershipProfile,
+		arg.SetShirtNumber,
+		arg.ShirtNumber,
+		arg.SetPosition,
+		arg.Position,
+		arg.ID,
+	)
+	var i Membership
+	err := row.Scan(
+		&i.ID,
+		&i.TeamID,
+		&i.UserID,
+		&i.Role,
+		&i.Status,
+		&i.ShirtNumber,
+		&i.Position,
+		&i.DisplayNameOverride,
+		&i.PushMuted,
+		&i.CreatedAt,
+		&i.JoinedAt,
+	)
+	return i, err
 }
 
 const updateMembershipRole = `-- name: UpdateMembershipRole :one
