@@ -97,3 +97,136 @@ func TestPatchMembershipRole(t *testing.T) {
 		t.Fatalf("no session: status %d", rec.Code)
 	}
 }
+
+func TestPatchMembershipApproveReject(t *testing.T) {
+	api := newAPI(t, func() time.Time { return today })
+	_, adminToken := signUp(t, api, "admin@example.com")
+	aID, _ := signUp(t, api, "a@example.com")
+	bID, _ := signUp(t, api, "b@example.com")
+	cID, cToken := signUp(t, api, "c@example.com")
+	team := createTeam(t, api, adminToken, "Halcones", "America/Tijuana")
+	addMember(t, api, team.ID, aID, "player", "pending")
+	addMember(t, api, team.ID, bID, "player", "pending")
+	addMember(t, api, team.ID, cID, "player", "active")
+	a := membershipID(t, api, team.ID, aID)
+	b := membershipID(t, api, team.ID, bID)
+	path := func(id int64) string { return "/memberships/" + strconv.FormatInt(id, 10) }
+
+	// A player cannot approve.
+	if rec := api.do(t, http.MethodPatch, path(a), cToken, map[string]string{"status": "active"}); rec.Code != http.StatusForbidden {
+		t.Fatalf("player approves: status %d, body %s", rec.Code, rec.Body)
+	}
+
+	// Approve (R7.3).
+	rec := api.do(t, http.MethodPatch, path(a), adminToken, map[string]string{"status": "active"})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("approve: status %d, body %s", rec.Code, rec.Body)
+	}
+	var got membershipJSON
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatal(err)
+	}
+	if got.ID != a || got.Status != "active" || got.Role != "player" {
+		t.Fatalf("approved = %+v", got)
+	}
+
+	// Approving again: no longer pending.
+	rec = api.do(t, http.MethodPatch, path(a), adminToken, map[string]string{"status": "active"})
+	if rec.Code != http.StatusConflict || errorCode(t, rec) != "not_pending" {
+		t.Fatalf("approve twice: status %d, body %s", rec.Code, rec.Body)
+	}
+
+	// Reject (R7.4): 204, and the row is gone.
+	if rec := api.do(t, http.MethodPatch, path(b), adminToken, map[string]string{"status": "rejected"}); rec.Code != http.StatusNoContent {
+		t.Fatalf("reject: status %d, body %s", rec.Code, rec.Body)
+	}
+	var n int
+	if err := api.pool.QueryRow(context.Background(), `SELECT count(*) FROM membership WHERE id = $1`, b).Scan(&n); err != nil || n != 0 {
+		t.Fatalf("rejected rows = %d, err = %v; want 0", n, err)
+	}
+
+	for _, tc := range []struct {
+		name string
+		body any
+		code string
+	}{
+		{"unknown status", map[string]string{"status": "left"}, "invalid_status"},
+		{"role and status together", map[string]string{"role": "admin", "status": "active"}, "one_change_at_a_time"},
+		{"empty body", map[string]string{}, "nothing_to_update"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			rec := api.do(t, http.MethodPatch, path(a), adminToken, tc.body)
+			if rec.Code != http.StatusUnprocessableEntity || errorCode(t, rec) != tc.code {
+				t.Fatalf("status %d, body %s", rec.Code, rec.Body)
+			}
+		})
+	}
+}
+
+// TestPendingSeesNothingUntilApproved: a user who joins through a real invite
+// is pending and gets the same 404 as a stranger on every team route, and
+// the team is not in their list (R7.6). Approval opens the team as a player;
+// rejection keeps it closed.
+func TestPendingSeesNothingUntilApproved(t *testing.T) {
+	api := newAPI(t, func() time.Time { return today })
+	_, adminToken := signUp(t, api, "admin@example.com")
+	anaID, anaToken := signUp(t, api, "ana@example.com")
+	beaID, beaToken := signUp(t, api, "bea@example.com")
+	team := createTeam(t, api, adminToken, "Pumas", "America/Tijuana")
+	inv := createInvite(t, api, adminToken, team.ID)
+	for _, token := range []string{anaToken, beaToken} {
+		if rec := api.do(t, http.MethodPost, "/invites/accept", token, map[string]string{"token": inv.Token}); rec.Code != http.StatusCreated {
+			t.Fatalf("accept: status %d, body %s", rec.Code, rec.Body)
+		}
+	}
+	ana := membershipID(t, api, team.ID, anaID)
+	bea := membershipID(t, api, team.ID, beaID)
+
+	// Every team route that exists today. A new team route belongs here too.
+	routes := func(self int64) []struct{ method, path string } {
+		return []struct{ method, path string }{
+			{http.MethodGet, teamPath(team.ID)},
+			{http.MethodPatch, teamPath(team.ID)},
+			{http.MethodPost, teamPath(team.ID) + "/invites"},
+			{http.MethodDelete, teamPath(team.ID) + "/invites/" + strconv.FormatInt(inv.ID, 10)},
+			{http.MethodPatch, "/memberships/" + strconv.FormatInt(self, 10)},
+		}
+	}
+	shutOut := func(t *testing.T, token string, self int64) {
+		t.Helper()
+		for _, r := range routes(self) {
+			// The API's own not_found, not the mux's: a route that moved
+			// would otherwise keep passing against its old path.
+			rec := api.do(t, r.method, r.path, token, map[string]string{"name": "Hackers", "status": "active"})
+			if rec.Code != http.StatusNotFound || errorCode(t, rec) != "not_found" {
+				t.Errorf("%s %s: status %d, body %s; want 404 not_found", r.method, r.path, rec.Code, rec.Body)
+			}
+		}
+		if got := listTeamIDs(t, api, token); len(got) != 0 {
+			t.Errorf("GET /teams = %v, want none", got)
+		}
+	}
+
+	shutOut(t, anaToken, ana)
+	shutOut(t, beaToken, bea)
+
+	// Approved: Ana reads the team as a player, and still cannot change it.
+	if rec := api.do(t, http.MethodPatch, "/memberships/"+strconv.FormatInt(ana, 10), adminToken, map[string]string{"status": "active"}); rec.Code != http.StatusOK {
+		t.Fatalf("approve: status %d, body %s", rec.Code, rec.Body)
+	}
+	if rec := api.do(t, http.MethodGet, teamPath(team.ID), anaToken, nil); rec.Code != http.StatusOK {
+		t.Fatalf("approved GET team: status %d", rec.Code)
+	}
+	if got := listTeamIDs(t, api, anaToken); len(got) != 1 || got[0] != team.ID {
+		t.Fatalf("approved GET /teams = %v, want [%d]", got, team.ID)
+	}
+	if rec := api.do(t, http.MethodPatch, teamPath(team.ID), anaToken, map[string]string{"name": "Hackers"}); rec.Code != http.StatusForbidden {
+		t.Fatalf("approved player PATCH team: status %d, want 403", rec.Code)
+	}
+
+	// Rejected: Bea stays shut out, now as a stranger.
+	if rec := api.do(t, http.MethodPatch, "/memberships/"+strconv.FormatInt(bea, 10), adminToken, map[string]string{"status": "rejected"}); rec.Code != http.StatusNoContent {
+		t.Fatalf("reject: status %d, body %s", rec.Code, rec.Body)
+	}
+	shutOut(t, beaToken, bea)
+}

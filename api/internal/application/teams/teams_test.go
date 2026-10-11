@@ -59,6 +59,10 @@ func TestCreateMakesCreatorActiveAdmin(t *testing.T) {
 	if m.Role != domain.RoleAdmin || m.Status != domain.MembershipActive {
 		t.Fatalf("membership role=%s status=%s, want admin active", m.Role, m.Status)
 	}
+	var joined *time.Time
+	if err := pool.QueryRow(ctx, `SELECT joined_at FROM membership WHERE id = $1`, m.ID).Scan(&joined); err != nil || joined == nil {
+		t.Fatalf("creator joined_at = %v, err = %v; want set", joined, err)
+	}
 }
 
 func TestCreateRejectsInvalidInput(t *testing.T) {

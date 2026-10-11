@@ -5,7 +5,9 @@ import (
 	"errors"
 	"fmt"
 	"testing"
+	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/orrrrli/locker/api/internal/application"
@@ -54,7 +56,9 @@ func (f *fixture) member(t *testing.T, teamID int64, role domain.Role, status do
 		fmt.Sprint("u", f.n)).Scan(&userID); err != nil {
 		t.Fatal(err)
 	}
-	if err := f.pool.QueryRow(ctx, `INSERT INTO membership (team_id, user_id, role, status) VALUES ($1, $2, $3, $4) RETURNING id`,
+	if err := f.pool.QueryRow(ctx, // joined_at as the app sets it: every active or left row has joined.
+		`INSERT INTO membership (team_id, user_id, role, status, joined_at)
+		 VALUES ($1, $2, $3, $4, CASE WHEN $4 IN ('active', 'left') THEN now() END) RETURNING id`,
 		teamID, userID, role, status).Scan(&id); err != nil {
 		t.Fatal(err)
 	}
@@ -181,5 +185,183 @@ func TestChangeRoleWritesUnderTheTeamLock(t *testing.T) {
 	}
 	if !locked {
 		t.Fatal("UpdateRole ran without the team lock")
+	}
+}
+
+func (f *fixture) status(t *testing.T, id int64) (domain.MembershipStatus, bool) {
+	t.Helper()
+	var s string
+	err := f.pool.QueryRow(context.Background(), `SELECT status FROM membership WHERE id = $1`, id).Scan(&s)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", false
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+	return domain.MembershipStatus(s), true
+}
+
+func TestApprove(t *testing.T) {
+	f := newFixture(t)
+	ctx := context.Background()
+	team := f.team(t)
+	admin := f.member(t, team, domain.RoleAdmin, domain.MembershipActive)
+	pending := f.member(t, team, domain.RolePlayer, domain.MembershipPending)
+
+	m, err := f.svc.Approve(ctx, team, admin, pending)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if m.ID != pending || m.Status != domain.MembershipActive || m.Role != domain.RolePlayer {
+		t.Fatalf("approved = %+v, want active player (R7.3)", m)
+	}
+
+	var joined *time.Time
+	if err := f.pool.QueryRow(ctx, `SELECT joined_at FROM membership WHERE id = $1`, pending).Scan(&joined); err != nil || joined == nil {
+		t.Fatalf("approved: joined_at = %v, err = %v; want set", joined, err)
+	}
+
+	// A member who comes back keeps the date they first joined.
+	returning := f.member(t, team, domain.RolePlayer, domain.MembershipLeft)
+	first := time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC)
+	if _, err := f.pool.Exec(ctx, `UPDATE membership SET status = 'pending', joined_at = $2 WHERE id = $1`, returning, first); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.svc.Approve(ctx, team, admin, returning); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.pool.QueryRow(ctx, `SELECT joined_at FROM membership WHERE id = $1`, returning).Scan(&joined); err != nil || !joined.Equal(first) {
+		t.Fatalf("returning member approved: joined_at = %v, err = %v; want %v", joined, err, first)
+	}
+
+	// Approval always grants player, whatever role the pending row carries.
+	// No path creates a pending admin today (accept and rejoin both use
+	// player); this guards the query, not a user flow.
+	pendingAdmin := f.member(t, team, domain.RoleAdmin, domain.MembershipPending)
+	m, err = f.svc.Approve(ctx, team, admin, pendingAdmin)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if m.Role != domain.RolePlayer {
+		t.Fatalf("approved pending admin: role = %s, want player", m.Role)
+	}
+}
+
+func TestReject(t *testing.T) {
+	f := newFixture(t)
+	ctx := context.Background()
+	team := f.team(t)
+	admin := f.member(t, team, domain.RoleAdmin, domain.MembershipActive)
+
+	// A new member: the row is deleted, nothing is left behind (R13.6).
+	fresh := f.member(t, team, domain.RolePlayer, domain.MembershipPending)
+	if err := f.svc.Reject(ctx, team, admin, fresh); err != nil {
+		t.Fatal(err)
+	}
+	if _, exists := f.status(t, fresh); exists {
+		t.Fatal("rejected new member: row still exists")
+	}
+
+	// A member who left and came back, with a shirt number but no other
+	// history pointing at the row: it goes back to left and keeps the row
+	// (R8.4), so a later rejoin finds the same number.
+	returning := f.member(t, team, domain.RolePlayer, domain.MembershipLeft)
+	if _, err := f.pool.Exec(ctx, `UPDATE membership SET shirt_number = 10 WHERE id = $1`, returning); err != nil {
+		t.Fatal(err)
+	}
+	if err := postgres.NewMemberships(f.pool).RejoinMembership(ctx, returning); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.svc.Reject(ctx, team, admin, returning); err != nil {
+		t.Fatal(err)
+	}
+	var status string
+	var shirt *int
+	if err := f.pool.QueryRow(ctx, `SELECT status, shirt_number FROM membership WHERE id = $1`, returning).Scan(&status, &shirt); err != nil {
+		t.Fatalf("rejected returning member: %v (row deleted?)", err)
+	}
+	if status != string(domain.MembershipLeft) || shirt == nil || *shirt != 10 {
+		t.Fatalf("rejected returning member: status = %q, shirt = %v; want left, 10", status, shirt)
+	}
+}
+
+func TestApproveRejectRefuse(t *testing.T) {
+	f := newFixture(t)
+	ctx := context.Background()
+	team, other := f.team(t), f.team(t)
+	admin := f.member(t, team, domain.RoleAdmin, domain.MembershipActive)
+	player := f.member(t, team, domain.RolePlayer, domain.MembershipActive)
+	left := f.member(t, team, domain.RoleAdmin, domain.MembershipLeft)
+	pending := f.member(t, team, domain.RolePlayer, domain.MembershipPending)
+	elsewhere := f.member(t, other, domain.RolePlayer, domain.MembershipPending)
+
+	for _, tc := range []struct {
+		name       string
+		caller, id int64
+		want       error
+	}{
+		{"active member", admin, player, memberships.ErrNotPending},
+		{"left member", admin, left, memberships.ErrNotPending},
+		{"pending of another team", admin, elsewhere, domain.ErrNotFound},
+		{"unknown membership", admin, 999999, domain.ErrNotFound},
+		{"caller is a player", player, pending, application.ErrNotAdmin},
+		{"caller left the team", left, pending, domain.ErrNotFound},
+		{"caller is pending", pending, pending, domain.ErrNotFound},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if _, err := f.svc.Approve(ctx, team, tc.caller, tc.id); !errors.Is(err, tc.want) {
+				t.Fatalf("approve: err = %v, want %v", err, tc.want)
+			}
+			if err := f.svc.Reject(ctx, team, tc.caller, tc.id); !errors.Is(err, tc.want) {
+				t.Fatalf("reject: err = %v, want %v", err, tc.want)
+			}
+		})
+	}
+	if s, _ := f.status(t, pending); s != domain.MembershipPending {
+		t.Fatalf("pending status = %q, want pending: a refused call changed it", s)
+	}
+	if s, _ := f.status(t, elsewhere); s != domain.MembershipPending {
+		t.Fatalf("other team's pending status = %q, want pending", s)
+	}
+}
+
+func (p probedMemberships) ApprovePending(ctx context.Context, id int64) (domain.Membership, error) {
+	*p.locked = testdb.TeamLocked(p.t, p.pool, p.teamID)
+	return p.Memberships.ApprovePending(ctx, id)
+}
+
+func (p probedMemberships) RejectPending(ctx context.Context, id int64) error {
+	*p.locked = testdb.TeamLocked(p.t, p.pool, p.teamID)
+	return p.Memberships.RejectPending(ctx, id)
+}
+
+// TestApproveRejectWriteUnderTheTeamLock: the caller check and the write share
+// one transaction and one lock.
+func TestApproveRejectWriteUnderTheTeamLock(t *testing.T) {
+	f := newFixture(t)
+	ctx := context.Background()
+	team := f.team(t)
+	admin := f.member(t, team, domain.RoleAdmin, domain.MembershipActive)
+	for _, op := range []string{"approve", "reject"} {
+		t.Run(op, func(t *testing.T) {
+			pending := f.member(t, team, domain.RolePlayer, domain.MembershipPending)
+			var locked bool
+			svc := memberships.NewService(memberships.Deps{
+				Tx:          postgres.NewTxRunner(f.pool),
+				Memberships: probedMemberships{Memberships: postgres.NewMemberships(f.pool), t: t, pool: f.pool, teamID: team, locked: &locked},
+			})
+			var err error
+			if op == "approve" {
+				_, err = svc.Approve(ctx, team, admin, pending)
+			} else {
+				err = svc.Reject(ctx, team, admin, pending)
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !locked {
+				t.Fatalf("%s wrote without the team lock", op)
+			}
+		})
 	}
 }
