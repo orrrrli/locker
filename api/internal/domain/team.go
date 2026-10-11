@@ -44,6 +44,15 @@ type Membership struct {
 	CreatedAt           time.Time
 }
 
+// ProfileChange sets shirt number and position (R8.2). A field is changed
+// only when its Set flag is true; a nil value clears it.
+type ProfileChange struct {
+	SetShirtNumber bool
+	ShirtNumber    *int
+	SetPosition    bool
+	Position       *string
+}
+
 // RosterMember is one line of the team's member list (R8.1).
 type RosterMember struct {
 	ID          int64

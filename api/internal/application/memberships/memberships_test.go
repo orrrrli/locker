@@ -365,3 +365,189 @@ func TestApproveRejectWriteUnderTheTeamLock(t *testing.T) {
 		})
 	}
 }
+
+func (p probedMemberships) UpdateProfile(ctx context.Context, id int64, c domain.ProfileChange) (domain.Membership, error) {
+	*p.locked = testdb.TeamLocked(p.t, p.pool, p.teamID)
+	return p.Memberships.UpdateProfile(ctx, id, c)
+}
+
+func number(n int) *int     { return &n }
+func text(s string) *string { return &s }
+
+func TestUpdateProfile(t *testing.T) {
+	f := newFixture(t)
+	ctx := context.Background()
+	team := f.team(t)
+	admin := f.member(t, team, domain.RoleAdmin, domain.MembershipActive)
+	player := f.member(t, team, domain.RolePlayer, domain.MembershipActive)
+	both := domain.ProfileChange{SetShirtNumber: true, ShirtNumber: number(10), SetPosition: true, Position: text("forward")}
+
+	// The member sets their own (R8.2).
+	m, err := f.svc.UpdateProfile(ctx, team, player, player, both)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if m.ShirtNumber == nil || *m.ShirtNumber != 10 || m.Position == nil || *m.Position != "forward" {
+		t.Fatalf("self = %+v", m)
+	}
+
+	// A field not sent keeps its value; null clears it.
+	m, err = f.svc.UpdateProfile(ctx, team, player, player, domain.ProfileChange{SetShirtNumber: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if m.ShirtNumber != nil || m.Position == nil || *m.Position != "forward" {
+		t.Fatalf("clear number = %+v", m)
+	}
+
+	// Position alone keeps the number.
+	if _, err := f.svc.UpdateProfile(ctx, team, player, player, domain.ProfileChange{SetShirtNumber: true, ShirtNumber: number(8)}); err != nil {
+		t.Fatal(err)
+	}
+	m, err = f.svc.UpdateProfile(ctx, team, player, player, domain.ProfileChange{SetPosition: true, Position: text("defender")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if m.ShirtNumber == nil || *m.ShirtNumber != 8 || m.Position == nil || *m.Position != "defender" {
+		t.Fatalf("position only = %+v", m)
+	}
+
+	// An admin edits anyone; a player only themselves.
+	if _, err := f.svc.UpdateProfile(ctx, team, admin, player, both); err != nil {
+		t.Fatalf("admin: %v", err)
+	}
+	if _, err := f.svc.UpdateProfile(ctx, team, player, admin, both); !errors.Is(err, application.ErrNotAdmin) {
+		t.Fatalf("player edits admin: err = %v, want ErrNotAdmin", err)
+	}
+
+	// Number and position belong to the membership, not the user: the same
+	// user in another team keeps their own (R8.2).
+	other := f.team(t)
+	var userID int64
+	if err := f.pool.QueryRow(ctx, `SELECT user_id FROM membership WHERE id = $1`, player).Scan(&userID); err != nil {
+		t.Fatal(err)
+	}
+	var elsewhere int64
+	if err := f.pool.QueryRow(ctx, `INSERT INTO membership (team_id, user_id, role, status, joined_at)
+		VALUES ($1, $2, 'admin', 'active', now()) RETURNING id`, other, userID).Scan(&elsewhere); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.svc.UpdateProfile(ctx, other, elsewhere, elsewhere, domain.ProfileChange{SetShirtNumber: true, ShirtNumber: number(7)}); err != nil {
+		t.Fatal(err)
+	}
+	var here, there int
+	if err := f.pool.QueryRow(ctx, `SELECT
+		(SELECT shirt_number FROM membership WHERE id = $1), (SELECT shirt_number FROM membership WHERE id = $2)`,
+		player, elsewhere).Scan(&here, &there); err != nil {
+		t.Fatal(err)
+	}
+	if here != 10 || there != 7 {
+		t.Fatalf("numbers = %d and %d, want 10 and 7", here, there)
+	}
+}
+
+func TestUpdateProfileRejects(t *testing.T) {
+	f := newFixture(t)
+	ctx := context.Background()
+	team := f.team(t)
+	admin := f.member(t, team, domain.RoleAdmin, domain.MembershipActive)
+	pending := f.member(t, team, domain.RolePlayer, domain.MembershipPending)
+	left := f.member(t, team, domain.RolePlayer, domain.MembershipLeft)
+	elsewhere := f.member(t, f.team(t), domain.RolePlayer, domain.MembershipActive)
+	for _, tc := range []struct {
+		name   string
+		target int64
+		change domain.ProfileChange
+		want   error
+	}{
+		{"negative number", admin, domain.ProfileChange{SetShirtNumber: true, ShirtNumber: number(-1)}, memberships.ErrInvalidShirtNumber},
+		{"number over 99", admin, domain.ProfileChange{SetShirtNumber: true, ShirtNumber: number(100)}, memberships.ErrInvalidShirtNumber},
+		{"unknown position", admin, domain.ProfileChange{SetPosition: true, Position: text("striker")}, memberships.ErrInvalidPosition},
+		{"pending", pending, domain.ProfileChange{SetShirtNumber: true, ShirtNumber: number(9)}, memberships.ErrNotActive},
+		{"left", left, domain.ProfileChange{SetShirtNumber: true, ShirtNumber: number(9)}, memberships.ErrNotActive},
+		{"other team", elsewhere, domain.ProfileChange{SetShirtNumber: true, ShirtNumber: number(9)}, domain.ErrNotFound},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if _, err := f.svc.UpdateProfile(ctx, team, admin, tc.target, tc.change); !errors.Is(err, tc.want) {
+				t.Fatalf("err = %v, want %v", err, tc.want)
+			}
+		})
+	}
+	for _, p := range []string{"goalkeeper", "defender", "midfielder", "forward"} {
+		if _, err := f.svc.UpdateProfile(ctx, team, admin, admin, domain.ProfileChange{SetPosition: true, Position: text(p)}); err != nil {
+			t.Fatalf("%s: %v", p, err)
+		}
+	}
+	for _, n := range []int{0, 99} {
+		if _, err := f.svc.UpdateProfile(ctx, team, admin, admin, domain.ProfileChange{SetShirtNumber: true, ShirtNumber: number(n)}); err != nil {
+			t.Fatalf("%d: %v", n, err)
+		}
+	}
+}
+
+// TestUpdateProfileLocksOnlyForOthers: editing someone else is an admin write
+// and runs under the team lock; editing yourself needs no lock.
+func TestUpdateProfileLocksOnlyForOthers(t *testing.T) {
+	f := newFixture(t)
+	team := f.team(t)
+	admin := f.member(t, team, domain.RoleAdmin, domain.MembershipActive)
+	player := f.member(t, team, domain.RolePlayer, domain.MembershipActive)
+	var locked bool
+	svc := memberships.NewService(memberships.Deps{
+		Tx:          postgres.NewTxRunner(f.pool),
+		Memberships: probedMemberships{Memberships: postgres.NewMemberships(f.pool), t: t, pool: f.pool, teamID: team, locked: &locked},
+	})
+	change := domain.ProfileChange{SetShirtNumber: true, ShirtNumber: number(5)}
+	if _, err := svc.UpdateProfile(context.Background(), team, admin, player, change); err != nil {
+		t.Fatal(err)
+	}
+	if !locked {
+		t.Fatal("an admin's edit ran without the team lock")
+	}
+	if _, err := svc.UpdateProfile(context.Background(), team, player, player, change); err != nil {
+		t.Fatal(err)
+	}
+	if locked {
+		t.Fatal("a self edit took the team lock")
+	}
+}
+
+// TestPlayerNeverTakesTheTeamLock: PATCH /memberships/{id} lets any active
+// member in, so a player's admin-only request must fail before the team lock.
+// With the lock held elsewhere, it answers ErrNotAdmin at once instead of
+// waiting and failing with ErrTeamBusy.
+func TestPlayerNeverTakesTheTeamLock(t *testing.T) {
+	f := newFixture(t)
+	ctx := context.Background()
+	team := f.team(t)
+	admin := f.member(t, team, domain.RoleAdmin, domain.MembershipActive)
+	player := f.member(t, team, domain.RolePlayer, domain.MembershipActive)
+	pending := f.member(t, team, domain.RolePlayer, domain.MembershipPending)
+	tx, err := f.pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback(ctx)
+	if _, err := tx.Exec(ctx, `SELECT 1 FROM team WHERE id = $1 FOR NO KEY UPDATE`, team); err != nil {
+		t.Fatal(err)
+	}
+	for name, call := range map[string]func() error{
+		"change role": func() error { _, err := f.svc.ChangeRole(ctx, team, player, player, domain.RoleAdmin); return err },
+		"approve":     func() error { _, err := f.svc.Approve(ctx, team, player, pending); return err },
+		"reject":      func() error { return f.svc.Reject(ctx, team, player, pending) },
+		"edit other": func() error {
+			_, err := f.svc.UpdateProfile(ctx, team, player, admin, domain.ProfileChange{SetShirtNumber: true, ShirtNumber: number(1)})
+			return err
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			start := time.Now()
+			if err := call(); !errors.Is(err, application.ErrNotAdmin) {
+				t.Fatalf("err = %v, want ErrNotAdmin", err)
+			}
+			if d := time.Since(start); d > time.Second {
+				t.Fatalf("took %s: waited on the team lock", d)
+			}
+		})
+	}
+}

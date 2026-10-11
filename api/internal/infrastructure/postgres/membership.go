@@ -92,6 +92,20 @@ func (r *Memberships) RejectPending(ctx context.Context, id int64) error {
 	return nil
 }
 
+// UpdateProfile sets an active membership's shirt number and position and
+// returns the updated row, or domain.ErrNotFound when it is not active.
+func (r *Memberships) UpdateProfile(ctx context.Context, id int64, p domain.ProfileChange) (domain.Membership, error) {
+	arg := sqlcdb.UpdateMembershipProfileParams{ID: id, SetShirtNumber: p.SetShirtNumber, SetPosition: p.SetPosition}
+	if p.ShirtNumber != nil {
+		arg.ShirtNumber = pgtype.Int4{Int32: int32(*p.ShirtNumber), Valid: true}
+	}
+	if p.Position != nil {
+		arg.Position = pgtype.Text{String: *p.Position, Valid: true}
+	}
+	row, err := sqlcdb.New(Conn(ctx, r.pool)).UpdateMembershipProfile(ctx, arg)
+	return membershipOrNotFound(row, err, "update membership profile")
+}
+
 // Roster lists the team's active members, and its pending ones when
 // withPending is set. Left members never show.
 func (r *Memberships) Roster(ctx context.Context, teamID int64, withPending bool) ([]domain.RosterMember, error) {

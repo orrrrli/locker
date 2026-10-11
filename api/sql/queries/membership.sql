@@ -67,4 +67,15 @@ FROM membership m
 LEFT JOIN "user" u ON u.id = m.user_id
 WHERE m.team_id = sqlc.arg(team_id)
   AND (m.status = 'active' OR (sqlc.arg(include_pending)::boolean AND m.status = 'pending'))
-ORDER BY m.status = 'pending', name, m.id; -- actives first
+-- Actives first, then pending.
+ORDER BY m.status = 'pending', name, m.id;
+
+-- name: UpdateMembershipProfile :one
+-- Sets shirt number and position, per membership (R8.2). A field whose set_
+-- flag is false keeps its value; a set field with NULL clears it. Only an
+-- active membership changes.
+UPDATE membership
+SET shirt_number = CASE WHEN sqlc.arg(set_shirt_number)::boolean THEN sqlc.narg(shirt_number)::integer ELSE shirt_number END,
+    position     = CASE WHEN sqlc.arg(set_position)::boolean THEN sqlc.narg(position)::text ELSE position END
+WHERE id = sqlc.arg(id) AND status = 'active'
+RETURNING *;

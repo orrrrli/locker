@@ -13,13 +13,21 @@ import (
 
 var (
 	ErrInvalidRole = errors.New("role must be admin or player")
-	// ErrNotActive rejects a role change on a pending or left membership:
-	// approving and rejoining have their own flows (R7, R8).
-	ErrNotActive = errors.New("only an active membership can change role")
+	// ErrNotActive rejects a role or profile change on a pending or left
+	// membership: approving and rejoining have their own flows (R7, R8).
+	ErrNotActive = errors.New("only an active membership can change role, number or position")
 	// ErrNotPending rejects approving or rejecting a membership that is not
 	// waiting for approval.
 	ErrNotPending = errors.New("only a pending membership can be approved or rejected")
+	// ErrInvalidShirtNumber and ErrInvalidPosition reject a profile value
+	// outside what the app shows (R8.2).
+	ErrInvalidShirtNumber = errors.New("shirt number must be 0 to 99")
+	ErrInvalidPosition    = errors.New("position must be goalkeeper, defender, midfielder or forward")
 )
+
+const maxShirtNumber = 99
+
+var positions = map[string]bool{"goalkeeper": true, "defender": true, "midfielder": true, "forward": true}
 
 // Memberships is what the membership use cases need from the membership table.
 type Memberships interface {
@@ -30,6 +38,8 @@ type Memberships interface {
 	RejectPending(ctx context.Context, id int64) error
 	UpdateRole(ctx context.Context, id int64, role domain.Role) (domain.Membership, error)
 	Roster(ctx context.Context, teamID int64, withPending bool) ([]domain.RosterMember, error)
+	// UpdateProfile returns domain.ErrNotFound when the row is not active.
+	UpdateProfile(ctx context.Context, id int64, p domain.ProfileChange) (domain.Membership, error)
 }
 
 type Deps struct {
@@ -49,8 +59,8 @@ func NewService(d Deps) *Service {
 // ChangeRole lets the admin callerID promote or demote a membership of the
 // team (R6.2, R6.3). It rejects a demotion that would leave the team with no
 // active admin, checked under the team lock in the same transaction as the
-// write (R6.4). callerID is the caller's membership, already checked by
-// requireRole; it is checked again under the lock.
+// write (R6.4). callerID is the caller's active membership, from
+// requireActiveMember; LockTeamAsAdmin checks it is an admin.
 func (s *Service) ChangeRole(ctx context.Context, teamID, callerID, membershipID int64, role domain.Role) (domain.Membership, error) {
 	if role != domain.RoleAdmin && role != domain.RolePlayer {
 		return domain.Membership{}, ErrInvalidRole
@@ -138,4 +148,43 @@ func (s *Service) lockAndCheckPending(ctx context.Context, teamID, callerID, mem
 // approval list comes from the same call (R13.8).
 func (s *Service) Roster(ctx context.Context, caller domain.Membership) ([]domain.RosterMember, error) {
 	return s.memberships.Roster(ctx, caller.TeamID, caller.Role == domain.RoleAdmin)
+}
+
+// UpdateProfile sets the shirt number and position of an active membership
+// of the team (R8.2). The member edits their own; editing anyone else's is an
+// admin write, so it checks the caller under the team lock like every other.
+// callerID is the caller's active membership, checked by requireActiveMember.
+func (s *Service) UpdateProfile(ctx context.Context, teamID, callerID, membershipID int64, p domain.ProfileChange) (domain.Membership, error) {
+	if p.ShirtNumber != nil && (*p.ShirtNumber < 0 || *p.ShirtNumber > maxShirtNumber) {
+		return domain.Membership{}, ErrInvalidShirtNumber
+	}
+	if p.Position != nil && !positions[*p.Position] {
+		return domain.Membership{}, ErrInvalidPosition
+	}
+	update := func(ctx context.Context) (domain.Membership, error) {
+		m, err := s.memberships.MembershipInTeam(ctx, teamID, membershipID)
+		if err != nil {
+			return domain.Membership{}, err
+		}
+		if m.Status != domain.MembershipActive {
+			return domain.Membership{}, ErrNotActive
+		}
+		return s.memberships.UpdateProfile(ctx, m.ID, p)
+	}
+	if callerID == membershipID {
+		return update(ctx)
+	}
+	var out domain.Membership
+	err := s.tx.InTx(ctx, func(ctx context.Context) error {
+		if _, err := application.LockTeamAsAdmin(ctx, s.memberships, teamID, callerID); err != nil {
+			return err
+		}
+		var err error
+		out, err = update(ctx)
+		return err
+	})
+	if err != nil {
+		return domain.Membership{}, err
+	}
+	return out, nil
 }
