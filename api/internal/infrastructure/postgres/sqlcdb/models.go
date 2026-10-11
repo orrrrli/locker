@@ -80,6 +80,7 @@ type Membership struct {
 	DisplayNameOverride pgtype.Text
 	PushMuted           bool
 	CreatedAt           pgtype.Timestamptz
+	JoinedAt            pgtype.Timestamptz
 }
 
 type Notification struct {

@@ -11,9 +11,50 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const approvePendingMembership = `-- name: ApprovePendingMembership :one
+UPDATE membership
+SET status = 'active', role = 'player', joined_at = coalesce(joined_at, now())
+WHERE id = $1 AND status = 'pending'
+RETURNING id, team_id, user_id, role, status, shirt_number, position, display_name_override, push_muted, created_at, joined_at
+`
+
+// Approval makes a pending membership an active player (R7.3). Only a row
+// that is still pending changes. A member coming back keeps the date they
+// first joined.
+func (q *Queries) ApprovePendingMembership(ctx context.Context, id int64) (Membership, error) {
+	row := q.db.QueryRow(ctx, approvePendingMembership, id)
+	var i Membership
+	err := row.Scan(
+		&i.ID,
+		&i.TeamID,
+		&i.UserID,
+		&i.Role,
+		&i.Status,
+		&i.ShirtNumber,
+		&i.Position,
+		&i.DisplayNameOverride,
+		&i.PushMuted,
+		&i.CreatedAt,
+		&i.JoinedAt,
+	)
+	return i, err
+}
+
+const countActiveAdmins = `-- name: CountActiveAdmins :one
+SELECT count(*) FROM membership
+WHERE team_id = $1 AND role = 'admin' AND status = 'active'
+`
+
+func (q *Queries) CountActiveAdmins(ctx context.Context, teamID int64) (int64, error) {
+	row := q.db.QueryRow(ctx, countActiveAdmins, teamID)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const createMembership = `-- name: CreateMembership :one
-INSERT INTO membership (team_id, user_id, role, status)
-VALUES ($1, $2, $3, $4)
+INSERT INTO membership (team_id, user_id, role, status, joined_at)
+VALUES ($1, $2, $3, $4, CASE WHEN $4 = 'active' THEN now() END)
 RETURNING id
 `
 
@@ -24,6 +65,8 @@ type CreateMembershipParams struct {
 	Status string
 }
 
+// A membership created active (the team's creator) joins now; a pending one
+// joins when it is approved.
 func (q *Queries) CreateMembership(ctx context.Context, arg CreateMembershipParams) (int64, error) {
 	row := q.db.QueryRow(ctx, createMembership,
 		arg.TeamID,
@@ -36,8 +79,46 @@ func (q *Queries) CreateMembership(ctx context.Context, arg CreateMembershipPara
 	return id, err
 }
 
+const deleteNeverJoinedPendingMembership = `-- name: DeleteNeverJoinedPendingMembership :execrows
+DELETE FROM membership
+WHERE id = $1 AND status = 'pending' AND joined_at IS NULL
+`
+
+// Rejecting someone who never joined leaves nothing behind (R13.6).
+func (q *Queries) DeleteNeverJoinedPendingMembership(ctx context.Context, id int64) (int64, error) {
+	result, err := q.db.Exec(ctx, deleteNeverJoinedPendingMembership, id)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const getMembership = `-- name: GetMembership :one
+SELECT id, team_id, user_id, role, status, shirt_number, position, display_name_override, push_muted, created_at, joined_at FROM membership
+WHERE id = $1
+`
+
+func (q *Queries) GetMembership(ctx context.Context, id int64) (Membership, error) {
+	row := q.db.QueryRow(ctx, getMembership, id)
+	var i Membership
+	err := row.Scan(
+		&i.ID,
+		&i.TeamID,
+		&i.UserID,
+		&i.Role,
+		&i.Status,
+		&i.ShirtNumber,
+		&i.Position,
+		&i.DisplayNameOverride,
+		&i.PushMuted,
+		&i.CreatedAt,
+		&i.JoinedAt,
+	)
+	return i, err
+}
+
 const getMembershipByTeamAndUser = `-- name: GetMembershipByTeamAndUser :one
-SELECT id, team_id, user_id, role, status, shirt_number, position, display_name_override, push_muted, created_at FROM membership
+SELECT id, team_id, user_id, role, status, shirt_number, position, display_name_override, push_muted, created_at, joined_at FROM membership
 WHERE team_id = $1 AND user_id = $2
 `
 
@@ -60,8 +141,94 @@ func (q *Queries) GetMembershipByTeamAndUser(ctx context.Context, arg GetMembers
 		&i.DisplayNameOverride,
 		&i.PushMuted,
 		&i.CreatedAt,
+		&i.JoinedAt,
 	)
 	return i, err
+}
+
+const getMembershipInTeam = `-- name: GetMembershipInTeam :one
+SELECT id, team_id, user_id, role, status, shirt_number, position, display_name_override, push_muted, created_at, joined_at FROM membership
+WHERE team_id = $1 AND id = $2
+`
+
+type GetMembershipInTeamParams struct {
+	TeamID int64
+	ID     int64
+}
+
+// Scoped to the team, so an id from another team is not found.
+func (q *Queries) GetMembershipInTeam(ctx context.Context, arg GetMembershipInTeamParams) (Membership, error) {
+	row := q.db.QueryRow(ctx, getMembershipInTeam, arg.TeamID, arg.ID)
+	var i Membership
+	err := row.Scan(
+		&i.ID,
+		&i.TeamID,
+		&i.UserID,
+		&i.Role,
+		&i.Status,
+		&i.ShirtNumber,
+		&i.Position,
+		&i.DisplayNameOverride,
+		&i.PushMuted,
+		&i.CreatedAt,
+		&i.JoinedAt,
+	)
+	return i, err
+}
+
+const listRoster = `-- name: ListRoster :many
+SELECT m.id, m.role, m.status, m.shirt_number, m.position,
+       coalesce(m.display_name_override, u.name, '')::text AS name
+FROM membership m
+LEFT JOIN "user" u ON u.id = m.user_id
+WHERE m.team_id = $1
+  AND (m.status = 'active' OR ($2::boolean AND m.status = 'pending'))
+ORDER BY m.status = 'pending', name, m.id
+`
+
+type ListRosterParams struct {
+	TeamID         int64
+	IncludePending bool
+}
+
+type ListRosterRow struct {
+	ID          int64
+	Role        string
+	Status      string
+	ShirtNumber pgtype.Int4
+	Position    pgtype.Text
+	Name        string
+}
+
+// The team's active members, plus its pending ones when include_pending is
+// set (an admin's approval list, R13.8). Left members never show (R8.1).
+// An anonymized member shows the override, "Ex-jugador #N" (R5.3).
+// Actives first, then pending.
+func (q *Queries) ListRoster(ctx context.Context, arg ListRosterParams) ([]ListRosterRow, error) {
+	rows, err := q.db.Query(ctx, listRoster, arg.TeamID, arg.IncludePending)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListRosterRow
+	for rows.Next() {
+		var i ListRosterRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Role,
+			&i.Status,
+			&i.ShirtNumber,
+			&i.Position,
+			&i.Name,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const rejoinMembership = `-- name: RejoinMembership :execrows
@@ -80,4 +247,110 @@ func (q *Queries) RejoinMembership(ctx context.Context, id int64) (int64, error)
 		return 0, err
 	}
 	return result.RowsAffected(), nil
+}
+
+const setMembershipLeft = `-- name: SetMembershipLeft :execrows
+UPDATE membership
+SET status = 'left'
+WHERE id = $1 AND status = 'active'
+`
+
+// A member leaves or is removed: the row stays with its history (R8.3). Only
+// an active row changes, so a stale read cannot touch a pending or left one.
+func (q *Queries) SetMembershipLeft(ctx context.Context, id int64) (int64, error) {
+	result, err := q.db.Exec(ctx, setMembershipLeft, id)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const setReturningPendingMembershipLeft = `-- name: SetReturningPendingMembershipLeft :execrows
+UPDATE membership
+SET status = 'left'
+WHERE id = $1 AND status = 'pending' AND joined_at IS NOT NULL
+`
+
+// Rejecting a member who came back keeps their row and history (R8.4).
+func (q *Queries) SetReturningPendingMembershipLeft(ctx context.Context, id int64) (int64, error) {
+	result, err := q.db.Exec(ctx, setReturningPendingMembershipLeft, id)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const updateMembershipProfile = `-- name: UpdateMembershipProfile :one
+UPDATE membership
+SET shirt_number = CASE WHEN $1::boolean THEN $2::integer ELSE shirt_number END,
+    position     = CASE WHEN $3::boolean THEN $4::text ELSE position END
+WHERE id = $5 AND status = 'active'
+RETURNING id, team_id, user_id, role, status, shirt_number, position, display_name_override, push_muted, created_at, joined_at
+`
+
+type UpdateMembershipProfileParams struct {
+	SetShirtNumber bool
+	ShirtNumber    pgtype.Int4
+	SetPosition    bool
+	Position       pgtype.Text
+	ID             int64
+}
+
+// Sets shirt number and position, per membership (R8.2). A field whose set_
+// flag is false keeps its value; a set field with NULL clears it. Only an
+// active membership changes.
+func (q *Queries) UpdateMembershipProfile(ctx context.Context, arg UpdateMembershipProfileParams) (Membership, error) {
+	row := q.db.QueryRow(ctx, updateMembershipProfile,
+		arg.SetShirtNumber,
+		arg.ShirtNumber,
+		arg.SetPosition,
+		arg.Position,
+		arg.ID,
+	)
+	var i Membership
+	err := row.Scan(
+		&i.ID,
+		&i.TeamID,
+		&i.UserID,
+		&i.Role,
+		&i.Status,
+		&i.ShirtNumber,
+		&i.Position,
+		&i.DisplayNameOverride,
+		&i.PushMuted,
+		&i.CreatedAt,
+		&i.JoinedAt,
+	)
+	return i, err
+}
+
+const updateMembershipRole = `-- name: UpdateMembershipRole :one
+UPDATE membership
+SET role = $2
+WHERE id = $1
+RETURNING id, team_id, user_id, role, status, shirt_number, position, display_name_override, push_muted, created_at, joined_at
+`
+
+type UpdateMembershipRoleParams struct {
+	ID   int64
+	Role string
+}
+
+func (q *Queries) UpdateMembershipRole(ctx context.Context, arg UpdateMembershipRoleParams) (Membership, error) {
+	row := q.db.QueryRow(ctx, updateMembershipRole, arg.ID, arg.Role)
+	var i Membership
+	err := row.Scan(
+		&i.ID,
+		&i.TeamID,
+		&i.UserID,
+		&i.Role,
+		&i.Status,
+		&i.ShirtNumber,
+		&i.Position,
+		&i.DisplayNameOverride,
+		&i.PushMuted,
+		&i.CreatedAt,
+		&i.JoinedAt,
+	)
+	return i, err
 }

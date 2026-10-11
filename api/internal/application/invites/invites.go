@@ -42,8 +42,9 @@ type Invites interface {
 	RevokeInvite(ctx context.Context, teamID, id int64, now time.Time) error
 }
 
-// Memberships is what accepting an invite needs from the membership table.
+// Memberships is what the invite use cases need from the membership table.
 type Memberships interface {
+	application.AdminLocker
 	// MembershipByTeamAndUser returns domain.ErrNotFound when there is none.
 	MembershipByTeamAndUser(ctx context.Context, teamID, userID int64) (domain.Membership, error)
 	// CreateMembership returns domain.ErrAlreadyExists when the user already
@@ -92,26 +93,40 @@ type Created struct {
 }
 
 // Create makes an invite link for the team that expires in 7 days (R7.1).
-// Callers must have checked that createdBy is an admin membership of teamID.
+// createdBy is the caller's membership, checked by requireRole and again
+// under the team lock.
 func (s *Service) Create(ctx context.Context, teamID, createdBy int64) (Created, error) {
 	t, hash, err := token.New()
 	if err != nil {
 		return Created{}, err
 	}
 	expires := s.now().Add(Lifetime)
-	id, err := s.invites.CreateInvite(ctx, teamID, hash, createdBy, expires)
+	var id int64
+	err = s.tx.InTx(ctx, func(ctx context.Context) error {
+		if _, err := application.LockTeamAsAdmin(ctx, s.memberships, teamID, createdBy); err != nil {
+			return err
+		}
+		created, err := s.invites.CreateInvite(ctx, teamID, hash, createdBy, expires)
+		id = created
+		return err
+	})
 	if err != nil {
 		return Created{}, err
 	}
 	return Created{ID: id, Token: t, URL: s.linkBase + t, ExpiresAt: expires}, nil
 }
 
-// Revoke stops one of the team's invites from being accepted (R7.5).
-// Callers must have checked the caller is an admin of teamID. An invite of
-// another team is domain.ErrNotFound, so a check on the wrong team fails
-// closed.
-func (s *Service) Revoke(ctx context.Context, teamID, inviteID int64) error {
-	return s.invites.RevokeInvite(ctx, teamID, inviteID, s.now())
+// Revoke lets the admin callerID stop one of the team's invites from being
+// accepted (R7.5). callerID is checked by requireRole and again under the
+// team lock. An invite of another team is domain.ErrNotFound, so a check on
+// the wrong team fails closed.
+func (s *Service) Revoke(ctx context.Context, teamID, callerID, inviteID int64) error {
+	return s.tx.InTx(ctx, func(ctx context.Context) error {
+		if _, err := application.LockTeamAsAdmin(ctx, s.memberships, teamID, callerID); err != nil {
+			return err
+		}
+		return s.invites.RevokeInvite(ctx, teamID, inviteID, s.now())
+	})
 }
 
 // Accepted is the membership an accepted invite left the user with.

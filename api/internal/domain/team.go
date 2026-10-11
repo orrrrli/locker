@@ -1,6 +1,9 @@
 package domain
 
-import "time"
+import (
+	"errors"
+	"time"
+)
 
 type Team struct {
 	ID                  int64
@@ -41,6 +44,25 @@ type Membership struct {
 	CreatedAt           time.Time
 }
 
+// ProfileChange sets shirt number and position (R8.2). A field is changed
+// only when its Set flag is true; a nil value clears it.
+type ProfileChange struct {
+	SetShirtNumber bool
+	ShirtNumber    *int
+	SetPosition    bool
+	Position       *string
+}
+
+// RosterMember is one line of the team's member list (R8.1).
+type RosterMember struct {
+	ID          int64
+	Name        string
+	Role        Role
+	Status      MembershipStatus
+	ShirtNumber *int
+	Position    *string
+}
+
 type Invite struct {
 	ID        int64
 	TeamID    int64
@@ -48,4 +70,19 @@ type Invite struct {
 	CreatedBy int64  // membership
 	ExpiresAt time.Time
 	RevokedAt *time.Time
+}
+
+// ErrLastAdmin rejects a change that would leave the team with no active
+// admin (R6.4).
+var ErrLastAdmin = errors.New("the team needs another active admin first")
+
+// CheckAdminLoss rejects demoting, removing or deleting m when m is the
+// team's only active admin (R6.4). In one transaction, callers lock the team,
+// then read m, then check, then write: an m read before the lock can be stale
+// and let the last admin go. activeAdmins is the count taken under that lock.
+func CheckAdminLoss(m Membership, activeAdmins int) error {
+	if m.Role == RoleAdmin && m.Status == MembershipActive && activeAdmins <= 1 {
+		return ErrLastAdmin
+	}
+	return nil
 }

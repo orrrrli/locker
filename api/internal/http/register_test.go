@@ -14,6 +14,7 @@ import (
 
 	"github.com/orrrrli/locker/api/internal/application/auth"
 	"github.com/orrrrli/locker/api/internal/application/invites"
+	applicationmemberships "github.com/orrrrli/locker/api/internal/application/memberships"
 	"github.com/orrrrli/locker/api/internal/application/teams"
 	"github.com/orrrrli/locker/api/internal/infrastructure/password"
 	"github.com/orrrrli/locker/api/internal/infrastructure/postgres"
@@ -57,7 +58,11 @@ func newAPI(t *testing.T, now func() time.Time) apiTest {
 		PublicBaseURL: "https://api.example.test",
 		Now:           now,
 	})
-	mux.Handle("/", NewRouter(Deps{Auth: svc, Teams: teamSvc, Invites: inviteSvc, Memberships: memberships}))
+	memberSvc := applicationmemberships.NewService(applicationmemberships.Deps{
+		Tx:          postgres.NewTxRunner(pool),
+		Memberships: memberships,
+	})
+	mux.Handle("/", NewRouter(Deps{Auth: svc, Teams: teamSvc, Invites: inviteSvc, Members: memberSvc, Memberships: memberships}))
 	mux.Handle("GET /test/whoami", authHandlers{svc: svc}.requireAuth(http.HandlerFunc(
 		func(w http.ResponseWriter, r *http.Request) {
 			userID, _ := userIDFrom(r.Context())
