@@ -249,6 +249,22 @@ func (q *Queries) RejoinMembership(ctx context.Context, id int64) (int64, error)
 	return result.RowsAffected(), nil
 }
 
+const setMembershipLeft = `-- name: SetMembershipLeft :execrows
+UPDATE membership
+SET status = 'left'
+WHERE id = $1 AND status = 'active'
+`
+
+// A member leaves or is removed: the row stays with its history (R8.3). Only
+// an active row changes, so a stale read cannot touch a pending or left one.
+func (q *Queries) SetMembershipLeft(ctx context.Context, id int64) (int64, error) {
+	result, err := q.db.Exec(ctx, setMembershipLeft, id)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const setReturningPendingMembershipLeft = `-- name: SetReturningPendingMembershipLeft :execrows
 UPDATE membership
 SET status = 'left'

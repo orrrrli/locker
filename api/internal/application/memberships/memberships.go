@@ -1,6 +1,6 @@
 // Package memberships holds the use cases that change a membership:
 // promoting and demoting (R6.2-R6.4), approving and rejecting (R7.3, R7.4),
-// and the roster that lists them (R8.1).
+// leaving and removing (R8.3), and the roster that lists them (R8.1).
 package memberships
 
 import (
@@ -13,9 +13,9 @@ import (
 
 var (
 	ErrInvalidRole = errors.New("role must be admin or player")
-	// ErrNotActive rejects a role or profile change on a pending or left
-	// membership: approving and rejoining have their own flows (R7, R8).
-	ErrNotActive = errors.New("only an active membership can change role, number or position")
+	// ErrNotActive rejects a role or profile change, or leaving, on a pending
+	// or left membership: approving and rejoining have their own flows (R7, R8).
+	ErrNotActive = errors.New("only an active membership can change role, number or position, or leave")
 	// ErrNotPending rejects approving or rejecting a membership that is not
 	// waiting for approval.
 	ErrNotPending = errors.New("only a pending membership can be approved or rejected")
@@ -40,6 +40,8 @@ type Memberships interface {
 	Roster(ctx context.Context, teamID int64, withPending bool) ([]domain.RosterMember, error)
 	// UpdateProfile returns domain.ErrNotFound when the row is not active.
 	UpdateProfile(ctx context.Context, id int64, p domain.ProfileChange) (domain.Membership, error)
+	// SetLeft returns domain.ErrNotFound when the row is not active.
+	SetLeft(ctx context.Context, id int64) error
 }
 
 type Deps struct {
@@ -141,6 +143,40 @@ func (s *Service) lockAndCheckPending(ctx context.Context, teamID, callerID, mem
 		return ErrNotPending
 	}
 	return nil
+}
+
+// Leave sets an active membership of the team to left, keeping its row and
+// history (R8.3): the member leaves when callerID is membershipID, otherwise
+// the admin callerID removes them. Either way it rejects losing the team's
+// last active admin, checked under the team lock in the same transaction as
+// the write (R6.4). callerID is the caller's active membership, from
+// requireActiveMember.
+func (s *Service) Leave(ctx context.Context, teamID, callerID, membershipID int64) error {
+	return s.tx.InTx(ctx, func(ctx context.Context) error {
+		var admins int
+		var err error
+		if callerID == membershipID {
+			// No admin caller: lock even for a player, since a role read
+			// before the lock can be stale.
+			admins, err = s.memberships.LockTeamForAdminChange(ctx, teamID)
+		} else {
+			admins, err = application.LockTeamAsAdmin(ctx, s.memberships, teamID, callerID)
+		}
+		if err != nil {
+			return err
+		}
+		m, err := s.memberships.MembershipInTeam(ctx, teamID, membershipID)
+		if err != nil {
+			return err
+		}
+		if m.Status != domain.MembershipActive {
+			return ErrNotActive
+		}
+		if err := domain.CheckAdminLoss(m, admins); err != nil {
+			return err
+		}
+		return s.memberships.SetLeft(ctx, m.ID)
+	})
 }
 
 // Roster lists the team of caller, an active member: its active members

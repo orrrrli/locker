@@ -194,3 +194,68 @@ func TestDemotedCallerCannotFinishInFlightChange(t *testing.T) {
 		})
 	}
 }
+
+// TestConcurrentLeavesKeepAnAdmin: two admins leave at the same time, or
+// remove each other, and exactly one wins (R6.4). When each leaves, the loser
+// is the last admin (ErrLastAdmin). When they remove each other, the loser
+// has already left once it gets the lock, so it is no longer an active member
+// (domain.ErrNotFound). Both runs must end with one active admin.
+func TestConcurrentLeavesKeepAnAdmin(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		eachSelf bool
+		loser    error
+	}{
+		{"each leaves", true, domain.ErrLastAdmin},
+		{"remove each other", false, domain.ErrNotFound},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f := newFixture(t)
+			team := f.team(t)
+			a := f.member(t, team, domain.RoleAdmin, domain.MembershipActive)
+			b := f.member(t, team, domain.RoleAdmin, domain.MembershipActive)
+
+			svc := memberships.NewService(memberships.Deps{
+				Tx: postgres.NewTxRunner(f.pool),
+				Memberships: pausedRepo{
+					Memberships: postgres.NewMemberships(f.pool),
+					b:           &barrier{all: make(chan struct{}), wait: 300 * time.Millisecond},
+				},
+			})
+
+			// {caller, target}
+			calls := [][2]int64{{a, b}, {b, a}}
+			if tc.eachSelf {
+				calls = [][2]int64{{a, a}, {b, b}}
+			}
+			errs := make([]error, 2)
+			var wg sync.WaitGroup
+			for i, c := range calls {
+				wg.Add(1)
+				go func() {
+					defer wg.Done()
+					errs[i] = svc.Leave(context.Background(), team, c[0], c[1])
+				}()
+			}
+			wg.Wait()
+
+			if n := f.activeAdmins(t, team); n != 1 {
+				t.Fatalf("active admins = %d, want 1 (errs: %v)", n, errs)
+			}
+			ok, lost := 0, 0
+			for _, err := range errs {
+				switch {
+				case err == nil:
+					ok++
+				case errors.Is(err, tc.loser):
+					lost++
+				default:
+					t.Fatalf("unexpected error: %v", err)
+				}
+			}
+			if ok != 1 || lost != 1 {
+				t.Fatalf("errs = %v, want one success and one %v", errs, tc.loser)
+			}
+		})
+	}
+}

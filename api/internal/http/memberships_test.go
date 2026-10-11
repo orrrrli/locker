@@ -396,3 +396,131 @@ func TestPatchMembershipProfile(t *testing.T) {
 		})
 	}
 }
+
+// TestDeleteMembership: a member leaves, an admin removes, and the left
+// member loses access to the team (R8.3, R8.5).
+func TestDeleteMembership(t *testing.T) {
+	api := newAPI(t, func() time.Time { return today })
+	adminID, adminToken := signUp(t, api, "admin@example.com")
+	playerID, playerToken := signUp(t, api, "player@example.com")
+	otherID, otherToken := signUp(t, api, "other@example.com")
+	_, strangerToken := signUp(t, api, "stranger@example.com")
+
+	team := createTeam(t, api, adminToken, "Halcones", "America/Tijuana")
+	addMember(t, api, team.ID, playerID, "player", "active")
+	addMember(t, api, team.ID, otherID, "player", "active")
+	admin := membershipID(t, api, team.ID, adminID)
+	player := membershipID(t, api, team.ID, playerID)
+	other := membershipID(t, api, team.ID, otherID)
+	path := func(id int64) string { return "/memberships/" + strconv.FormatInt(id, 10) }
+	status := func(id int64) string {
+		t.Helper()
+		var s string
+		if err := api.pool.QueryRow(context.Background(), `SELECT status FROM membership WHERE id = $1`, id).Scan(&s); err != nil {
+			t.Fatal(err)
+		}
+		return s
+	}
+
+	if rec := api.do(t, http.MethodDelete, path(player), "", nil); rec.Code != http.StatusUnauthorized {
+		t.Fatalf("no session: status %d", rec.Code)
+	}
+	// A stranger gets 404: the id reveals nothing.
+	if rec := api.do(t, http.MethodDelete, path(player), strangerToken, nil); rec.Code != http.StatusNotFound {
+		t.Fatalf("stranger: status %d, body %s", rec.Code, rec.Body)
+	}
+	// A player cannot remove someone else.
+	if rec := api.do(t, http.MethodDelete, path(other), playerToken, nil); rec.Code != http.StatusForbidden {
+		t.Fatalf("player removes other: status %d, body %s", rec.Code, rec.Body)
+	}
+
+	// The player leaves; the row stays as left.
+	if rec := api.do(t, http.MethodDelete, path(player), playerToken, nil); rec.Code != http.StatusNoContent {
+		t.Fatalf("leave: status %d, body %s", rec.Code, rec.Body)
+	}
+	if s := status(player); s != "left" {
+		t.Fatalf("after leave: status %q, want left", s)
+	}
+	// A left member sees the team no more, and cannot act on it again.
+	if rec := api.do(t, http.MethodGet, "/teams/"+strconv.FormatInt(team.ID, 10), playerToken, nil); rec.Code != http.StatusNotFound {
+		t.Fatalf("left member reads team: status %d", rec.Code)
+	}
+	if rec := api.do(t, http.MethodDelete, path(player), playerToken, nil); rec.Code != http.StatusNotFound {
+		t.Fatalf("leave twice: status %d", rec.Code)
+	}
+
+	// The admin removes a player, and cannot remove the one who already left.
+	if rec := api.do(t, http.MethodDelete, path(other), adminToken, nil); rec.Code != http.StatusNoContent {
+		t.Fatalf("remove: status %d, body %s", rec.Code, rec.Body)
+	}
+	if s := status(other); s != "left" {
+		t.Fatalf("after remove: status %q, want left", s)
+	}
+	if rec := api.do(t, http.MethodDelete, path(player), adminToken, nil); rec.Code != http.StatusConflict || errorCode(t, rec) != "not_active" {
+		t.Fatalf("remove left member: status %d, body %s", rec.Code, rec.Body)
+	}
+	if rec := api.do(t, http.MethodDelete, path(other), otherToken, nil); rec.Code != http.StatusNotFound {
+		t.Fatalf("removed member: status %d", rec.Code)
+	}
+
+	// The only admin cannot leave (R6.4).
+	if rec := api.do(t, http.MethodDelete, path(admin), adminToken, nil); rec.Code != http.StatusConflict || errorCode(t, rec) != "last_admin" {
+		t.Fatalf("last admin leaves: status %d, body %s", rec.Code, rec.Body)
+	}
+	if s := status(admin); s != "active" {
+		t.Fatalf("last admin: status %q, want active", s)
+	}
+}
+
+// TestRejoinReactivatesTheSameMembership: a member who left comes back
+// through an invite and the admin's approval, on the same row, with their
+// number and first join date (R8.4).
+func TestRejoinReactivatesTheSameMembership(t *testing.T) {
+	api := newAPI(t, func() time.Time { return today })
+	ctx := context.Background()
+	_, adminToken := signUp(t, api, "admin@example.com")
+	playerID, playerToken := signUp(t, api, "player@example.com")
+	team := createTeam(t, api, adminToken, "Halcones", "America/Tijuana")
+	addMember(t, api, team.ID, playerID, "player", "active")
+	player := membershipID(t, api, team.ID, playerID)
+	path := "/memberships/" + strconv.FormatInt(player, 10)
+	var joined time.Time
+	if err := api.pool.QueryRow(ctx, `SELECT joined_at FROM membership WHERE id = $1`, player).Scan(&joined); err != nil {
+		t.Fatal(err)
+	}
+
+	if rec := api.do(t, http.MethodPatch, path, playerToken, map[string]int{"shirt_number": 9}); rec.Code != http.StatusOK {
+		t.Fatalf("set number: status %d, body %s", rec.Code, rec.Body)
+	}
+	if rec := api.do(t, http.MethodDelete, path, playerToken, nil); rec.Code != http.StatusNoContent {
+		t.Fatalf("leave: status %d, body %s", rec.Code, rec.Body)
+	}
+	inv := createInvite(t, api, adminToken, team.ID)
+	if rec := api.do(t, http.MethodPost, "/invites/accept", playerToken, map[string]string{"token": inv.Token}); rec.Code != http.StatusCreated {
+		t.Fatalf("accept: status %d, body %s", rec.Code, rec.Body)
+	}
+	if id := membershipID(t, api, team.ID, playerID); id != player {
+		t.Fatalf("after accept: membership %d, want the same row %d", id, player)
+	}
+	rec := api.do(t, http.MethodPatch, path, adminToken, map[string]string{"status": "active"})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("approve: status %d, body %s", rec.Code, rec.Body)
+	}
+	var got membershipJSON
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatal(err)
+	}
+	if got.ID != player || got.Status != "active" || got.Role != "player" || got.ShirtNumber == nil || *got.ShirtNumber != 9 {
+		t.Fatalf("rejoined = %+v, want row %d active player with number 9", got, player)
+	}
+	var joinedNow time.Time
+	if err := api.pool.QueryRow(ctx, `SELECT joined_at FROM membership WHERE id = $1`, player).Scan(&joinedNow); err != nil {
+		t.Fatal(err)
+	}
+	if !joinedNow.Equal(joined) {
+		t.Fatalf("joined_at = %s, want the first join %s kept", joinedNow, joined)
+	}
+	if rec := api.do(t, http.MethodGet, teamPath(team.ID), playerToken, nil); rec.Code != http.StatusOK {
+		t.Fatalf("rejoined member reads team: status %d", rec.Code)
+	}
+}
