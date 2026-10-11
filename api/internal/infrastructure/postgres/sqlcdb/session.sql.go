@@ -52,9 +52,13 @@ func (q *Queries) DeleteSession(ctx context.Context, id int64) error {
 }
 
 const getSessionByTokenHash = `-- name: GetSessionByTokenHash :one
-SELECT id, user_id, token_hash, created_at, last_used_at FROM session WHERE token_hash = $1
+SELECT id, user_id, token_hash, created_at, last_used_at FROM session
+WHERE token_hash = $1
+  AND NOT EXISTS (SELECT 1 FROM "user" u WHERE u.id = session.user_id AND u.deleted_at IS NOT NULL)
 `
 
+// A deleted account's session never authenticates, even one a login racing
+// the deletion created after it committed (R5.2).
 func (q *Queries) GetSessionByTokenHash(ctx context.Context, tokenHash []byte) (Session, error) {
 	row := q.db.QueryRow(ctx, getSessionByTokenHash, tokenHash)
 	var i Session

@@ -11,6 +11,23 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const clearUserPersonalData = `-- name: ClearUserPersonalData :execrows
+UPDATE "user"
+SET name = NULL, email = NULL, email_verified_at = NULL, birth_date = NULL,
+    photo_url = NULL, deleted_at = now()
+WHERE id = $1 AND deleted_at IS NULL
+`
+
+// Account deletion keeps the row, so history and foreign keys stay valid, and
+// nulls what identifies the person (R5.2).
+func (q *Queries) ClearUserPersonalData(ctx context.Context, id int64) (int64, error) {
+	result, err := q.db.Exec(ctx, clearUserPersonalData, id)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const createUser = `-- name: CreateUser :one
 INSERT INTO "user" (name, email, birth_date)
 VALUES ($1, $2, $3)
@@ -28,4 +45,31 @@ func (q *Queries) CreateUser(ctx context.Context, arg CreateUserParams) (int64, 
 	var id int64
 	err := row.Scan(&id)
 	return id, err
+}
+
+const deleteAuthIdentitiesOfUser = `-- name: DeleteAuthIdentitiesOfUser :exec
+DELETE FROM auth_identity WHERE user_id = $1
+`
+
+func (q *Queries) DeleteAuthIdentitiesOfUser(ctx context.Context, userID int64) error {
+	_, err := q.db.Exec(ctx, deleteAuthIdentitiesOfUser, userID)
+	return err
+}
+
+const deleteDeviceTokensOfUser = `-- name: DeleteDeviceTokensOfUser :exec
+DELETE FROM device_token WHERE user_id = $1
+`
+
+func (q *Queries) DeleteDeviceTokensOfUser(ctx context.Context, userID int64) error {
+	_, err := q.db.Exec(ctx, deleteDeviceTokensOfUser, userID)
+	return err
+}
+
+const deleteSessionsOfUser = `-- name: DeleteSessionsOfUser :exec
+DELETE FROM session WHERE user_id = $1
+`
+
+func (q *Queries) DeleteSessionsOfUser(ctx context.Context, userID int64) error {
+	_, err := q.db.Exec(ctx, deleteSessionsOfUser, userID)
+	return err
 }

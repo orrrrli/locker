@@ -12,6 +12,7 @@ type Deps struct {
 	Teams   teamService
 	Invites inviteService
 	Members membershipService
+	Account accountService
 	// AppleAppID ("<team id>.<bundle id>") is the app invite links open;
 	// empty until the Apple Developer account exists.
 	AppleAppID string
@@ -39,6 +40,7 @@ func NewRouter(d Deps) http.Handler {
 	mux.HandleFunc("POST /auth/register", a.register)
 	mux.HandleFunc("POST /auth/login", a.login)
 	mux.Handle("POST /auth/logout", a.requireAuth(http.HandlerFunc(a.logout)))
+	mux.Handle("DELETE /me", a.requireAuth(http.HandlerFunc(accountHandlers{svc: d.Account}.deleteMe)))
 
 	z := authz{memberships: d.Memberships}
 	t := teamHandlers{svc: d.Teams}

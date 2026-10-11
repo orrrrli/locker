@@ -119,6 +119,28 @@ func (r *Memberships) SetLeft(ctx context.Context, id int64) error {
 	return nil
 }
 
+// AnonymizeForUser runs the membership part of account deletion: it deletes
+// the user's pending rows that never joined (like a reject, R7.4) and turns
+// every other row into a left player named "Ex-jugador #<id>" with no user,
+// keeping its history (R5.3). An active row changes only when its team is in
+// lockedTeamIDs. It returns how many rows still point at the user: an active
+// membership in a team the caller did not lock.
+func (r *Memberships) AnonymizeForUser(ctx context.Context, userID int64, lockedTeamIDs []int64) (int, error) {
+	q := sqlcdb.New(Conn(ctx, r.pool))
+	uid := pgtype.Int8{Int64: userID, Valid: true}
+	if err := q.DeleteNeverJoinedPendingMembershipsOfUser(ctx, uid); err != nil {
+		return 0, fmt.Errorf("postgres: delete never-joined pending memberships: %w", err)
+	}
+	if err := q.AnonymizeMembershipsOfUser(ctx, sqlcdb.AnonymizeMembershipsOfUserParams{UserID: uid, TeamIds: lockedTeamIDs}); err != nil {
+		return 0, fmt.Errorf("postgres: anonymize memberships: %w", err)
+	}
+	n, err := q.CountMembershipsOfUser(ctx, uid)
+	if err != nil {
+		return 0, fmt.Errorf("postgres: count memberships of user: %w", err)
+	}
+	return int(n), nil
+}
+
 // Roster lists the team's active members, and its pending ones when
 // withPending is set. Left members never show.
 func (r *Memberships) Roster(ctx context.Context, teamID int64, withPending bool) ([]domain.RosterMember, error) {
