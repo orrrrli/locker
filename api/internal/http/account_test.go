@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"strconv"
 	"testing"
 	"time"
 
@@ -86,5 +87,77 @@ func TestDeletedUserSessionNeverAuthenticates(t *testing.T) {
 	}
 	if rec := api.do(t, http.MethodGet, "/test/whoami", late, nil); rec.Code != http.StatusUnauthorized {
 		t.Fatalf("late session: status %d, want 401", rec.Code)
+	}
+}
+
+// TestDeleteMeAfterPromotingKeepsHistory: the only admin is blocked until they promote someone
+// (R5.4); then the deletion goes through, the team keeps a working admin, and
+// the former admin's history stays on an anonymized, left membership (R5.3).
+func TestDeleteMeAfterPromotingKeepsHistory(t *testing.T) {
+	api := newAPI(t, func() time.Time { return today })
+	ctx := context.Background()
+	adminID, adminToken := signUp(t, api, "admin@example.com")
+	playerID, playerToken := signUp(t, api, "player@example.com")
+	team := createTeam(t, api, adminToken, "Halcones", "America/Tijuana")
+	addMember(t, api, team.ID, playerID, "player", "active")
+	admin := membershipID(t, api, team.ID, adminID)
+	player := membershipID(t, api, team.ID, playerID)
+
+	// History: a match the admin attended and a fee entry (no endpoints yet).
+	var match, charge int64
+	if err := api.pool.QueryRow(ctx, `INSERT INTO match (team_id, starts_at, rival_name, location, created_by)
+		VALUES ($1, now(), 'Pumas', 'Cancha 2', $2) RETURNING id`, team.ID, admin).Scan(&match); err != nil {
+		t.Fatal(err)
+	}
+	if err := api.pool.QueryRow(ctx, `INSERT INTO charge (team_id, concept, amount_cents, created_by)
+		VALUES ($1, 'Cancha', 5000, $2) RETURNING id`, team.ID, admin).Scan(&charge); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := api.pool.Exec(ctx, `INSERT INTO attendance (match_id, membership_id) VALUES ($1, $2)`, match, admin); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := api.pool.Exec(ctx, `INSERT INTO charge_member (charge_id, membership_id) VALUES ($1, $2)`, charge, admin); err != nil {
+		t.Fatal(err)
+	}
+
+	// Blocked while the only admin.
+	if rec := api.do(t, http.MethodDelete, "/me", adminToken, nil); rec.Code != http.StatusConflict || errorCode(t, rec) != "last_admin" {
+		t.Fatalf("before promoting: status %d, body %s", rec.Code, rec.Body)
+	}
+	// Promote the player, then the deletion goes through.
+	if rec := api.do(t, http.MethodPatch, "/memberships/"+strconv.FormatInt(player, 10), adminToken, map[string]string{"role": "admin"}); rec.Code != http.StatusOK {
+		t.Fatalf("promote: status %d, body %s", rec.Code, rec.Body)
+	}
+	if rec := api.do(t, http.MethodDelete, "/me", adminToken, nil); rec.Code != http.StatusNoContent {
+		t.Fatalf("after promoting: status %d, body %s", rec.Code, rec.Body)
+	}
+
+	// The new admin still runs the team, and the former admin left the roster.
+	path := "/teams/" + strconv.FormatInt(team.ID, 10)
+	if rec := api.do(t, http.MethodPatch, path, playerToken, map[string]string{"name": "Halcones FC"}); rec.Code != http.StatusOK {
+		t.Fatalf("new admin updates the team: status %d, body %s", rec.Code, rec.Body)
+	}
+	rec := api.do(t, http.MethodGet, path+"/members", playerToken, nil)
+	var roster struct {
+		Members []struct {
+			ID int64 `json:"id"`
+		} `json:"members"`
+	}
+	if rec.Code != http.StatusOK || json.Unmarshal(rec.Body.Bytes(), &roster) != nil || len(roster.Members) != 1 || roster.Members[0].ID != player {
+		t.Fatalf("roster: status %d, body %s, want only %d", rec.Code, rec.Body, player)
+	}
+
+	// The former admin's row keeps the history, anonymized.
+	var userID *int64
+	var role, status, name string
+	var attended, fees int
+	if err := api.pool.QueryRow(ctx, `SELECT m.user_id, m.role, m.status, m.display_name_override,
+		(SELECT count(*) FROM attendance WHERE membership_id = m.id),
+		(SELECT count(*) FROM charge_member WHERE membership_id = m.id)
+		FROM membership m WHERE m.id = $1`, admin).Scan(&userID, &role, &status, &name, &attended, &fees); err != nil {
+		t.Fatal(err)
+	}
+	if userID != nil || role != "player" || status != "left" || name != "Ex-jugador #"+strconv.FormatInt(admin, 10) || attended != 1 || fees != 1 {
+		t.Fatalf("former admin = user %v, %s, %s, %q, attendance %d, fees %d", userID, role, status, name, attended, fees)
 	}
 }
