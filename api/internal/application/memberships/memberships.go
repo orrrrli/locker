@@ -1,5 +1,6 @@
 // Package memberships holds the use cases that change a membership:
-// promoting and demoting (R6.2-R6.4), approving and rejecting (R7.3, R7.4).
+// promoting and demoting (R6.2-R6.4), approving and rejecting (R7.3, R7.4),
+// and the roster that lists them (R8.1).
 package memberships
 
 import (
@@ -28,6 +29,7 @@ type Memberships interface {
 	ApprovePending(ctx context.Context, id int64) (domain.Membership, error)
 	RejectPending(ctx context.Context, id int64) error
 	UpdateRole(ctx context.Context, id int64, role domain.Role) (domain.Membership, error)
+	Roster(ctx context.Context, teamID int64, withPending bool) ([]domain.RosterMember, error)
 }
 
 type Deps struct {
@@ -129,4 +131,11 @@ func (s *Service) lockAndCheckPending(ctx context.Context, teamID, callerID, mem
 		return ErrNotPending
 	}
 	return nil
+}
+
+// Roster lists the team of caller, an active member: its active members
+// (R8.1), plus the pending ones when caller is an admin, so the admin's
+// approval list comes from the same call (R13.8).
+func (s *Service) Roster(ctx context.Context, caller domain.Membership) ([]domain.RosterMember, error) {
+	return s.memberships.Roster(ctx, caller.TeamID, caller.Role == domain.RoleAdmin)
 }

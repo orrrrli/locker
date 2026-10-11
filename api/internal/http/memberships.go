@@ -13,6 +13,7 @@ type membershipService interface {
 	ChangeRole(ctx context.Context, teamID, callerID, membershipID int64, role domain.Role) (domain.Membership, error)
 	Approve(ctx context.Context, teamID, callerID, membershipID int64) (domain.Membership, error)
 	Reject(ctx context.Context, teamID, callerID, membershipID int64) error
+	Roster(ctx context.Context, caller domain.Membership) ([]domain.RosterMember, error)
 }
 
 type membershipHandlers struct {
@@ -26,6 +27,33 @@ type membershipJSON struct {
 	TeamID int64                   `json:"team_id"`
 	Role   domain.Role             `json:"role"`
 	Status domain.MembershipStatus `json:"status"`
+}
+
+// rosterMemberJSON is one member of GET /teams/{id}/members. role stays
+// "admin"; the app shows it as "Capitán".
+type rosterMemberJSON struct {
+	ID          int64                   `json:"id"`
+	Name        string                  `json:"name"`
+	Role        domain.Role             `json:"role"`
+	Status      domain.MembershipStatus `json:"status"`
+	ShirtNumber *int                    `json:"shirt_number"`
+	Position    *string                 `json:"position"`
+}
+
+// list runs behind requireActiveMember, which puts the caller's membership
+// in the context.
+func (h membershipHandlers) list(w http.ResponseWriter, r *http.Request) {
+	caller, _ := membershipFrom(r.Context())
+	ms, err := h.svc.Roster(r.Context(), caller)
+	if err != nil {
+		membershipErrors.write(w, r, "memberships", err)
+		return
+	}
+	out := make([]rosterMemberJSON, len(ms))
+	for i, m := range ms {
+		out[i] = rosterMemberJSON{ID: m.ID, Name: m.Name, Role: m.Role, Status: m.Status, ShirtNumber: m.ShirtNumber, Position: m.Position}
+	}
+	writeJSON(w, http.StatusOK, map[string][]rosterMemberJSON{"members": out})
 }
 
 // updateMembershipRequest carries one change per request: a role, or a

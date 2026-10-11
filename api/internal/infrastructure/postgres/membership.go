@@ -92,6 +92,27 @@ func (r *Memberships) RejectPending(ctx context.Context, id int64) error {
 	return nil
 }
 
+// Roster lists the team's active members, and its pending ones when
+// withPending is set. Left members never show.
+func (r *Memberships) Roster(ctx context.Context, teamID int64, withPending bool) ([]domain.RosterMember, error) {
+	rows, err := sqlcdb.New(Conn(ctx, r.pool)).ListRoster(ctx, sqlcdb.ListRosterParams{TeamID: teamID, IncludePending: withPending})
+	if err != nil {
+		return nil, fmt.Errorf("postgres: roster: %w", err)
+	}
+	out := make([]domain.RosterMember, len(rows))
+	for i, row := range rows {
+		out[i] = domain.RosterMember{
+			ID:          row.ID,
+			Name:        row.Name,
+			Role:        domain.Role(row.Role),
+			Status:      domain.MembershipStatus(row.Status),
+			ShirtNumber: intPtr(row.ShirtNumber),
+			Position:    textPtr(row.Position),
+		}
+	}
+	return out, nil
+}
+
 func membershipOrNotFound(row sqlcdb.Membership, err error, op string) (domain.Membership, error) {
 	if errors.Is(err, pgx.ErrNoRows) {
 		return domain.Membership{}, domain.ErrNotFound
@@ -192,11 +213,16 @@ func membershipFromRow(row sqlcdb.Membership) domain.Membership {
 	if row.UserID.Valid {
 		m.UserID = &row.UserID.Int64
 	}
-	if row.ShirtNumber.Valid {
-		n := int(row.ShirtNumber.Int32)
-		m.ShirtNumber = &n
-	}
+	m.ShirtNumber = intPtr(row.ShirtNumber)
 	return m
+}
+
+func intPtr(n pgtype.Int4) *int {
+	if !n.Valid {
+		return nil
+	}
+	v := int(n.Int32)
+	return &v
 }
 
 func textPtr(t pgtype.Text) *string {

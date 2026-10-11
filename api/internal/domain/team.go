@@ -44,6 +44,16 @@ type Membership struct {
 	CreatedAt           time.Time
 }
 
+// RosterMember is one line of the team's member list (R8.1).
+type RosterMember struct {
+	ID          int64
+	Name        string
+	Role        Role
+	Status      MembershipStatus
+	ShirtNumber *int
+	Position    *string
+}
+
 type Invite struct {
 	ID        int64
 	TeamID    int64

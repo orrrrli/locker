@@ -56,3 +56,15 @@ WHERE id = $1 AND status = 'pending' AND joined_at IS NULL;
 UPDATE membership
 SET status = 'left'
 WHERE id = $1 AND status = 'pending' AND joined_at IS NOT NULL;
+
+-- name: ListRoster :many
+-- The team's active members, plus its pending ones when include_pending is
+-- set (an admin's approval list, R13.8). Left members never show (R8.1).
+-- An anonymized member shows the override, "Ex-jugador #N" (R5.3).
+SELECT m.id, m.role, m.status, m.shirt_number, m.position,
+       coalesce(m.display_name_override, u.name, '')::text AS name
+FROM membership m
+LEFT JOIN "user" u ON u.id = m.user_id
+WHERE m.team_id = sqlc.arg(team_id)
+  AND (m.status = 'active' OR (sqlc.arg(include_pending)::boolean AND m.status = 'pending'))
+ORDER BY m.status = 'pending', name, m.id; -- actives first
