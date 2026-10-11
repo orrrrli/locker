@@ -13,10 +13,19 @@ import (
 	"github.com/orrrrli/locker/api/internal/domain"
 )
 
-// Lifetime is how long an invite link works (R7.1).
-const Lifetime = 7 * 24 * time.Hour
+const (
+	// Lifetime is how long an invite link works (R7.1).
+	Lifetime = 7 * 24 * time.Hour
+	// MaxLive caps a team's live invites, so one admin cannot fill the table.
+	MaxLive = 20
+	// keepExpired is how long an expired invite stays before DeleteExpired
+	// removes it, so the app can still answer "expired" for a while.
+	keepExpired = 30 * 24 * time.Hour
+)
 
 var (
+	// ErrTooManyInvites rejects a new invite while the team has MaxLive.
+	ErrTooManyInvites = errors.New("too many live invites; revoke one or wait for one to expire")
 	// ErrInviteNotFound covers a malformed or unknown token.
 	ErrInviteNotFound = errors.New("invite not found")
 	ErrInviteExpired  = errors.New("invite expired")
@@ -40,6 +49,9 @@ type Invites interface {
 	InviteByTokenHash(ctx context.Context, tokenHash []byte) (domain.Invite, string, error)
 	// RevokeInvite returns domain.ErrNotFound when the team has no such invite.
 	RevokeInvite(ctx context.Context, teamID, id int64, now time.Time) error
+	CountLiveInvites(ctx context.Context, teamID int64, now time.Time) (int, error)
+	// DeleteExpired deletes invites expired at or before cutoff.
+	DeleteExpired(ctx context.Context, cutoff time.Time) (int64, error)
 }
 
 // Memberships is what the invite use cases need from the membership table.
@@ -94,17 +106,25 @@ type Created struct {
 
 // Create makes an invite link for the team that expires in 7 days (R7.1).
 // createdBy is the caller's membership, checked by requireRole and again
-// under the team lock.
+// under the team lock. The team lock also makes the MaxLive count exact.
 func (s *Service) Create(ctx context.Context, teamID, createdBy int64) (Created, error) {
 	t, hash, err := token.New()
 	if err != nil {
 		return Created{}, err
 	}
-	expires := s.now().Add(Lifetime)
+	now := s.now()
+	expires := now.Add(Lifetime)
 	var id int64
 	err = s.tx.InTx(ctx, func(ctx context.Context) error {
 		if _, err := application.LockTeamAsAdmin(ctx, s.memberships, teamID, createdBy); err != nil {
 			return err
+		}
+		live, err := s.invites.CountLiveInvites(ctx, teamID, now)
+		if err != nil {
+			return err
+		}
+		if live >= MaxLive {
+			return ErrTooManyInvites
 		}
 		created, err := s.invites.CreateInvite(ctx, teamID, hash, createdBy, expires)
 		id = created
@@ -189,6 +209,12 @@ func (s *Service) Accept(ctx context.Context, userID int64, rawToken string) (Ac
 		return Accepted{}, err
 	}
 	return out, nil
+}
+
+// DeleteExpired removes invites expired for more than 30 days, so rows of
+// links nobody can use do not pile up. It reports how many it deleted.
+func (s *Service) DeleteExpired(ctx context.Context) (int64, error) {
+	return s.invites.DeleteExpired(ctx, s.now().Add(-keepExpired))
 }
 
 // alreadyMember re-reads the membership a concurrent write changed and

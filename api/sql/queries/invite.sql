@@ -18,3 +18,11 @@ FOR SHARE OF i;
 UPDATE invite
 SET revoked_at = coalesce(revoked_at, sqlc.arg(now))
 WHERE id = sqlc.arg(id) AND team_id = sqlc.arg(team_id);
+
+-- name: CountLiveInvites :one
+-- Live: neither revoked nor expired at now.
+SELECT count(*) FROM invite
+WHERE team_id = sqlc.arg(team_id) AND revoked_at IS NULL AND expires_at > sqlc.arg(now);
+
+-- name: DeleteExpiredInvites :execrows
+DELETE FROM invite WHERE expires_at <= $1;

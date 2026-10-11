@@ -23,6 +23,8 @@ type Deps struct {
 	// LoginLimiter throttles failed logins; nil gets a fresh one on the
 	// real clock.
 	LoginLimiter *LoginLimiter
+	// Limits throttles register and invites; nil fields get NewLimits(nil).
+	Limits Limits
 }
 
 // NewRouter returns the API's HTTP handler with every route registered.
@@ -35,8 +37,18 @@ func NewRouter(d Deps) http.Handler {
 	if d.LoginLimiter == nil {
 		d.LoginLimiter = NewLoginLimiter(nil)
 	}
+	defaults := NewLimits(nil)
+	if d.Limits.Register == nil {
+		d.Limits.Register = defaults.Register
+	}
+	if d.Limits.InviteCreate == nil {
+		d.Limits.InviteCreate = defaults.InviteCreate
+	}
+	if d.Limits.InviteAccept == nil {
+		d.Limits.InviteAccept = defaults.InviteAccept
+	}
 	a := authHandlers{svc: d.Auth, limits: d.LoginLimiter}
-	mux.HandleFunc("POST /auth/register", a.register)
+	mux.Handle("POST /auth/register", limitBy(d.Limits.Register, clientIP, http.HandlerFunc(a.register)))
 	mux.HandleFunc("POST /auth/login", a.login)
 	mux.Handle("POST /auth/logout", a.requireAuth(http.HandlerFunc(a.logout)))
 
@@ -49,9 +61,10 @@ func NewRouter(d Deps) http.Handler {
 	mux.Handle("PATCH /teams/{id}", a.requireAuth(z.requireRole(team, domain.RoleAdmin, http.HandlerFunc(t.update))))
 
 	inv := inviteHandlers{svc: d.Invites}
-	mux.Handle("POST /teams/{id}/invites", a.requireAuth(z.requireRole(team, domain.RoleAdmin, http.HandlerFunc(inv.create))))
+	mux.Handle("POST /teams/{id}/invites", a.requireAuth(limitBy(d.Limits.InviteCreate, byUser,
+		z.requireRole(team, domain.RoleAdmin, http.HandlerFunc(inv.create)))))
 	mux.Handle("DELETE /teams/{id}/invites/{inviteId}", a.requireAuth(z.requireRole(team, domain.RoleAdmin, http.HandlerFunc(inv.revoke))))
-	mux.Handle("POST /invites/accept", a.requireAuth(http.HandlerFunc(inv.accept)))
+	mux.Handle("POST /invites/accept", a.requireAuth(limitBy(d.Limits.InviteAccept, byUser, http.HandlerFunc(inv.accept))))
 
 	mem := membershipHandlers{svc: d.Members}
 	mux.Handle("GET /teams/{id}/members", a.requireAuth(z.requireActiveMember(team, http.HandlerFunc(mem.list))))

@@ -2,8 +2,10 @@ package http
 
 import (
 	"crypto/sha256"
+	"math"
 	"net/http"
 	"net/netip"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -234,4 +236,84 @@ func (l *limiter) prune(now time.Time) {
 			delete(l.keys, k)
 		}
 	}
+}
+
+// Request limits outside login. Unlike LoginLimiter they count every
+// request, not only failures: each one costs the server work or a row.
+const (
+	registerMaxPerIP       = 10
+	registerWindow         = time.Hour
+	inviteCreateMaxPerUser = 20
+	inviteCreateWindow     = time.Hour
+	inviteAcceptMaxPerUser = 20
+	inviteAcceptWindow     = 15 * time.Minute
+)
+
+// RateLimiter allows max requests per key in a window. Counters live in
+// memory, like LoginLimiter's.
+type RateLimiter struct {
+	now func() time.Time
+	l   *limiter
+}
+
+func NewRateLimiter(max int, window time.Duration, now func() time.Time) *RateLimiter {
+	if now == nil {
+		now = time.Now
+	}
+	return &RateLimiter{now: now, l: newLimiter(max, window)}
+}
+
+// Prune drops counters whose window has passed.
+func (rl *RateLimiter) Prune() { rl.l.prune(rl.now()) }
+
+// Limits are the request limits the router applies besides login.
+type Limits struct {
+	Register     *RateLimiter // per client IP
+	InviteCreate *RateLimiter // per user
+	InviteAccept *RateLimiter // per user
+}
+
+// NewLimits returns the production limits; now nil means the real clock.
+func NewLimits(now func() time.Time) Limits {
+	return Limits{
+		Register:     NewRateLimiter(registerMaxPerIP, registerWindow, now),
+		InviteCreate: NewRateLimiter(inviteCreateMaxPerUser, inviteCreateWindow, now),
+		InviteAccept: NewRateLimiter(inviteAcceptMaxPerUser, inviteAcceptWindow, now),
+	}
+}
+
+// Prune drops expired counters of every limit. The scheduled ticker calls it.
+func (l Limits) Prune() {
+	l.Register.Prune()
+	l.InviteCreate.Prune()
+	l.InviteAccept.Prune()
+}
+
+// limitBy lets a request through while its key has requests left, and
+// answers 429 with Retry-After otherwise. key returns false when the request
+// has no usable key, which is a 400.
+func limitBy(rl *RateLimiter, key func(*http.Request) (string, bool), next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		k, ok := key(r)
+		if !ok {
+			writeError(w, http.StatusBadRequest, "invalid_request")
+			return
+		}
+		if wait, ok := rl.l.take(k, rl.now()); !ok {
+			tooManyAttempts(w, wait)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+func tooManyAttempts(w http.ResponseWriter, retryAfter time.Duration) {
+	w.Header().Set("Retry-After", strconv.Itoa(int(math.Ceil(retryAfter.Seconds()))))
+	writeError(w, http.StatusTooManyRequests, "too_many_attempts")
+}
+
+// byUser keys on the signed-in user. It runs behind requireAuth.
+func byUser(r *http.Request) (string, bool) {
+	id, ok := userIDFrom(r.Context())
+	return strconv.FormatInt(id, 10), ok
 }

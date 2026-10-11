@@ -2,8 +2,11 @@ package password
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
+
+	"github.com/orrrrli/locker/api/internal/domain"
 )
 
 // cheap keeps the tests fast; the format and logic do not depend on cost.
@@ -83,5 +86,19 @@ func TestHashRespectsCancelledContext(t *testing.T) {
 	cancel()
 	if _, err := h.Hash(ctx, "pw"); err == nil {
 		t.Fatal("Hash ran with no free slot and a cancelled context")
+	}
+}
+
+func TestHashRejectsWhenLineFull(t *testing.T) {
+	h := NewHasher(cheap)
+	for range maxConcurrent + maxWaiting {
+		h.line <- struct{}{} // every slot and waiting place taken
+	}
+	if _, err := h.Hash(context.Background(), "pw"); !errors.Is(err, domain.ErrServerBusy) {
+		t.Fatalf("Hash with a full line = %v, want domain.ErrServerBusy", err)
+	}
+	<-h.line // one place frees
+	if _, err := h.Hash(context.Background(), "pw"); err != nil {
+		t.Fatalf("Hash with a free place: %v", err)
 	}
 }

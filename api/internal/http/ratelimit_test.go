@@ -280,3 +280,55 @@ func TestClientIP(t *testing.T) {
 		}
 	})
 }
+
+func TestRegisterIsLimitedPerIP(t *testing.T) {
+	clk := &clock{t: today}
+	h := NewRouter(Deps{Auth: &fakeAuth{}, Limits: NewLimits(clk.now)})
+	register := func(peer string) int {
+		req := httptest.NewRequest(http.MethodPost, "/auth/register", strings.NewReader(`{}`))
+		req.RemoteAddr = peer + ":40000"
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+		return rec.Code
+	}
+	// Every request counts, whatever its outcome (fakeAuth fails them all).
+	for i := 0; i < registerMaxPerIP; i++ {
+		if code := register(ipA); code == http.StatusTooManyRequests {
+			t.Fatalf("request %d limited early", i+1)
+		}
+	}
+	if code := register(ipA); code != http.StatusTooManyRequests {
+		t.Fatalf("request past the limit = %d, want 429", code)
+	}
+	if code := register(ipB); code == http.StatusTooManyRequests {
+		t.Fatal("another IP was limited")
+	}
+	clk.advance(registerWindow)
+	if code := register(ipA); code == http.StatusTooManyRequests {
+		t.Fatal("still limited after the window")
+	}
+}
+
+func TestLimitByUserKeysOnTheSignedInUser(t *testing.T) {
+	clk := &clock{t: today}
+	rl := NewRateLimiter(2, time.Minute, clk.now)
+	h := limitBy(rl, byUser, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	call := func(userID int64) *httptest.ResponseRecorder {
+		req := httptest.NewRequest(http.MethodPost, "/", nil)
+		req = req.WithContext(withUserID(req.Context(), userID))
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+		return rec
+	}
+	call(1)
+	call(1)
+	rec := call(1)
+	if rec.Code != http.StatusTooManyRequests || rec.Header().Get("Retry-After") != "60" {
+		t.Fatalf("third call = %d, Retry-After %q; want 429 and 60", rec.Code, rec.Header().Get("Retry-After"))
+	}
+	if code := call(2).Code; code != http.StatusNoContent {
+		t.Fatalf("other user = %d, want 204", code)
+	}
+}

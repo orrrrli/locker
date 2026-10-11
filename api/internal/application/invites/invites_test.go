@@ -414,3 +414,49 @@ func TestAdminWritesRunUnderTheTeamLock(t *testing.T) {
 		}
 	}
 }
+
+func TestCreateCapsLiveInvites(t *testing.T) {
+	f := setup(t)
+	ctx := context.Background()
+	var first invites.Created
+	for i := range invites.MaxLive {
+		inv := f.invite(t)
+		if i == 0 {
+			first = inv
+		}
+	}
+	if _, err := f.svc.Create(ctx, f.teamID, f.adminID); !errors.Is(err, invites.ErrTooManyInvites) {
+		t.Fatalf("invite past MaxLive: err = %v, want ErrTooManyInvites", err)
+	}
+
+	// A revoked invite is not live, so it frees a place.
+	if err := f.svc.Revoke(ctx, f.teamID, f.adminID, first.ID); err != nil {
+		t.Fatal(err)
+	}
+	f.invite(t)
+
+	// So does an expired one: a week later every invite has expired.
+	*f.now = start.Add(invites.Lifetime)
+	f.invite(t)
+}
+
+func TestDeleteExpiredKeepsThirtyDays(t *testing.T) {
+	f := setup(t)
+	ctx := context.Background()
+	old := f.invite(t)
+	*f.now = start.Add(time.Hour)
+	recent := f.invite(t)
+
+	// Exactly 30 days after old expired: old goes, recent (1h younger) stays.
+	*f.now = old.ExpiresAt.Add(30 * 24 * time.Hour)
+	n, err := f.svc.DeleteExpired(ctx)
+	if err != nil || n != 1 {
+		t.Fatalf("DeleteExpired = %d, %v; want 1 deleted", n, err)
+	}
+	if _, err := f.svc.Accept(ctx, f.admin, old.Token); !errors.Is(err, invites.ErrInviteNotFound) {
+		t.Fatalf("accept deleted invite: err = %v, want ErrInviteNotFound", err)
+	}
+	if _, err := f.svc.Accept(ctx, f.admin, recent.Token); !errors.Is(err, invites.ErrInviteExpired) {
+		t.Fatalf("accept kept invite: err = %v, want ErrInviteExpired", err)
+	}
+}

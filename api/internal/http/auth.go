@@ -3,10 +3,7 @@ package http
 import (
 	"context"
 	"errors"
-	"log/slog"
-	"math"
 	"net/http"
-	"strconv"
 	"strings"
 	"time"
 
@@ -37,8 +34,7 @@ func (h authHandlers) requireAuth(next http.Handler) http.Handler {
 			return
 		}
 		if err != nil {
-			slog.ErrorContext(r.Context(), "auth: authenticate", "err", err)
-			writeError(w, http.StatusInternalServerError, "internal")
+			errorMap{}.write(w, r, "auth: authenticate", err)
 			return
 		}
 		ctx := withUserID(r.Context(), a.UserID)
@@ -114,8 +110,7 @@ func (h authHandlers) login(w http.ResponseWriter, r *http.Request) {
 	attempt, retryAfter, ok := h.limits.begin(req.Email, ip)
 	if !ok {
 		// Same answer for known and unknown emails.
-		w.Header().Set("Retry-After", strconv.Itoa(int(math.Ceil(retryAfter.Seconds()))))
-		writeError(w, http.StatusTooManyRequests, "too_many_attempts")
+		tooManyAttempts(w, retryAfter)
 		return
 	}
 	token, err := h.svc.Login(r.Context(), req.Email, req.Password)
@@ -156,4 +151,5 @@ var authErrors = errorMap{
 	{auth.ErrEmailTaken, http.StatusConflict, "email_taken"},
 	// Same response for an unknown email and a wrong password.
 	{auth.ErrInvalidCredentials, http.StatusUnauthorized, "invalid_credentials"},
+	{domain.ErrServerBusy, http.StatusServiceUnavailable, "server_busy"},
 }
