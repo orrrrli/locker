@@ -11,6 +11,28 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const anonymizeMembershipsOfUser = `-- name: AnonymizeMembershipsOfUser :exec
+UPDATE membership
+SET user_id = NULL, role = 'player', status = 'left',
+    display_name_override = 'Ex-jugador #' || id
+WHERE user_id = $1
+  AND (status <> 'active' OR team_id = ANY($2::bigint[]))
+`
+
+type AnonymizeMembershipsOfUserParams struct {
+	UserID  pgtype.Int8
+	TeamIds []int64
+}
+
+// Account deletion keeps every other row and its history, as a former member
+// named "Ex-jugador #<id>" (R5.3). Left and player, so it never counts as an
+// admin or receives notices. An active row changes only in a team the
+// deletion locked (team_ids), so one the user joined meanwhile stays put.
+func (q *Queries) AnonymizeMembershipsOfUser(ctx context.Context, arg AnonymizeMembershipsOfUserParams) error {
+	_, err := q.db.Exec(ctx, anonymizeMembershipsOfUser, arg.UserID, arg.TeamIds)
+	return err
+}
+
 const approvePendingMembership = `-- name: ApprovePendingMembership :one
 UPDATE membership
 SET status = 'active', role = 'player', joined_at = coalesce(joined_at, now())
@@ -47,6 +69,18 @@ WHERE team_id = $1 AND role = 'admin' AND status = 'active'
 
 func (q *Queries) CountActiveAdmins(ctx context.Context, teamID int64) (int64, error) {
 	row := q.db.QueryRow(ctx, countActiveAdmins, teamID)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
+const countMembershipsOfUser = `-- name: CountMembershipsOfUser :one
+SELECT count(*) FROM membership
+WHERE user_id = $1
+`
+
+func (q *Queries) CountMembershipsOfUser(ctx context.Context, userID pgtype.Int8) (int64, error) {
+	row := q.db.QueryRow(ctx, countMembershipsOfUser, userID)
 	var count int64
 	err := row.Scan(&count)
 	return count, err
@@ -91,6 +125,18 @@ func (q *Queries) DeleteNeverJoinedPendingMembership(ctx context.Context, id int
 		return 0, err
 	}
 	return result.RowsAffected(), nil
+}
+
+const deleteNeverJoinedPendingMembershipsOfUser = `-- name: DeleteNeverJoinedPendingMembershipsOfUser :exec
+DELETE FROM membership
+WHERE user_id = $1 AND status = 'pending' AND joined_at IS NULL
+`
+
+// Account deletion treats the user's pending rows like a reject (R7.4):
+// one that never joined leaves nothing behind.
+func (q *Queries) DeleteNeverJoinedPendingMembershipsOfUser(ctx context.Context, userID pgtype.Int8) error {
+	_, err := q.db.Exec(ctx, deleteNeverJoinedPendingMembershipsOfUser, userID)
+	return err
 }
 
 const getMembership = `-- name: GetMembership :one

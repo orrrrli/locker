@@ -17,7 +17,8 @@ import (
 
 const uniqueViolationCode = "23505"
 
-// Users is the user and auth_identity repository.
+// Users is the repository for the user and what hangs off it to sign in:
+// auth identities, and on account deletion device tokens and sessions.
 type Users struct {
 	pool *pgxpool.Pool
 }
@@ -67,4 +68,30 @@ func (r *Users) PasswordIdentity(ctx context.Context, email string) (int64, stri
 		return 0, "", fmt.Errorf("postgres: password identity: %w", err)
 	}
 	return row.UserID, row.PasswordHash.String, nil
+}
+
+// DeletePersonalData runs the user part of account deletion (R5.2): it
+// deletes the user's auth identities, device tokens and sessions, then nulls
+// the personal fields and sets deleted_at. The row stays, so the history that
+// hangs off it keeps its foreign keys. It returns domain.ErrNotFound when the
+// user is unknown or already deleted.
+func (r *Users) DeletePersonalData(ctx context.Context, userID int64) error {
+	q := sqlcdb.New(Conn(ctx, r.pool))
+	if err := q.DeleteAuthIdentitiesOfUser(ctx, userID); err != nil {
+		return fmt.Errorf("postgres: delete auth identities: %w", err)
+	}
+	if err := q.DeleteDeviceTokensOfUser(ctx, userID); err != nil {
+		return fmt.Errorf("postgres: delete device tokens: %w", err)
+	}
+	if err := q.DeleteSessionsOfUser(ctx, userID); err != nil {
+		return fmt.Errorf("postgres: delete sessions: %w", err)
+	}
+	n, err := q.ClearUserPersonalData(ctx, userID)
+	if err != nil {
+		return fmt.Errorf("postgres: clear user personal data: %w", err)
+	}
+	if n == 0 {
+		return domain.ErrNotFound
+	}
+	return nil
 }

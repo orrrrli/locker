@@ -13,6 +13,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/orrrrli/locker/api/internal/application/account"
 	"github.com/orrrrli/locker/api/internal/application/auth"
 	"github.com/orrrrli/locker/api/internal/application/invites"
 	applicationmemberships "github.com/orrrrli/locker/api/internal/application/memberships"
@@ -78,11 +79,18 @@ func start() error {
 		Tx:          postgres.NewTxRunner(pool),
 		Memberships: memberships,
 	})
+	accountSvc := account.NewService(account.Deps{
+		Tx:          postgres.NewTxRunner(pool),
+		Teams:       postgres.NewTeams(pool),
+		Memberships: memberships,
+		Users:       postgres.NewUsers(pool),
+	})
 	router := apihttp.NewRouter(apihttp.Deps{
 		Auth:         authSvc,
 		Teams:        teamSvc,
 		Invites:      inviteSvc,
 		Members:      memberSvc,
+		Account:      accountSvc,
 		AppleAppID:   cfg.AppleAppID,
 		DownloadURL:  cfg.DownloadURL,
 		Memberships:  memberships,

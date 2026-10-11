@@ -86,3 +86,24 @@ SET shirt_number = CASE WHEN sqlc.arg(set_shirt_number)::boolean THEN sqlc.narg(
     position     = CASE WHEN sqlc.arg(set_position)::boolean THEN sqlc.narg(position)::text ELSE position END
 WHERE id = sqlc.arg(id) AND status = 'active'
 RETURNING *;
+
+-- name: DeleteNeverJoinedPendingMembershipsOfUser :exec
+-- Account deletion treats the user's pending rows like a reject (R7.4):
+-- one that never joined leaves nothing behind.
+DELETE FROM membership
+WHERE user_id = $1 AND status = 'pending' AND joined_at IS NULL;
+
+-- name: AnonymizeMembershipsOfUser :exec
+-- Account deletion keeps every other row and its history, as a former member
+-- named "Ex-jugador #<id>" (R5.3). Left and player, so it never counts as an
+-- admin or receives notices. An active row changes only in a team the
+-- deletion locked (team_ids), so one the user joined meanwhile stays put.
+UPDATE membership
+SET user_id = NULL, role = 'player', status = 'left',
+    display_name_override = 'Ex-jugador #' || id
+WHERE user_id = sqlc.arg(user_id)
+  AND (status <> 'active' OR team_id = ANY(sqlc.arg(team_ids)::bigint[]));
+
+-- name: CountMembershipsOfUser :one
+SELECT count(*) FROM membership
+WHERE user_id = $1;
