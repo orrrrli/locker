@@ -462,3 +462,56 @@ func TestDeleteMembership(t *testing.T) {
 		t.Fatalf("removed member: status %d", rec.Code)
 	}
 }
+
+// TestRejoinReactivatesTheSameMembership: a member who left comes back
+// through an invite and the admin's approval, on the same row, with their
+// number and first join date (R8.4).
+func TestRejoinReactivatesTheSameMembership(t *testing.T) {
+	api := newAPI(t, func() time.Time { return today })
+	ctx := context.Background()
+	_, adminToken := signUp(t, api, "admin@example.com")
+	playerID, playerToken := signUp(t, api, "player@example.com")
+	team := createTeam(t, api, adminToken, "Halcones", "America/Tijuana")
+	addMember(t, api, team.ID, playerID, "player", "active")
+	player := membershipID(t, api, team.ID, playerID)
+	path := "/memberships/" + strconv.FormatInt(player, 10)
+	var joined time.Time
+	if err := api.pool.QueryRow(ctx, `SELECT joined_at FROM membership WHERE id = $1`, player).Scan(&joined); err != nil {
+		t.Fatal(err)
+	}
+
+	if rec := api.do(t, http.MethodPatch, path, playerToken, map[string]int{"shirt_number": 9}); rec.Code != http.StatusOK {
+		t.Fatalf("set number: status %d, body %s", rec.Code, rec.Body)
+	}
+	if rec := api.do(t, http.MethodDelete, path, playerToken, nil); rec.Code != http.StatusNoContent {
+		t.Fatalf("leave: status %d, body %s", rec.Code, rec.Body)
+	}
+	inv := createInvite(t, api, adminToken, team.ID)
+	if rec := api.do(t, http.MethodPost, "/invites/accept", playerToken, map[string]string{"token": inv.Token}); rec.Code != http.StatusCreated {
+		t.Fatalf("accept: status %d, body %s", rec.Code, rec.Body)
+	}
+	if id := membershipID(t, api, team.ID, playerID); id != player {
+		t.Fatalf("after accept: membership %d, want the same row %d", id, player)
+	}
+	rec := api.do(t, http.MethodPatch, path, adminToken, map[string]string{"status": "active"})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("approve: status %d, body %s", rec.Code, rec.Body)
+	}
+	var got membershipJSON
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatal(err)
+	}
+	if got.ID != player || got.Status != "active" || got.Role != "player" || got.ShirtNumber == nil || *got.ShirtNumber != 9 {
+		t.Fatalf("rejoined = %+v, want row %d active player with number 9", got, player)
+	}
+	var joinedNow time.Time
+	if err := api.pool.QueryRow(ctx, `SELECT joined_at FROM membership WHERE id = $1`, player).Scan(&joinedNow); err != nil {
+		t.Fatal(err)
+	}
+	if !joinedNow.Equal(joined) {
+		t.Fatalf("joined_at = %s, want the first join %s kept", joinedNow, joined)
+	}
+	if rec := api.do(t, http.MethodGet, teamPath(team.ID), playerToken, nil); rec.Code != http.StatusOK {
+		t.Fatalf("rejoined member reads team: status %d", rec.Code)
+	}
+}
