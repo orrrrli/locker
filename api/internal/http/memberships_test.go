@@ -162,3 +162,71 @@ func TestPatchMembershipApproveReject(t *testing.T) {
 		})
 	}
 }
+
+// TestPendingSeesNothingUntilApproved: a user who joins through a real invite
+// is pending and gets the same 404 as a stranger on every team route, and
+// the team is not in their list (R7.6). Approval opens the team as a player;
+// rejection keeps it closed.
+func TestPendingSeesNothingUntilApproved(t *testing.T) {
+	api := newAPI(t, func() time.Time { return today })
+	_, adminToken := signUp(t, api, "admin@example.com")
+	anaID, anaToken := signUp(t, api, "ana@example.com")
+	beaID, beaToken := signUp(t, api, "bea@example.com")
+	team := createTeam(t, api, adminToken, "Pumas", "America/Tijuana")
+	inv := createInvite(t, api, adminToken, team.ID)
+	for _, token := range []string{anaToken, beaToken} {
+		if rec := api.do(t, http.MethodPost, "/invites/accept", token, map[string]string{"token": inv.Token}); rec.Code != http.StatusCreated {
+			t.Fatalf("accept: status %d, body %s", rec.Code, rec.Body)
+		}
+	}
+	ana := membershipID(t, api, team.ID, anaID)
+	bea := membershipID(t, api, team.ID, beaID)
+
+	// Every team route that exists today. A new team route belongs here too.
+	routes := func(self int64) []struct{ method, path string } {
+		return []struct{ method, path string }{
+			{http.MethodGet, teamPath(team.ID)},
+			{http.MethodPatch, teamPath(team.ID)},
+			{http.MethodPost, teamPath(team.ID) + "/invites"},
+			{http.MethodDelete, teamPath(team.ID) + "/invites/" + strconv.FormatInt(inv.ID, 10)},
+			{http.MethodPatch, "/memberships/" + strconv.FormatInt(self, 10)},
+		}
+	}
+	shutOut := func(t *testing.T, token string, self int64) {
+		t.Helper()
+		for _, r := range routes(self) {
+			// The API's own not_found, not the mux's: a route that moved
+			// would otherwise keep passing against its old path.
+			rec := api.do(t, r.method, r.path, token, map[string]string{"name": "Hackers", "status": "active"})
+			if rec.Code != http.StatusNotFound || errorCode(t, rec) != "not_found" {
+				t.Errorf("%s %s: status %d, body %s; want 404 not_found", r.method, r.path, rec.Code, rec.Body)
+			}
+		}
+		if got := listTeamIDs(t, api, token); len(got) != 0 {
+			t.Errorf("GET /teams = %v, want none", got)
+		}
+	}
+
+	shutOut(t, anaToken, ana)
+	shutOut(t, beaToken, bea)
+
+	// Approved: Ana reads the team as a player, and still cannot change it.
+	if rec := api.do(t, http.MethodPatch, "/memberships/"+strconv.FormatInt(ana, 10), adminToken, map[string]string{"status": "active"}); rec.Code != http.StatusOK {
+		t.Fatalf("approve: status %d, body %s", rec.Code, rec.Body)
+	}
+	if rec := api.do(t, http.MethodGet, teamPath(team.ID), anaToken, nil); rec.Code != http.StatusOK {
+		t.Fatalf("approved GET team: status %d", rec.Code)
+	}
+	if got := listTeamIDs(t, api, anaToken); len(got) != 1 || got[0] != team.ID {
+		t.Fatalf("approved GET /teams = %v, want [%d]", got, team.ID)
+	}
+	if rec := api.do(t, http.MethodPatch, teamPath(team.ID), anaToken, map[string]string{"name": "Hackers"}); rec.Code != http.StatusForbidden {
+		t.Fatalf("approved player PATCH team: status %d, want 403", rec.Code)
+	}
+
+	// Rejected: Bea stays shut out, now as a stranger.
+	if rec := api.do(t, http.MethodPatch, "/memberships/"+strconv.FormatInt(bea, 10), adminToken, map[string]string{"status": "rejected"}); rec.Code != http.StatusNoContent {
+		t.Fatalf("reject: status %d, body %s", rec.Code, rec.Body)
+	}
+	shutOut(t, beaToken, bea)
+}
