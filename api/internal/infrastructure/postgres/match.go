@@ -94,11 +94,66 @@ func (r *Matches) UpdateMatch(ctx context.Context, teamID, id int64, startsAt *t
 	return matchOrNotFound(row, err, "update match")
 }
 
+// CloseDueAttendance saves attendance from going RSVPs for every match that
+// started an hour or more before now and is still open, and closes it, in
+// one atomic statement (R10.1). It returns how many matches it closed.
+func (r *Matches) CloseDueAttendance(ctx context.Context, now time.Time) (int64, error) {
+	n, err := sqlcdb.New(Conn(ctx, r.pool)).CloseDueAttendance(ctx, timestamptz(now))
+	if err != nil {
+		return 0, fmt.Errorf("postgres: close due attendance: %w", err)
+	}
+	return n, nil
+}
+
 // LockMatchInTeam returns the team's match with that id, holding the row
 // until the transaction ends, or domain.ErrNotFound.
 func (r *Matches) LockMatchInTeam(ctx context.Context, teamID, id int64) (domain.Match, error) {
 	row, err := sqlcdb.New(Conn(ctx, r.pool)).LockMatchInTeam(ctx, sqlcdb.LockMatchInTeamParams{TeamID: teamID, ID: id})
 	return matchOrNotFound(row, err, "lock match in team")
+}
+
+// ChargeExistsForMatch reports whether any charge targets the match (R10.4).
+func (r *Matches) ChargeExistsForMatch(ctx context.Context, matchID int64) (bool, error) {
+	exists, err := sqlcdb.New(Conn(ctx, r.pool)).ChargeExistsForMatch(ctx, pgtype.Int8{Int64: matchID, Valid: true})
+	if err != nil {
+		return false, fmt.Errorf("postgres: charge exists for match: %w", err)
+	}
+	return exists, nil
+}
+
+// CountTeamMembersIn counts how many of ids are memberships of the team
+// that are not pending.
+func (r *Matches) CountTeamMembersIn(ctx context.Context, teamID int64, ids []int64) (int, error) {
+	n, err := sqlcdb.New(Conn(ctx, r.pool)).CountTeamMembersIn(ctx, sqlcdb.CountTeamMembersInParams{TeamID: teamID, Ids: ids})
+	if err != nil {
+		return 0, fmt.Errorf("postgres: count team members in: %w", err)
+	}
+	return int(n), nil
+}
+
+// ReplaceAttendance stores ids as the match's whole attendee list and closes
+// the attendance if it was open. Callers hold the transaction.
+func (r *Matches) ReplaceAttendance(ctx context.Context, matchID int64, ids []int64, now time.Time) error {
+	q := sqlcdb.New(Conn(ctx, r.pool))
+	if err := q.DeleteAttendance(ctx, matchID); err != nil {
+		return fmt.Errorf("postgres: delete attendance: %w", err)
+	}
+	if err := q.InsertAttendance(ctx, sqlcdb.InsertAttendanceParams{MatchID: matchID, Ids: ids}); err != nil {
+		return fmt.Errorf("postgres: insert attendance: %w", err)
+	}
+	if err := q.CloseAttendance(ctx, sqlcdb.CloseAttendanceParams{ID: matchID, Now: timestamptz(now)}); err != nil {
+		return fmt.Errorf("postgres: close attendance: %w", err)
+	}
+	return nil
+}
+
+// ListAttendance returns the match's attendee membership ids, ascending.
+func (r *Matches) ListAttendance(ctx context.Context, matchID int64) ([]int64, error) {
+	ids, err := sqlcdb.New(Conn(ctx, r.pool)).ListAttendance(ctx, matchID)
+	if err != nil {
+		return nil, fmt.Errorf("postgres: list attendance: %w", err)
+	}
+	return ids, nil
 }
 
 func matchOrNotFound(row sqlcdb.Match, err error, op string) (domain.Match, error) {

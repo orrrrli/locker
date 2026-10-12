@@ -38,6 +38,13 @@ type Matches interface {
 	MatchInTeam(ctx context.Context, teamID, id int64) (domain.Match, error)
 	LockMatchInTeam(ctx context.Context, teamID, id int64) (domain.Match, error)
 	UpsertRSVP(ctx context.Context, matchID, membershipID int64, answer domain.RSVPAnswer) (domain.RSVP, error)
+	// Attendance (R10). ReplaceAttendance stores the whole list and closes
+	// the attendance if it was open.
+	CloseDueAttendance(ctx context.Context, now time.Time) (int64, error)
+	ChargeExistsForMatch(ctx context.Context, matchID int64) (bool, error)
+	CountTeamMembersIn(ctx context.Context, teamID int64, ids []int64) (int, error)
+	ReplaceAttendance(ctx context.Context, matchID int64, ids []int64, now time.Time) error
+	ListAttendance(ctx context.Context, matchID int64) ([]int64, error)
 }
 
 type Deps struct {
