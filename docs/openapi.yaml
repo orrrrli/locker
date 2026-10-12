@@ -415,6 +415,42 @@ paths:
           $ref: "#/components/responses/Internal"
         "503":
           $ref: "#/components/responses/TeamBusy"
+    delete:
+      tags: [teams]
+      operationId: dissolveTeam
+      summary: Dissolve a team
+      description: |
+        Admins only, and only when the caller is the team's only active member
+        (R6.8). In one transaction it revokes every invite, rejects every
+        pending member and sets the caller's membership left. Final: the team
+        disappears from `GET /teams` and every team route answers 404. Its
+        history (memberships, attendance, fees) is kept. The sole member of a
+        team dissolves it before `DELETE /me` (R5.4).
+      security:
+        - bearerAuth: []
+      responses:
+        "204":
+          description: The team is dissolved.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          description: "`team_has_members`: the team has another active member; promote or remove them first (R6.9). Nothing changed."
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Error"
+                  - properties:
+                      error:
+                        const: team_has_members
+        "500":
+          $ref: "#/components/responses/Internal"
+        "503":
+          $ref: "#/components/responses/TeamBusy"
 
   /teams/{id}/invites:
     parameters:
@@ -984,6 +1020,7 @@ components:
         - not_pending
         - last_admin
         - last_admin_of_teams
+        - team_has_members
     AlreadyMemberError:
       type: object
       required: [error, status]

@@ -107,3 +107,15 @@ WHERE user_id = sqlc.arg(user_id)
 -- name: CountMembershipsOfUser :one
 SELECT count(*) FROM membership
 WHERE user_id = $1;
+
+-- name: DeleteNeverJoinedPendingMembershipsOfTeam :exec
+-- Dissolving the team rejects its pending rows (R6.8), like RejectPending:
+-- one that never joined leaves nothing behind (R13.6)...
+DELETE FROM membership
+WHERE team_id = $1 AND status = 'pending' AND joined_at IS NULL;
+
+-- name: SetReturningPendingMembershipsOfTeamLeft :exec
+-- ...and a member who came back keeps their row and history (R8.4).
+UPDATE membership
+SET status = 'left'
+WHERE team_id = $1 AND status = 'pending' AND joined_at IS NOT NULL;

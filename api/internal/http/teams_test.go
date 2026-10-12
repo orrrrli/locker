@@ -274,3 +274,45 @@ func TestUpdateTeam(t *testing.T) {
 		t.Fatalf("team = %q %q, want Tigres America/Mexico_City", name, tz)
 	}
 }
+
+// TestDissolveTeam: only the team's sole active member, an admin, dissolves
+// it (R6.8, R6.9); afterwards the team is gone from every route. The rows
+// it touches (invites, pending, history) and the lock are tested in package
+// teams; the race with an invite accept in BE-TEAM-12-T4.
+func TestDissolveTeam(t *testing.T) {
+	api := newAPI(t, func() time.Time { return today })
+	_, adminToken := signUp(t, api, "admin@example.com")
+	playerID, playerToken := signUp(t, api, "player@example.com")
+	team := createTeam(t, api, adminToken, "Pumas", "America/Tijuana")
+	addMember(t, api, team.ID, playerID, "player", "active")
+	player := membershipID(t, api, team.ID, playerID)
+	path := "/teams/" + strconv.FormatInt(team.ID, 10)
+
+	if rec := api.do(t, http.MethodDelete, path, playerToken, nil); rec.Code != http.StatusForbidden || errorCode(t, rec) != "forbidden" {
+		t.Fatalf("player: status %d, body %s", rec.Code, rec.Body)
+	}
+	if rec := api.do(t, http.MethodDelete, path, adminToken, nil); rec.Code != http.StatusConflict || errorCode(t, rec) != "team_has_members" {
+		t.Fatalf("other active member: status %d, body %s", rec.Code, rec.Body)
+	}
+
+	// The player leaves; the admin is now the only active member.
+	if rec := api.do(t, http.MethodDelete, "/memberships/"+strconv.FormatInt(player, 10), playerToken, nil); rec.Code != http.StatusNoContent {
+		t.Fatalf("player leaves: status %d, body %s", rec.Code, rec.Body)
+	}
+	if rec := api.do(t, http.MethodDelete, path, adminToken, nil); rec.Code != http.StatusNoContent {
+		t.Fatalf("dissolve: status %d, body %s", rec.Code, rec.Body)
+	}
+	if ids := listTeamIDs(t, api, adminToken); len(ids) != 0 {
+		t.Fatalf("GET /teams after dissolve = %v, want none", ids)
+	}
+	for _, method := range []string{http.MethodGet, http.MethodDelete} {
+		if rec := api.do(t, method, path, adminToken, nil); rec.Code != http.StatusNotFound {
+			t.Fatalf("%s after dissolve: status %d, want 404", method, rec.Code)
+		}
+	}
+	var dissolved bool
+	if err := api.pool.QueryRow(context.Background(),
+		`SELECT dissolved_at IS NOT NULL FROM team WHERE id = $1`, team.ID).Scan(&dissolved); err != nil || !dissolved {
+		t.Fatalf("dissolved_at set = %v, err %v", dissolved, err)
+	}
+}

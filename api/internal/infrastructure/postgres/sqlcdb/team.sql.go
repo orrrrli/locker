@@ -11,6 +11,18 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const countActiveMembers = `-- name: CountActiveMembers :one
+SELECT count(*) FROM membership
+WHERE team_id = $1 AND status = 'active'
+`
+
+func (q *Queries) CountActiveMembers(ctx context.Context, teamID int64) (int64, error) {
+	row := q.db.QueryRow(ctx, countActiveMembers, teamID)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const createTeam = `-- name: CreateTeam :one
 INSERT INTO team (name, timezone)
 VALUES ($1, $2)
@@ -119,6 +131,21 @@ func (q *Queries) LockTeam(ctx context.Context, id int64) (int64, error) {
 	var id_2 int64
 	err := row.Scan(&id_2)
 	return id_2, err
+}
+
+const setTeamDissolved = `-- name: SetTeamDissolved :execrows
+UPDATE team
+SET dissolved_at = now()
+WHERE id = $1 AND dissolved_at IS NULL
+`
+
+// Set once: dissolution is final in Phase 1 (R6.11).
+func (q *Queries) SetTeamDissolved(ctx context.Context, id int64) (int64, error) {
+	result, err := q.db.Exec(ctx, setTeamDissolved, id)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }
 
 const updateTeam = `-- name: UpdateTeam :one

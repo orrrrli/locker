@@ -15,6 +15,7 @@ type teamService interface {
 	List(ctx context.Context, userID int64) ([]domain.Team, error)
 	Get(ctx context.Context, teamID int64) (domain.Team, error)
 	Update(ctx context.Context, teamID, callerID int64, name, timezone *string) (domain.Team, error)
+	Dissolve(ctx context.Context, teamID, callerID int64) error
 }
 
 type teamHandlers struct {
@@ -103,10 +104,22 @@ func (h teamHandlers) update(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, toTeamJSON(t))
 }
 
+// dissolve runs behind requireRole(admin); the use case checks the caller is
+// the team's only active member (R6.8, R6.9).
+func (h teamHandlers) dissolve(w http.ResponseWriter, r *http.Request) {
+	m, _ := membershipFrom(r.Context())
+	if err := h.svc.Dissolve(r.Context(), m.TeamID, m.ID); err != nil {
+		teamErrors.write(w, r, "teams", err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
 var teamErrors = errorMap{
 	{teams.ErrInvalidName, http.StatusUnprocessableEntity, "invalid_name"},
 	{teams.ErrInvalidTimezone, http.StatusUnprocessableEntity, "invalid_timezone"},
 	{teams.ErrNothingToUpdate, http.StatusUnprocessableEntity, "nothing_to_update"},
+	{teams.ErrTeamHasMembers, http.StatusConflict, "team_has_members"},
 	{application.ErrNotAdmin, http.StatusForbidden, "forbidden"},
 	{domain.ErrTeamBusy, http.StatusServiceUnavailable, "team_busy"},
 	{domain.ErrNotFound, http.StatusNotFound, "not_found"},

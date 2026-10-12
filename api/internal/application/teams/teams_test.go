@@ -215,3 +215,212 @@ func TestUpdateWritesUnderTheTeamLock(t *testing.T) {
 		t.Fatal("UpdateTeam ran without the team lock")
 	}
 }
+
+// dissolveFixture is a team whose admin is its only active member, with every
+// kind of row Dissolve touches (R6.8): a pending request that never joined,
+// a returning member pending again, a former member, and three invites (one
+// already revoked, one expired, one live).
+type dissolveFixture struct {
+	teamID, admin, neverJoined, returning, former int64
+	revokedAt                                     time.Time
+}
+
+func newDissolveFixture(t *testing.T, svc *teams.Service, pool *pgxpool.Pool) dissolveFixture {
+	t.Helper()
+	ctx := context.Background()
+	user := func(i int) int64 {
+		id, err := postgres.NewUsers(pool).CreateUser(ctx, "U", fmt.Sprintf("d%d@example.com", i), time.Date(2000, 1, 1, 0, 0, 0, 0, time.UTC))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return id
+	}
+	adminUser := user(0)
+	team, err := svc.Create(ctx, adminUser, "Pumas", "America/Tijuana")
+	if err != nil {
+		t.Fatal(err)
+	}
+	f := dissolveFixture{teamID: team.ID, revokedAt: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)}
+	if err := pool.QueryRow(ctx, `SELECT id FROM membership WHERE team_id = $1 AND user_id = $2`, team.ID, adminUser).Scan(&f.admin); err != nil {
+		t.Fatal(err)
+	}
+	add := func(i int, status string, joined bool) int64 {
+		var id int64
+		if err := pool.QueryRow(ctx,
+			`INSERT INTO membership (team_id, user_id, role, status, joined_at)
+			 VALUES ($1, $2, 'player', $3, CASE WHEN $4 THEN now() END) RETURNING id`,
+			team.ID, user(i), status, joined).Scan(&id); err != nil {
+			t.Fatal(err)
+		}
+		return id
+	}
+	f.neverJoined = add(1, "pending", false)
+	f.returning = add(2, "pending", true)
+	f.former = add(3, "left", true)
+	if _, err := pool.Exec(ctx,
+		`INSERT INTO invite (team_id, token_hash, created_by, expires_at, revoked_at) VALUES
+		 ($1, 'a', $2, now() + interval '7 days', NULL),
+		 ($1, 'b', $2, now() - interval '1 day', NULL),
+		 ($1, 'c', $2, now() + interval '7 days', $3)`,
+		team.ID, f.admin, f.revokedAt); err != nil {
+		t.Fatal(err)
+	}
+	return f
+}
+
+// statuses maps each membership id of the team to its status.
+func statuses(t *testing.T, pool *pgxpool.Pool, teamID int64) map[int64]string {
+	t.Helper()
+	rows, err := pool.Query(context.Background(), `SELECT id, status FROM membership WHERE team_id = $1`, teamID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	out := map[int64]string{}
+	for rows.Next() {
+		var id int64
+		var s string
+		if err := rows.Scan(&id, &s); err != nil {
+			t.Fatal(err)
+		}
+		out[id] = s
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatal(err)
+	}
+	return out
+}
+
+// TestDissolve: with another active member nothing changes (R6.9); once the
+// admin is alone, one call revokes every invite, rejects every pending row
+// like a reject (R13.6, R8.4), sets the admin left and marks the team
+// dissolved (R6.8). Former members keep their rows (history).
+func TestDissolve(t *testing.T) {
+	svc, pool := newService(t)
+	ctx := context.Background()
+	f := newDissolveFixture(t, svc, pool)
+
+	var player int64
+	if err := pool.QueryRow(ctx,
+		`INSERT INTO membership (team_id, user_id, role, status, joined_at) VALUES ($1, $2, 'player', 'active', now()) RETURNING id`,
+		f.teamID, newUser(t, pool)).Scan(&player); err != nil {
+		t.Fatal(err)
+	}
+	before := statuses(t, pool, f.teamID)
+	if err := svc.Dissolve(ctx, f.teamID, f.admin); !errors.Is(err, teams.ErrTeamHasMembers) {
+		t.Fatalf("with another active member: err = %v, want ErrTeamHasMembers", err)
+	}
+	if got := statuses(t, pool, f.teamID); fmt.Sprint(got) != fmt.Sprint(before) {
+		t.Fatalf("409 changed memberships: %v, want %v", got, before)
+	}
+	var live int
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM invite WHERE team_id = $1 AND revoked_at IS NULL`, f.teamID).Scan(&live); err != nil || live != 2 {
+		t.Fatalf("409 unrevoked invites = %d, want 2 (err %v)", live, err)
+	}
+
+	if _, err := pool.Exec(ctx, `UPDATE membership SET status = 'left' WHERE id = $1`, player); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.Dissolve(ctx, f.teamID, f.admin); err != nil {
+		t.Fatal(err)
+	}
+
+	got := statuses(t, pool, f.teamID)
+	want := map[int64]string{f.admin: "left", f.returning: "left", f.former: "left", player: "left"}
+	if fmt.Sprint(got) != fmt.Sprint(want) {
+		t.Fatalf("memberships = %v, want %v (never-joined %d deleted)", got, want, f.neverJoined)
+	}
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM invite WHERE team_id = $1 AND revoked_at IS NULL`, f.teamID).Scan(&live); err != nil || live != 0 {
+		t.Fatalf("unrevoked invites = %d, want 0 (err %v)", live, err)
+	}
+	var keptFirst bool
+	if err := pool.QueryRow(ctx, `SELECT revoked_at = $2 FROM invite WHERE team_id = $1 AND token_hash = 'c'`, f.teamID, f.revokedAt).Scan(&keptFirst); err != nil || !keptFirst {
+		t.Fatalf("already revoked invite kept its first time = %v, err %v", keptFirst, err)
+	}
+	var dissolved bool
+	if err := pool.QueryRow(ctx, `SELECT dissolved_at IS NOT NULL FROM team WHERE id = $1`, f.teamID).Scan(&dissolved); err != nil || !dissolved {
+		t.Fatalf("dissolved_at set = %v, err %v", dissolved, err)
+	}
+	if ts, err := svc.List(ctx, f.admin); err != nil || len(ts) != 0 {
+		t.Fatalf("teams after dissolve = %v, err %v", ts, err)
+	}
+}
+
+// TestDissolveRechecksTheCaller: Dissolve checks the caller again under the
+// team lock, so a player, or an admin who has since left, cannot dissolve.
+func TestDissolveRechecksTheCaller(t *testing.T) {
+	svc, pool := newService(t)
+	ctx := context.Background()
+	f := newDissolveFixture(t, svc, pool)
+	// The team has two active members, so without the caller check both
+	// callers would get ErrTeamHasMembers instead.
+	member := func(role, status string) int64 {
+		var id int64
+		if err := pool.QueryRow(ctx,
+			`INSERT INTO membership (team_id, user_id, role, status, joined_at) VALUES ($1, $2, $3, $4, now()) RETURNING id`,
+			f.teamID, newUser(t, pool), role, status).Scan(&id); err != nil {
+			t.Fatal(err)
+		}
+		return id
+	}
+	player := member("player", "active")
+	leftAdmin := member("admin", "left")
+	for _, tc := range []struct {
+		name   string
+		caller int64
+		want   error
+	}{
+		{"player", player, application.ErrNotAdmin},
+		// Like requireRole: someone who left sees the team as not found.
+		{"admin who left", leftAdmin, domain.ErrNotFound},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if err := svc.Dissolve(ctx, f.teamID, tc.caller); !errors.Is(err, tc.want) {
+				t.Fatalf("err = %v, want %v", err, tc.want)
+			}
+		})
+	}
+	var dissolved bool
+	if err := pool.QueryRow(ctx, `SELECT dissolved_at IS NOT NULL FROM team WHERE id = $1`, f.teamID).Scan(&dissolved); err != nil || dissolved {
+		t.Fatalf("dissolved_at set = %v, err %v; want unset", dissolved, err)
+	}
+}
+
+// lockProbedTeams records whether the team lock is held while the member
+// count and the dissolve run.
+type lockProbedTeams struct {
+	*postgres.Teams
+	t                           *testing.T
+	pool                        *pgxpool.Pool
+	countLocked, dissolveLocked *bool
+}
+
+func (p lockProbedTeams) CountActiveMembers(ctx context.Context, teamID int64) (int, error) {
+	*p.countLocked = testdb.TeamLocked(p.t, p.pool, teamID)
+	return p.Teams.CountActiveMembers(ctx, teamID)
+}
+
+func (p lockProbedTeams) Dissolve(ctx context.Context, teamID, callerID int64) error {
+	*p.dissolveLocked = testdb.TeamLocked(p.t, p.pool, teamID)
+	return p.Teams.Dissolve(ctx, teamID, callerID)
+}
+
+// TestDissolveWritesUnderTheTeamLock: the caller check, the member count and
+// the writes share one transaction and one lock, so an approval cannot
+// commit between the count and the dissolve.
+func TestDissolveWritesUnderTheTeamLock(t *testing.T) {
+	pool := testdb.New(t)
+	ctx := context.Background()
+	var countLocked, dissolveLocked bool
+	svc := teams.NewService(teams.Deps{
+		Tx:          postgres.NewTxRunner(pool),
+		Teams:       lockProbedTeams{Teams: postgres.NewTeams(pool), t: t, pool: pool, countLocked: &countLocked, dissolveLocked: &dissolveLocked},
+		Memberships: postgres.NewMemberships(pool),
+	})
+	f := newDissolveFixture(t, svc, pool)
+	if err := svc.Dissolve(ctx, f.teamID, f.admin); err != nil {
+		t.Fatal(err)
+	}
+	if !countLocked || !dissolveLocked {
+		t.Fatalf("under the team lock: count %v, dissolve %v; want both", countLocked, dissolveLocked)
+	}
+}

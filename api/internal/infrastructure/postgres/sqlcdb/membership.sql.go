@@ -127,6 +127,18 @@ func (q *Queries) DeleteNeverJoinedPendingMembership(ctx context.Context, id int
 	return result.RowsAffected(), nil
 }
 
+const deleteNeverJoinedPendingMembershipsOfTeam = `-- name: DeleteNeverJoinedPendingMembershipsOfTeam :exec
+DELETE FROM membership
+WHERE team_id = $1 AND status = 'pending' AND joined_at IS NULL
+`
+
+// Dissolving the team rejects its pending rows (R6.8), like RejectPending:
+// one that never joined leaves nothing behind (R13.6)...
+func (q *Queries) DeleteNeverJoinedPendingMembershipsOfTeam(ctx context.Context, teamID int64) error {
+	_, err := q.db.Exec(ctx, deleteNeverJoinedPendingMembershipsOfTeam, teamID)
+	return err
+}
+
 const deleteNeverJoinedPendingMembershipsOfUser = `-- name: DeleteNeverJoinedPendingMembershipsOfUser :exec
 DELETE FROM membership
 WHERE user_id = $1 AND status = 'pending' AND joined_at IS NULL
@@ -324,6 +336,18 @@ func (q *Queries) SetReturningPendingMembershipLeft(ctx context.Context, id int6
 		return 0, err
 	}
 	return result.RowsAffected(), nil
+}
+
+const setReturningPendingMembershipsOfTeamLeft = `-- name: SetReturningPendingMembershipsOfTeamLeft :exec
+UPDATE membership
+SET status = 'left'
+WHERE team_id = $1 AND status = 'pending' AND joined_at IS NOT NULL
+`
+
+// ...and a member who came back keeps their row and history (R8.4).
+func (q *Queries) SetReturningPendingMembershipsOfTeamLeft(ctx context.Context, teamID int64) error {
+	_, err := q.db.Exec(ctx, setReturningPendingMembershipsOfTeamLeft, teamID)
+	return err
 }
 
 const updateMembershipProfile = `-- name: UpdateMembershipProfile :one
