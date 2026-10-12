@@ -117,8 +117,6 @@ func TestRequireRoleAdmin(t *testing.T) {
 		want int
 	}{
 		{"active admin", member(domain.RoleAdmin, domain.MembershipActive), http.StatusOK},
-		// Also covers the captain: the label lives on team and points at a
-		// player membership; the helper reads only the role (R6.6).
 		{"active player", member(domain.RolePlayer, domain.MembershipActive), http.StatusForbidden},
 		{"pending admin", member(domain.RoleAdmin, domain.MembershipPending), http.StatusNotFound},
 		{"left admin", member(domain.RoleAdmin, domain.MembershipLeft), http.StatusNotFound},

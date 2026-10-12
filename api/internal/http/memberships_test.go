@@ -81,7 +81,7 @@ func TestPatchMembershipRole(t *testing.T) {
 		want int
 		code string
 	}{
-		{"invalid role", map[string]string{"role": "captain"}, http.StatusUnprocessableEntity, "invalid_role"},
+		{"invalid role", map[string]string{"role": "owner"}, http.StatusUnprocessableEntity, "invalid_role"},
 		{"no role", map[string]string{}, http.StatusUnprocessableEntity, "nothing_to_update"},
 		{"not JSON", "nope", http.StatusBadRequest, "invalid_request"},
 	} {

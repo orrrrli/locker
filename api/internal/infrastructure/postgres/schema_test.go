@@ -170,7 +170,7 @@ func TestSchemaConstraints(t *testing.T) {
 			`INSERT INTO membership (team_id, user_id, role, status) VALUES ($1, $2, 'player', 'pending')`,
 			[]any{f.team, f.user}, uniqueViolation},
 		{"membership role CHECK", "",
-			`INSERT INTO membership (team_id, role, status) VALUES ($1, 'captain', 'active')`,
+			`INSERT INTO membership (team_id, role, status) VALUES ($1, 'owner', 'active')`,
 			[]any{f.team}, checkViolation},
 		{"membership status CHECK", "",
 			`INSERT INTO membership (team_id, role, status) VALUES ($1, 'player', 'banned')`,

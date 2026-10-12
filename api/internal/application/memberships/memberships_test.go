@@ -130,7 +130,7 @@ func TestChangeRoleRejects(t *testing.T) {
 		role   domain.Role
 		want   error
 	}{
-		{"invalid role", team, admin, pending, "captain", memberships.ErrInvalidRole},
+		{"invalid role", team, admin, pending, "owner", memberships.ErrInvalidRole},
 		{"pending membership", team, admin, pending, domain.RoleAdmin, memberships.ErrNotActive},
 		{"left membership", team, admin, left, domain.RolePlayer, memberships.ErrNotActive},
 		{"membership of another team", team, admin, elsewhere, domain.RoleAdmin, domain.ErrNotFound},

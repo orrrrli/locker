@@ -97,7 +97,7 @@ func (a authz) requireActiveMember(team teamOf, next http.Handler) http.Handler 
 }
 
 // requireRole is requireActiveMember plus a role check. Permissions come only
-// from the role: the captain label grants nothing (R6.6).
+// from the role.
 func (a authz) requireRole(team teamOf, role domain.Role, next http.Handler) http.Handler {
 	return a.require(team, role, next)
 }

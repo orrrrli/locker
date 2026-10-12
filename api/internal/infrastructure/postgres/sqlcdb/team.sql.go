@@ -14,7 +14,7 @@ import (
 const createTeam = `-- name: CreateTeam :one
 INSERT INTO team (name, timezone)
 VALUES ($1, $2)
-RETURNING id, name, timezone, captain_membership_id, created_at
+RETURNING id, name, timezone, created_at
 `
 
 type CreateTeamParams struct {
@@ -22,58 +22,76 @@ type CreateTeamParams struct {
 	Timezone string
 }
 
-func (q *Queries) CreateTeam(ctx context.Context, arg CreateTeamParams) (Team, error) {
+type CreateTeamRow struct {
+	ID        int64
+	Name      string
+	Timezone  string
+	CreatedAt pgtype.Timestamptz
+}
+
+func (q *Queries) CreateTeam(ctx context.Context, arg CreateTeamParams) (CreateTeamRow, error) {
 	row := q.db.QueryRow(ctx, createTeam, arg.Name, arg.Timezone)
-	var i Team
+	var i CreateTeamRow
 	err := row.Scan(
 		&i.ID,
 		&i.Name,
 		&i.Timezone,
-		&i.CaptainMembershipID,
 		&i.CreatedAt,
 	)
 	return i, err
 }
 
 const getTeam = `-- name: GetTeam :one
-SELECT id, name, timezone, captain_membership_id, created_at FROM team
+SELECT id, name, timezone, created_at FROM team
 WHERE id = $1
 `
 
-func (q *Queries) GetTeam(ctx context.Context, id int64) (Team, error) {
+type GetTeamRow struct {
+	ID        int64
+	Name      string
+	Timezone  string
+	CreatedAt pgtype.Timestamptz
+}
+
+func (q *Queries) GetTeam(ctx context.Context, id int64) (GetTeamRow, error) {
 	row := q.db.QueryRow(ctx, getTeam, id)
-	var i Team
+	var i GetTeamRow
 	err := row.Scan(
 		&i.ID,
 		&i.Name,
 		&i.Timezone,
-		&i.CaptainMembershipID,
 		&i.CreatedAt,
 	)
 	return i, err
 }
 
 const listActiveTeamsForUser = `-- name: ListActiveTeamsForUser :many
-SELECT t.id, t.name, t.timezone, t.captain_membership_id, t.created_at FROM team t
+SELECT t.id, t.name, t.timezone, t.created_at FROM team t
 JOIN membership m ON m.team_id = t.id
 WHERE m.user_id = $1 AND m.status = 'active'
 ORDER BY t.id
 `
 
-func (q *Queries) ListActiveTeamsForUser(ctx context.Context, userID pgtype.Int8) ([]Team, error) {
+type ListActiveTeamsForUserRow struct {
+	ID        int64
+	Name      string
+	Timezone  string
+	CreatedAt pgtype.Timestamptz
+}
+
+func (q *Queries) ListActiveTeamsForUser(ctx context.Context, userID pgtype.Int8) ([]ListActiveTeamsForUserRow, error) {
 	rows, err := q.db.Query(ctx, listActiveTeamsForUser, userID)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var items []Team
+	var items []ListActiveTeamsForUserRow
 	for rows.Next() {
-		var i Team
+		var i ListActiveTeamsForUserRow
 		if err := rows.Scan(
 			&i.ID,
 			&i.Name,
 			&i.Timezone,
-			&i.CaptainMembershipID,
 			&i.CreatedAt,
 		); err != nil {
 			return nil, err
@@ -108,7 +126,7 @@ UPDATE team
 SET name     = coalesce($1, name),
     timezone = coalesce($2, timezone)
 WHERE id = $3
-RETURNING id, name, timezone, captain_membership_id, created_at
+RETURNING id, name, timezone, created_at
 `
 
 type UpdateTeamParams struct {
@@ -117,15 +135,21 @@ type UpdateTeamParams struct {
 	ID       int64
 }
 
+type UpdateTeamRow struct {
+	ID        int64
+	Name      string
+	Timezone  string
+	CreatedAt pgtype.Timestamptz
+}
+
 // A NULL argument keeps the current value (partial PATCH).
-func (q *Queries) UpdateTeam(ctx context.Context, arg UpdateTeamParams) (Team, error) {
+func (q *Queries) UpdateTeam(ctx context.Context, arg UpdateTeamParams) (UpdateTeamRow, error) {
 	row := q.db.QueryRow(ctx, updateTeam, arg.Name, arg.Timezone, arg.ID)
-	var i Team
+	var i UpdateTeamRow
 	err := row.Scan(
 		&i.ID,
 		&i.Name,
 		&i.Timezone,
-		&i.CaptainMembershipID,
 		&i.CreatedAt,
 	)
 	return i, err
