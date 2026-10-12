@@ -15,6 +15,7 @@ type inviteService interface {
 	Create(ctx context.Context, teamID, createdBy int64) (invites.Created, error)
 	Revoke(ctx context.Context, teamID, callerID, inviteID int64) error
 	Accept(ctx context.Context, userID int64, token string) (invites.Accepted, error)
+	RequestToJoin(ctx context.Context, teamID, userID int64) (invites.Accepted, bool, error)
 }
 
 type inviteHandlers struct {
@@ -77,6 +78,39 @@ func (h inviteHandlers) accept(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusCreated, map[string]any{
+		"team_id":   acc.TeamID,
+		"team_name": acc.TeamName,
+		"status":    acc.Status,
+	})
+}
+
+// requestToJoin is a join request from the team's public page (R13): any
+// signed-in user, so no membership check. A new pending membership, or a
+// left one back to pending, is a 201; a pending one already there is a 200
+// with the same body (R13.3). An active member gets the 409 an invite accept
+// gives. An unknown or dissolved team is a 404 (R6.10).
+func (h inviteHandlers) requestToJoin(w http.ResponseWriter, r *http.Request) {
+	teamID, err := idFromPath(r, "id")
+	if err != nil {
+		writeError(w, http.StatusNotFound, "not_found")
+		return
+	}
+	userID, _ := userIDFrom(r.Context())
+	acc, created, err := h.svc.RequestToJoin(r.Context(), teamID, userID)
+	var already *invites.AlreadyMemberError
+	if errors.As(err, &already) {
+		writeJSON(w, http.StatusConflict, map[string]string{"error": "already_member", "status": string(already.Status)})
+		return
+	}
+	if err != nil {
+		inviteErrors.write(w, r, "join requests", err)
+		return
+	}
+	status := http.StatusOK
+	if created {
+		status = http.StatusCreated
+	}
+	writeJSON(w, status, map[string]any{
 		"team_id":   acc.TeamID,
 		"team_name": acc.TeamName,
 		"status":    acc.Status,

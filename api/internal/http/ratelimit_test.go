@@ -376,6 +376,10 @@ func (fakeInvites) Accept(context.Context, int64, string) (invites.Accepted, err
 	return invites.Accepted{}, invites.ErrInviteNotFound
 }
 
+func (fakeInvites) RequestToJoin(context.Context, int64, int64) (invites.Accepted, bool, error) {
+	return invites.Accepted{}, true, nil
+}
+
 func TestInviteRoutesAreLimitedPerUser(t *testing.T) {
 	clk := &clock{t: today}
 	admin := domain.Membership{ID: 1, TeamID: teamID, Role: domain.RoleAdmin, Status: domain.MembershipActive}

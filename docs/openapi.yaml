@@ -608,6 +608,58 @@ paths:
         "500":
           $ref: "#/components/responses/Internal"
 
+  /teams/{id}/join-requests:
+    parameters:
+      - $ref: "#/components/parameters/TeamID"
+    post:
+      tags: [memberships]
+      operationId: requestToJoin
+      summary: Request to join a team
+      description: |
+        Join request from the team's public page; any signed-in user may call
+        it, no membership needed. It creates a pending player membership, the
+        same as accepting an invite; an admin approves or rejects it with
+        `PATCH /memberships/{id}`. A user who left the team gets their old row
+        back as pending. Asking again while pending changes nothing and
+        answers 200. No request body.
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: The caller was already pending in the team; the membership is unchanged.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InviteAccepted"
+        "201":
+          description: Membership is now pending approval (new, or a left member back to pending).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InviteAccepted"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          description: "`not_found`: unknown or dissolved team. No membership is created."
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Error"
+                  - properties:
+                      error:
+                        const: not_found
+        "409":
+          description: "`already_member`: the caller is already active in the team (`status` is `active`)."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AlreadyMemberError"
+        "500":
+          $ref: "#/components/responses/Internal"
+        "503":
+          $ref: "#/components/responses/TeamBusy"
+
   /teams/{id}/members:
     parameters:
       - $ref: "#/components/parameters/TeamID"
@@ -1566,6 +1618,7 @@ components:
           description: The token from the invite link. Sent in the body so it stays out of access logs.
     InviteAccepted:
       type: object
+      description: Returned by POST /invites/accept and POST /teams/{id}/join-requests.
       required: [team_id, team_name, status]
       properties:
         team_id:
