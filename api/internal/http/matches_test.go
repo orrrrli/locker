@@ -300,6 +300,7 @@ func TestAttendance(t *testing.T) {
 		{"no membership_ids", adminToken, map[string]string{}, http.StatusUnprocessableEntity, "invalid_attendees"},
 		{"pending attendee", adminToken, map[string][]int64{"membership_ids": {player, pending}}, http.StatusUnprocessableEntity, "invalid_attendees"},
 		{"not a list", adminToken, map[string]string{"membership_ids": "1"}, http.StatusBadRequest, "invalid_request"},
+		{"unknown field", adminToken, map[string]any{"membership_ids": []int64{player}, "note": "x"}, http.StatusBadRequest, "invalid_request"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			rec := api.do(t, http.MethodPut, path, tc.token, tc.body)

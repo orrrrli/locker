@@ -48,6 +48,29 @@ func closedAt(t *testing.T, f fixture, matchID int64) *time.Time {
 	return at
 }
 
+// addJoined inserts a membership that joined the team at some point, in the
+// given status: left, or pending again after leaving.
+func addJoined(t *testing.T, f fixture, email, status string) int64 {
+	t.Helper()
+	user := newUser(t, f.pool, email)
+	var id int64
+	if err := f.pool.QueryRow(context.Background(),
+		`INSERT INTO membership (team_id, user_id, role, status, joined_at) VALUES ($1, $2, 'player', $3, now()) RETURNING id`,
+		f.team, user, status).Scan(&id); err != nil {
+		t.Fatal(err)
+	}
+	return id
+}
+
+func addCharge(t *testing.T, f fixture, matchID int64) {
+	t.Helper()
+	if _, err := f.pool.Exec(context.Background(),
+		`INSERT INTO charge (team_id, concept, amount_cents, match_id, created_by) VALUES ($1, 'Arbitraje', 5000, $2, $3)`,
+		f.team, matchID, f.admin); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func newMatch(t *testing.T, f fixture) domain.Match {
 	t.Helper()
 	m, err := f.svc.Create(context.Background(), f.team, f.admin, kickoff, "Halcones", "Cancha 3")
@@ -100,6 +123,73 @@ func TestAutoSaveRunsOnceAfterOneHour(t *testing.T) {
 	}
 	if got := closedAt(t, f, m.ID); !got.Equal(*first) {
 		t.Fatalf("closed_at changed to %v", got)
+	}
+}
+
+// The job counts only current active members: a going answer from someone
+// who left, or who is pending again after leaving, is not copied.
+func TestAutoSaveCopiesOnlyActiveMembers(t *testing.T) {
+	f := newFixture(t)
+	m := newMatch(t, f)
+	active := addMember(t, f, "active@example.com", "player", "active")
+	left := addJoined(t, f, "left@example.com", "left")
+	rejoined := addJoined(t, f, "rejoined@example.com", "pending")
+	for _, id := range []int64{active, left, rejoined} {
+		rsvpDirect(t, f, m.ID, id, "going")
+	}
+	*f.now = kickoff.Add(time.Hour)
+	if n, err := f.svc.CloseDueAttendance(context.Background()); err != nil || n != 1 {
+		t.Fatalf("closed %d, err %v; want 1", n, err)
+	}
+	if got := attendees(t, f, m.ID); !slices.Equal(got, []int64{active}) {
+		t.Fatalf("attendance = %v, want only the active member [%d]", got, active)
+	}
+}
+
+// A match a charge already targets is locked for the job too (R10.4): it
+// stays open and untouched.
+func TestAutoSaveSkipsAChargedMatch(t *testing.T) {
+	f := newFixture(t)
+	m := newMatch(t, f)
+	going := addMember(t, f, "going@example.com", "player", "active")
+	rsvpDirect(t, f, m.ID, going, "going")
+	addCharge(t, f, m.ID)
+	*f.now = kickoff.Add(time.Hour)
+	if n, err := f.svc.CloseDueAttendance(context.Background()); err != nil || n != 0 {
+		t.Fatalf("closed %d, err %v; want 0", n, err)
+	}
+	if attendees(t, f, m.ID) != nil || closedAt(t, f, m.ID) != nil {
+		t.Fatal("a charged match was auto-saved")
+	}
+}
+
+// "Exactly once" under concurrency: a match another transaction holds (an
+// admin saving it) is skipped, not waited for, and gets the next tick.
+// Without SKIP LOCKED the job would block until the timeout.
+func TestAutoSaveSkipsAMatchHeldByAnotherTransaction(t *testing.T) {
+	f := newFixture(t)
+	ctx := context.Background()
+	m := newMatch(t, f)
+	*f.now = kickoff.Add(time.Hour)
+
+	tx, err := f.pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck
+	if _, err := tx.Exec(ctx, `SELECT id FROM match WHERE id = $1 FOR UPDATE`, m.ID); err != nil {
+		t.Fatal(err)
+	}
+	short, cancel := context.WithTimeout(ctx, 3*time.Second)
+	defer cancel()
+	if n, err := f.svc.CloseDueAttendance(short); err != nil || n != 0 {
+		t.Fatalf("while held: closed %d, err %v; want 0 and no error", n, err)
+	}
+	if err := tx.Rollback(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if n, err := f.svc.CloseDueAttendance(ctx); err != nil || n != 1 {
+		t.Fatalf("after release: closed %d, err %v; want 1", n, err)
 	}
 }
 
@@ -177,6 +267,24 @@ func TestAdminCorrectionReplacesTheList(t *testing.T) {
 	}
 }
 
+// Someone who played, left and asked to rejoin is pending again but did
+// join once, so the admin can keep them in the list.
+func TestAdminKeepsARejoinedMemberWhoPlayed(t *testing.T) {
+	f := newFixture(t)
+	ctx := context.Background()
+	m := newMatch(t, f)
+	rejoined := addJoined(t, f, "rejoined@example.com", "pending")
+	left := addJoined(t, f, "left@example.com", "left")
+	*f.now = kickoff.Add(2 * time.Hour)
+	a, err := f.svc.SaveAttendance(ctx, f.team, f.admin, m.ID, []int64{rejoined, left})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := attendees(t, f, m.ID); !slices.Equal(got, a.MembershipIDs) || len(got) != 2 {
+		t.Fatalf("attendance = %v, want [%d %d]", got, rejoined, left)
+	}
+}
+
 func TestSaveAttendanceRejections(t *testing.T) {
 	f := newFixture(t)
 	ctx := context.Background()
@@ -202,7 +310,7 @@ func TestSaveAttendanceRejections(t *testing.T) {
 		want   error
 	}{
 		{"player caller", player, []int64{player}, application.ErrNotAdmin},
-		{"pending attendee", f.admin, []int64{player, pending}, matches.ErrInvalidAttendee},
+		{"attendee who never joined", f.admin, []int64{player, pending}, matches.ErrInvalidAttendee},
 		{"other team's member", f.admin, []int64{otherMember}, matches.ErrInvalidAttendee},
 		{"unknown id", f.admin, []int64{999_999}, matches.ErrInvalidAttendee},
 	} {
@@ -223,11 +331,7 @@ func TestSaveAttendanceRejections(t *testing.T) {
 	if _, err := f.svc.SaveAttendance(ctx, f.team, f.admin, m.ID, []int64{player}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := f.pool.Exec(ctx,
-		`INSERT INTO charge (team_id, concept, amount_cents, match_id, created_by) VALUES ($1, 'Arbitraje', 5000, $2, $3)`,
-		f.team, m.ID, f.admin); err != nil {
-		t.Fatal(err)
-	}
+	addCharge(t, f, m.ID)
 	if _, err := f.svc.SaveAttendance(ctx, f.team, f.admin, m.ID, []int64{f.admin}); !errors.Is(err, matches.ErrAttendanceLocked) {
 		t.Fatalf("with a charge: err = %v, want ErrAttendanceLocked", err)
 	}
