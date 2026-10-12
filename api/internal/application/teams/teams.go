@@ -5,10 +5,7 @@ import (
 	"context"
 	"errors"
 	"regexp"
-	"strings"
 	"time"
-	"unicode"
-	"unicode/utf8"
 
 	"github.com/orrrrli/locker/api/internal/application"
 	"github.com/orrrrli/locker/api/internal/domain"
@@ -157,26 +154,14 @@ func (s *Service) Dissolve(ctx context.Context, teamID, callerID int64) error {
 	})
 }
 
-// checkName trims the name and counts characters, not bytes, so accents and
-// ñ count as one. It rejects control characters (NUL makes Postgres fail)
-// and invisible format characters (bidi overrides, zero-width spaces) that
-// can disguise a name in the roster and in pushes. The zero-width joiner
-// stays: compound emoji need it (a family emoji is man, ZWJ, woman, ZWJ,
-// girl).
+// checkName applies application.CleanText with the team name limit.
 func checkName(raw string) (string, error) {
-	name := strings.TrimSpace(raw)
-	if name == "" || utf8.RuneCountInString(name) > maxNameLen {
+	name, ok := application.CleanText(raw, maxNameLen)
+	if !ok {
 		return "", ErrInvalidName
-	}
-	for _, r := range name {
-		if unicode.IsControl(r) || (unicode.Is(unicode.Cf, r) && r != zeroWidthJoiner) {
-			return "", ErrInvalidName
-		}
 	}
 	return name, nil
 }
-
-const zeroWidthJoiner = '\u200d'
 
 // ianaZone is the shape of a canonical zone name: Area/Location, maybe with
 // a sub-location (America/Argentina/Buenos_Aires). LoadLocation alone also

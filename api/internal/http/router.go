@@ -13,6 +13,9 @@ type Deps struct {
 	Invites inviteService
 	Members membershipService
 	Account accountService
+	Matches matchService
+	// MatchFinder resolves the team of routes on /matches/{id}.
+	MatchFinder matchFinder
 	// AppleAppID ("<team id>.<bundle id>") is the app invite links open;
 	// empty until the Apple Developer account exists.
 	AppleAppID string
@@ -73,6 +76,11 @@ func NewRouter(d Deps) http.Handler {
 	mux.Handle("GET /teams/{id}/members", a.requireAuth(z.requireActiveMember(team, http.HandlerFunc(mem.list))))
 	mux.Handle("PATCH /memberships/{id}", a.requireAuth(z.requireActiveMember(teamFromMembership("id", d.Memberships), http.HandlerFunc(mem.update))))
 	mux.Handle("DELETE /memberships/{id}", a.requireAuth(z.requireActiveMember(teamFromMembership("id", d.Memberships), http.HandlerFunc(mem.leave))))
+
+	mt := matchHandlers{svc: d.Matches}
+	mux.Handle("POST /teams/{id}/matches", a.requireAuth(z.requireRole(team, domain.RoleAdmin, http.HandlerFunc(mt.create))))
+	mux.Handle("GET /teams/{id}/matches", a.requireAuth(z.requireActiveMember(team, http.HandlerFunc(mt.list))))
+	mux.Handle("PATCH /matches/{id}", a.requireAuth(z.requireRole(teamFromMatch("id", d.MatchFinder), domain.RoleAdmin, http.HandlerFunc(mt.update))))
 	return jsonMisses(mux)
 }
 
