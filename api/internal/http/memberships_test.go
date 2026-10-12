@@ -196,6 +196,7 @@ func TestPendingSeesNothingUntilApproved(t *testing.T) {
 			{http.MethodGet, teamPath(team.ID) + "/members"},
 			{http.MethodPatch, teamPath(team.ID)},
 			{http.MethodPost, teamPath(team.ID) + "/invites"},
+			{http.MethodGet, teamPath(team.ID) + "/invites"},
 			{http.MethodDelete, teamPath(team.ID) + "/invites/" + strconv.FormatInt(inv.ID, 10)},
 			{http.MethodPatch, "/memberships/" + strconv.FormatInt(self, 10)},
 		}

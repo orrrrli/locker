@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"strconv"
+	"time"
 
 	"github.com/orrrrli/locker/api/internal/application"
 	"github.com/orrrrli/locker/api/internal/application/invites"
@@ -14,6 +15,7 @@ import (
 type inviteService interface {
 	Create(ctx context.Context, teamID, createdBy int64) (invites.Created, error)
 	Revoke(ctx context.Context, teamID, callerID, inviteID int64) error
+	List(ctx context.Context, teamID int64) ([]domain.Invite, error)
 	Accept(ctx context.Context, userID int64, token string) (invites.Accepted, error)
 }
 
@@ -36,6 +38,41 @@ func (h inviteHandlers) create(w http.ResponseWriter, r *http.Request) {
 		"url":        inv.URL,
 		"expires_at": apiTime(inv.ExpiresAt),
 	})
+}
+
+// inviteSummaryJSON never carries the token or its hash: only the hash is stored,
+// and it would let anyone holding the response accept the invite.
+type inviteSummaryJSON struct {
+	ID        int64      `json:"id"`
+	CreatedBy int64      `json:"created_by"`
+	ExpiresAt time.Time  `json:"expires_at"`
+	RevokedAt *time.Time `json:"revoked_at"`
+}
+
+// toInviteSummaryJSON writes both timestamps through apiTime: UTC whole
+// seconds, whatever the server's zone or the database's precision.
+func toInviteSummaryJSON(inv domain.Invite) inviteSummaryJSON {
+	out := inviteSummaryJSON{ID: inv.ID, CreatedBy: inv.CreatedBy, ExpiresAt: apiTime(inv.ExpiresAt)}
+	if inv.RevokedAt != nil {
+		t := apiTime(*inv.RevokedAt)
+		out.RevokedAt = &t
+	}
+	return out
+}
+
+// list runs behind requireRole(admin) on the team in the path (#184).
+func (h inviteHandlers) list(w http.ResponseWriter, r *http.Request) {
+	m, _ := membershipFrom(r.Context())
+	invs, err := h.svc.List(r.Context(), m.TeamID)
+	if err != nil {
+		inviteErrors.write(w, r, "invites", err)
+		return
+	}
+	out := make([]inviteSummaryJSON, len(invs))
+	for i, inv := range invs {
+		out[i] = toInviteSummaryJSON(inv)
+	}
+	writeJSON(w, http.StatusOK, map[string][]inviteSummaryJSON{"invites": out})
 }
 
 // revoke runs behind requireRole(admin) on the team in the path. Revoke is

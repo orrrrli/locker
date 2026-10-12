@@ -2,13 +2,20 @@ package http
 
 import (
 	"context"
+	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
+	"maps"
 	"net/http"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/orrrrli/locker/api/internal/application/token"
+	"github.com/orrrrli/locker/api/internal/domain"
 )
 
 type inviteJSON struct {
@@ -235,5 +242,145 @@ func TestRevokeInviteAdminOfItsTeamOnly(t *testing.T) {
 	_, newToken := signUp(t, api, "new@example.com")
 	if rec := api.do(t, http.MethodPost, "/invites/accept", newToken, map[string]string{"token": inv.Token}); rec.Code != http.StatusCreated {
 		t.Fatalf("accept after attack: status %d, body %s", rec.Code, rec.Body)
+	}
+}
+
+// TestListInvites: GET /teams/{id}/invites shows an admin the team's
+// unexpired invites with exactly id, created_by, expires_at and revoked_at,
+// never the token or its hash; players get 403, everyone else 404 (#184).
+func TestListInvites(t *testing.T) {
+	api := newAPI(t, func() time.Time { return today })
+	adminID, adminToken := signUp(t, api, "admin@example.com")
+	playerID, playerToken := signUp(t, api, "player@example.com")
+	pendingID, pendingToken := signUp(t, api, "pending@example.com")
+	leftID, leftToken := signUp(t, api, "left@example.com")
+	_, strangerToken := signUp(t, api, "stranger@example.com")
+	team := createTeam(t, api, adminToken, "Pumas", "America/Tijuana")
+	addMember(t, api, team.ID, playerID, "player", "active")
+	addMember(t, api, team.ID, pendingID, "player", "pending")
+	addMember(t, api, team.ID, leftID, "admin", "left")
+	path := teamPath(team.ID) + "/invites"
+
+	list := func() (string, []map[string]json.RawMessage) {
+		t.Helper()
+		rec := api.do(t, http.MethodGet, path, adminToken, nil)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("list: status %d, body %s", rec.Code, rec.Body)
+		}
+		var body struct {
+			Invites []map[string]json.RawMessage `json:"invites"`
+		}
+		if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil || body.Invites == nil {
+			t.Fatalf("body %s: want an invites array (err %v)", rec.Body, err)
+		}
+		return rec.Body.String(), body.Invites
+	}
+	if _, invs := list(); len(invs) != 0 {
+		t.Fatalf("empty team: %v", invs)
+	}
+
+	older, newer := createInvite(t, api, adminToken, team.ID), createInvite(t, api, adminToken, team.ID)
+	if rec := api.do(t, http.MethodDelete, path+"/"+strconv.FormatInt(older.ID, 10), adminToken, nil); rec.Code != http.StatusNoContent {
+		t.Fatalf("revoke: status %d", rec.Code)
+	}
+	body, invs := list()
+	for _, inv := range []inviteJSON{older, newer} {
+		noToken(t, body, inv.Token)
+		hash, ok := token.Hash(inv.Token)
+		if !ok {
+			t.Fatalf("token %q does not decode", inv.Token)
+		}
+		if strings.Contains(body, hex.EncodeToString(hash)) || strings.Contains(body, base64.StdEncoding.EncodeToString(hash)) {
+			t.Fatalf("response leaks a token hash: %s", body)
+		}
+	}
+	if len(invs) != 2 {
+		t.Fatalf("invites = %v, want 2", invs)
+	}
+	admin := strconv.FormatInt(membershipID(t, api, team.ID, adminID), 10)
+	for i, want := range []struct {
+		inv     inviteJSON
+		revoked string
+	}{{newer, "null"}, {older, `"` + today.Format(time.RFC3339) + `"`}} {
+		got := invs[i]
+		if keys := slices.Sorted(maps.Keys(got)); !slices.Equal(keys, []string{"created_by", "expires_at", "id", "revoked_at"}) {
+			t.Fatalf("keys = %v", keys)
+		}
+		if string(got["id"]) != strconv.FormatInt(want.inv.ID, 10) || string(got["created_by"]) != admin ||
+			string(got["expires_at"]) != `"`+want.inv.ExpiresAt+`"` || string(got["revoked_at"]) != want.revoked {
+			t.Fatalf("invite %d = %s, want id %d, created_by %s, expires %s, revoked %s", i, body, want.inv.ID, admin, want.inv.ExpiresAt, want.revoked)
+		}
+	}
+
+	for _, tc := range []struct {
+		name, path, token string
+		status            int
+		code              string
+	}{
+		{"player", path, playerToken, http.StatusForbidden, "forbidden"},
+		{"pending", path, pendingToken, http.StatusNotFound, "not_found"},
+		{"left admin", path, leftToken, http.StatusNotFound, "not_found"},
+		{"stranger", path, strangerToken, http.StatusNotFound, "not_found"},
+		{"no token", path, "", http.StatusUnauthorized, "unauthorized"},
+		{"unknown team", teamPath(team.ID+1000) + "/invites", adminToken, http.StatusNotFound, "not_found"},
+		{"non-numeric id", "/teams/abc/invites", adminToken, http.StatusNotFound, "not_found"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			rec := api.do(t, http.MethodGet, tc.path, tc.token, nil)
+			if rec.Code != tc.status || errorCode(t, rec) != tc.code {
+				t.Fatalf("status %d, body %s; want %d %s", rec.Code, rec.Body, tc.status, tc.code)
+			}
+			noToken(t, rec.Body.String(), newer.Token)
+		})
+	}
+}
+
+// TestListInvitesIsTeamWide: every admin sees the invites any admin of the
+// team created, not only their own (#184).
+func TestListInvitesIsTeamWide(t *testing.T) {
+	api := newAPI(t, func() time.Time { return today })
+	anaID, anaToken := signUp(t, api, "ana@example.com")
+	beaID, beaToken := signUp(t, api, "bea@example.com")
+	team := createTeam(t, api, anaToken, "Pumas", "America/Tijuana")
+	addMember(t, api, team.ID, beaID, "admin", "active")
+	fromAna, fromBea := createInvite(t, api, anaToken, team.ID), createInvite(t, api, beaToken, team.ID)
+	ana, bea := membershipID(t, api, team.ID, anaID), membershipID(t, api, team.ID, beaID)
+
+	for name, tok := range map[string]string{"ana": anaToken, "bea": beaToken} {
+		rec := api.do(t, http.MethodGet, teamPath(team.ID)+"/invites", tok, nil)
+		var body struct {
+			Invites []struct {
+				ID        int64 `json:"id"`
+				CreatedBy int64 `json:"created_by"`
+			} `json:"invites"`
+		}
+		if rec.Code != http.StatusOK || json.Unmarshal(rec.Body.Bytes(), &body) != nil {
+			t.Fatalf("%s: status %d, body %s", name, rec.Code, rec.Body)
+		}
+		got := body.Invites
+		if len(got) != 2 || got[0].ID != fromBea.ID || got[0].CreatedBy != bea || got[1].ID != fromAna.ID || got[1].CreatedBy != ana {
+			t.Fatalf("%s sees %+v, want %d by %d then %d by %d", name, got, fromBea.ID, bea, fromAna.ID, ana)
+		}
+	}
+}
+
+// Both timestamps go out in UTC whole seconds whatever zone and precision
+// the database driver used: Swift's .iso8601 decoder rejects fractions.
+func TestInviteSummaryJSONWritesUTCWholeSeconds(t *testing.T) {
+	tijuana := time.FixedZone("PDT", -7*60*60)
+	at := time.Date(2026, 10, 11, 16, 53, 0, 123456000, tijuana)
+	b, err := json.Marshal(toInviteSummaryJSON(domain.Invite{ExpiresAt: at, RevokedAt: &at}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got struct {
+		ExpiresAt string `json:"expires_at"`
+		RevokedAt string `json:"revoked_at"`
+	}
+	if err := json.Unmarshal(b, &got); err != nil {
+		t.Fatal(err)
+	}
+	if got.ExpiresAt != "2026-10-11T23:53:00Z" || got.RevokedAt != "2026-10-11T23:53:00Z" {
+		t.Fatalf("expires_at %s, revoked_at %s; want 2026-10-11T23:53:00Z for both", got.ExpiresAt, got.RevokedAt)
 	}
 }

@@ -52,6 +52,23 @@ func (r *Invites) InviteByTokenHash(ctx context.Context, tokenHash []byte) (doma
 	return inv, row.TeamName, nil
 }
 
+// ListInvites returns the team's invites not expired at now, newest first.
+// TokenHash stays empty: the query never reads it.
+func (r *Invites) ListInvites(ctx context.Context, teamID int64, now time.Time) ([]domain.Invite, error) {
+	rows, err := sqlcdb.New(Conn(ctx, r.pool)).ListUnexpiredInvites(ctx, sqlcdb.ListUnexpiredInvitesParams{TeamID: teamID, Now: timestamptz(now)})
+	if err != nil {
+		return nil, fmt.Errorf("postgres: list invites: %w", err)
+	}
+	out := make([]domain.Invite, len(rows))
+	for i, row := range rows {
+		out[i] = domain.Invite{ID: row.ID, TeamID: row.TeamID, CreatedBy: row.CreatedBy, ExpiresAt: row.ExpiresAt.Time}
+		if row.RevokedAt.Valid {
+			out[i].RevokedAt = &row.RevokedAt.Time
+		}
+	}
+	return out, nil
+}
+
 // RevokeInvite marks the team's invite revoked; a second call keeps the
 // first time. It returns domain.ErrNotFound when the team has no such invite.
 func (r *Invites) RevokeInvite(ctx context.Context, teamID, id int64, now time.Time) error {

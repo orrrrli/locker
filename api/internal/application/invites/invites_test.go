@@ -467,3 +467,61 @@ func TestDeleteExpiredKeepsThirtyDays(t *testing.T) {
 		t.Fatalf("accept kept invite: err = %v, want ErrInviteExpired", err)
 	}
 }
+
+// TestListInvites: the team's invites not yet expired, newest first, revoked
+// ones included with their first revocation time; an expired invite the
+// ticker has not deleted yet and another team's invites never show (#184).
+func TestListInvites(t *testing.T) {
+	f := setup(t)
+	ctx := context.Background()
+
+	if got, err := f.svc.List(ctx, f.teamID); err != nil || len(got) != 0 {
+		t.Fatalf("empty team: %v, err %v", got, err)
+	}
+
+	older, newer, revoked := f.invite(t), f.invite(t), f.invite(t)
+	// Created a lifetime ago, so it expires at start; still in the table.
+	*f.now = start.Add(-invites.Lifetime)
+	f.invite(t)
+	*f.now = start
+	if err := f.svc.Revoke(ctx, f.teamID, f.adminID, revoked.ID); err != nil {
+		t.Fatal(err)
+	}
+	*f.now = start.Add(time.Hour)
+	if err := f.svc.Revoke(ctx, f.teamID, f.adminID, revoked.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	otherTeam, err := teams.NewService(teams.Deps{
+		Tx: postgres.NewTxRunner(f.pool), Teams: postgres.NewTeams(f.pool), Memberships: f.members,
+	}).Create(ctx, f.admin, "Halcones", "America/Tijuana")
+	if err != nil {
+		t.Fatal(err)
+	}
+	otherAdmin, err := f.members.MembershipByTeamAndUser(ctx, otherTeam.ID, f.admin)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.svc.Create(ctx, otherTeam.ID, otherAdmin.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := f.svc.List(ctx, f.teamID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 3 || got[0].ID != revoked.ID || got[1].ID != newer.ID || got[2].ID != older.ID {
+		t.Fatalf("invites = %+v, want %d, %d, %d (newest first)", got, revoked.ID, newer.ID, older.ID)
+	}
+	for _, inv := range got {
+		if inv.TeamID != f.teamID || inv.CreatedBy != f.adminID || len(inv.TokenHash) != 0 {
+			t.Fatalf("invite %+v: want team %d, creator %d, no hash", inv, f.teamID, f.adminID)
+		}
+	}
+	if got[0].RevokedAt == nil || !got[0].RevokedAt.Equal(start) {
+		t.Fatalf("revoked_at = %v, want the first revocation %v", got[0].RevokedAt, start)
+	}
+	if got[1].RevokedAt != nil || !got[1].ExpiresAt.Equal(newer.ExpiresAt) {
+		t.Fatalf("live invite = %+v, want not revoked, expires %v", got[1], newer.ExpiresAt)
+	}
+}

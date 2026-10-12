@@ -459,6 +459,39 @@ paths:
   /teams/{id}/invites:
     parameters:
       - $ref: "#/components/parameters/TeamID"
+    get:
+      tags: [invites]
+      operationId: listInvites
+      summary: List the team's invites
+      description: |
+        Admins only. The team's invites that have not expired, newest first,
+        revoked ones included so the admin sees a revoke worked. Never the
+        token: use `id` to revoke a leaked link. No pagination: at most 20
+        are live at a time; revoked ones stay listed until they expire
+        (7 days).
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: The invites; an empty array when there are none.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [invites]
+                properties:
+                  invites:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/InviteSummary"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/Internal"
     post:
       tags: [invites]
       operationId: createInvite
@@ -1350,6 +1383,24 @@ components:
           description: Universal Link, `<public base URL>/i/<token>`.
         expires_at:
           $ref: "#/components/schemas/Timestamp"
+    InviteSummary:
+      type: object
+      required: [id, created_by, expires_at, revoked_at]
+      properties:
+        id:
+          type: integer
+          format: int64
+        created_by:
+          type: integer
+          format: int64
+          description: Membership id of the admin who created it (match it against the roster).
+        expires_at:
+          $ref: "#/components/schemas/Timestamp"
+        revoked_at:
+          description: When it was first revoked; null while it still works.
+          oneOf:
+            - $ref: "#/components/schemas/Timestamp"
+            - type: "null"
     AcceptInviteRequest:
       type: object
       additionalProperties: false

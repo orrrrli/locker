@@ -1,4 +1,4 @@
-// Package invites holds the invite link use cases: create, revoke, accept.
+// Package invites holds the invite link use cases: create, list, revoke, accept.
 package invites
 
 import (
@@ -51,6 +51,9 @@ type Invites interface {
 	// RevokeInvite returns domain.ErrNotFound when the team has no such invite.
 	RevokeInvite(ctx context.Context, teamID, id int64, now time.Time) error
 	CountLiveInvites(ctx context.Context, teamID int64, now time.Time) (int, error)
+	// ListInvites returns the team's invites not expired at now, revoked ones
+	// included, newest first.
+	ListInvites(ctx context.Context, teamID int64, now time.Time) ([]domain.Invite, error)
 	// DeleteExpired deletes invites expired at or before cutoff.
 	DeleteExpired(ctx context.Context, cutoff time.Time) (int64, error)
 }
@@ -152,6 +155,14 @@ func (s *Service) Revoke(ctx context.Context, teamID, callerID, inviteID int64) 
 		}
 		return err
 	})
+}
+
+// List returns the team's unexpired invites, revoked ones included, newest
+// first, so an admin can find and revoke a leaked link (R7.5, #184). Callers
+// must have checked the caller is an admin of the team (requireRole). Now
+// is the clock CountLiveInvites uses, so both agree on what has expired.
+func (s *Service) List(ctx context.Context, teamID int64) ([]domain.Invite, error) {
+	return s.invites.ListInvites(ctx, teamID, s.now())
 }
 
 // Accepted is the membership an accepted invite left the user with.

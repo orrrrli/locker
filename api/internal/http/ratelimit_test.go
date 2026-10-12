@@ -372,6 +372,8 @@ func (fakeInvites) Create(context.Context, int64, int64) (invites.Created, error
 
 func (fakeInvites) Revoke(context.Context, int64, int64, int64) error { return nil }
 
+func (fakeInvites) List(context.Context, int64) ([]domain.Invite, error) { return nil, nil }
+
 func (fakeInvites) Accept(context.Context, int64, string) (invites.Accepted, error) {
 	return invites.Accepted{}, invites.ErrInviteNotFound
 }
