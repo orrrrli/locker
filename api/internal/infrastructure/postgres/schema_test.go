@@ -60,7 +60,7 @@ func TestTeamColumns(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if want := []string{"created_at", "id", "name", "timezone"}; !slices.Equal(got, want) {
+	if want := []string{"created_at", "dissolved_at", "id", "name", "timezone"}; !slices.Equal(got, want) {
 		t.Fatalf("team columns = %v, want %v", got, want)
 	}
 }

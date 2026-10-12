@@ -119,6 +119,11 @@ func TestCheckLastAdmin(t *testing.T) {
 	if len(lae.Teams) != 2 || lae.Teams[0].ID != onlyAdmin || lae.Teams[0].Name != "Solo" || lae.Teams[1].ID != alone {
 		t.Fatalf("teams = %+v, want %d (Solo) then %d (Solo 2)", lae.Teams, onlyAdmin, alone)
 	}
+	// Solo has an active player to promote; in Solo 2 the user is alone and
+	// dissolves it instead (R6.8).
+	if lae.Teams[0].SoleMember || !lae.Teams[1].SoleMember {
+		t.Fatalf("sole member: Solo %v, Solo 2 %v; want false, true", lae.Teams[0].SoleMember, lae.Teams[1].SoleMember)
+	}
 	for _, id := range []int64{onlyAdmin, coAdmin, player, alone} {
 		if !probe.locked[id] {
 			t.Errorf("team %d: membership read without the team lock", id)

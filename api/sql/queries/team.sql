@@ -29,3 +29,13 @@ RETURNING id, name, timezone, created_at;
 SELECT id FROM team
 WHERE id = $1
 FOR NO KEY UPDATE;
+
+-- name: CountActiveMembers :one
+SELECT count(*) FROM membership
+WHERE team_id = $1 AND status = 'active';
+
+-- name: SetTeamDissolved :execrows
+-- Set once: dissolution is final in Phase 1 (R6.11).
+UPDATE team
+SET dissolved_at = now()
+WHERE id = $1 AND dissolved_at IS NULL;

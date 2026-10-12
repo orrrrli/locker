@@ -116,10 +116,11 @@ type Session struct {
 }
 
 type Team struct {
-	ID        int64
-	Name      string
-	Timezone  string
-	CreatedAt pgtype.Timestamptz
+	ID          int64
+	Name        string
+	Timezone    string
+	CreatedAt   pgtype.Timestamptz
+	DissolvedAt pgtype.Timestamptz
 }
 
 type User struct {
