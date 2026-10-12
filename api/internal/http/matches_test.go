@@ -220,6 +220,10 @@ func TestRSVP(t *testing.T) {
 			}
 		})
 	}
+	rec = api.do(t, http.MethodPut, path, playerToken, map[string]string{"answer": "going", "note": "late"})
+	if rec.Code != http.StatusBadRequest || errorCode(t, rec) != "invalid_request" {
+		t.Fatalf("unknown field: status %d, body %s; want 400 invalid_request", rec.Code, rec.Body)
+	}
 
 	// Kickoff: locked for everyone, answered or not.
 	now = m.StartsAt
