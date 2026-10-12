@@ -13,6 +13,7 @@ import (
 type matchService interface {
 	Create(ctx context.Context, teamID, callerID int64, startsAt time.Time, rival, location string) (domain.Match, error)
 	List(ctx context.Context, teamID int64) ([]domain.Match, error)
+	Upcoming(ctx context.Context, userID int64) ([]domain.UpcomingMatch, error)
 	Update(ctx context.Context, teamID, callerID, matchID int64, startsAt *time.Time, rival, location *string) (domain.Match, error)
 	Answer(ctx context.Context, caller domain.Membership, matchID int64, answer domain.RSVPAnswer) (domain.RSVP, error)
 	SaveAttendance(ctx context.Context, teamID, callerID, matchID int64, ids []int64) (matches.Attendance, error)
@@ -100,6 +101,45 @@ func (h matchHandlers) list(w http.ResponseWriter, r *http.Request) {
 		out[i] = toMatchJSON(m)
 	}
 	writeJSON(w, http.StatusOK, map[string][]matchJSON{"matches": out})
+}
+
+// upcomingMatchJSON is a match plus what the "Mis equipos" cards need
+// (R14.2). answer is null when the caller has not answered.
+type upcomingMatchJSON struct {
+	matchJSON
+	TeamName      string             `json:"team_name"`
+	Role          domain.Role        `json:"role"`
+	Answer        *domain.RSVPAnswer `json:"answer"`
+	GoingCount    int                `json:"going_count"`
+	NotGoingCount int                `json:"not_going_count"`
+}
+
+// upcoming lists the caller's upcoming matches across every team where they
+// are active (R14). Only upcoming=true is defined; anything else is a 422,
+// so a later meaning for a missing or false value breaks no client.
+func (h matchHandlers) upcoming(w http.ResponseWriter, r *http.Request) {
+	if r.URL.Query().Get("upcoming") != "true" {
+		writeError(w, http.StatusUnprocessableEntity, "invalid_upcoming")
+		return
+	}
+	userID, _ := userIDFrom(r.Context())
+	ms, err := h.svc.Upcoming(r.Context(), userID)
+	if err != nil {
+		matchErrors.write(w, r, "matches", err)
+		return
+	}
+	out := make([]upcomingMatchJSON, len(ms))
+	for i, m := range ms {
+		out[i] = upcomingMatchJSON{
+			matchJSON:     toMatchJSON(m.Match),
+			TeamName:      m.TeamName,
+			Role:          m.Role,
+			Answer:        m.Answer,
+			GoingCount:    m.Going,
+			NotGoingCount: m.NotGoing,
+		}
+	}
+	writeJSON(w, http.StatusOK, map[string][]upcomingMatchJSON{"matches": out})
 }
 
 type updateMatchRequest struct {

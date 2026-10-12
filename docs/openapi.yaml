@@ -282,6 +282,55 @@ paths:
         "503":
           $ref: "#/components/responses/TeamBusy"
 
+  /me/matches:
+    get:
+      tags: [matches]
+      operationId: listMyUpcomingMatches
+      summary: List the caller's upcoming matches across their teams, soonest first
+      description: |
+        Matches with `starts_at` later than now from every team where the
+        caller is an active member; pending and left memberships do not count
+        (R14). A match at or after its kickoff has started and is left out.
+        No team, or no upcoming match, is `[]` with 200. Counts take only
+        answers of members active in the team now. Not paginated.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: upcoming
+          in: query
+          required: true
+          description: Must be `true`; the only value defined.
+          schema:
+            type: string
+            const: "true"
+      responses:
+        "200":
+          description: The caller's upcoming matches.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [matches]
+                properties:
+                  matches:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/UpcomingMatch"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "422":
+          description: "`invalid_upcoming`: the `upcoming` query parameter is missing or not `true`."
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Error"
+                  - properties:
+                      error:
+                        const: invalid_upcoming
+        "500":
+          $ref: "#/components/responses/Internal"
+
   /teams:
     post:
       tags: [teams]
@@ -1330,6 +1379,7 @@ components:
         - match_not_started
         - attendance_locked
         - invalid_attendees
+        - invalid_upcoming
     AlreadyMemberError:
       type: object
       required: [error, status]
@@ -1455,6 +1505,29 @@ components:
           type: string
         location:
           type: string
+    UpcomingMatch:
+      description: A match plus the team, the caller's role and answer, and the RSVP counts (R14.2).
+      allOf:
+        - $ref: "#/components/schemas/Match"
+        - type: object
+          required: [team_name, role, answer, going_count, not_going_count]
+          properties:
+            team_name:
+              type: string
+            role:
+              description: The caller's role in the team.
+              $ref: "#/components/schemas/Role"
+            answer:
+              description: The caller's own answer; null when none.
+              oneOf:
+                - $ref: "#/components/schemas/RSVPAnswer"
+                - type: "null"
+            going_count:
+              type: integer
+              description: Active members of the team who answered going.
+            not_going_count:
+              type: integer
+              description: Active members of the team who answered not going.
     CreateMatchRequest:
       type: object
       additionalProperties: false
