@@ -82,6 +82,16 @@ type RosterMember struct {
 	Position    *Position
 }
 
+// PendingMembership is one of the user's own pending memberships, shown in
+// the pending section of "Mis equipos" (R24.5). PendingSince is when it last
+// became pending: a member who left and asked again gets the new date.
+type PendingMembership struct {
+	ID           int64
+	TeamID       int64
+	TeamName     string
+	PendingSince time.Time
+}
+
 type Invite struct {
 	ID        int64
 	TeamID    int64

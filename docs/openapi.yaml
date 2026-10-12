@@ -282,6 +282,35 @@ paths:
         "503":
           $ref: "#/components/responses/TeamBusy"
 
+  /me/join-requests:
+    get:
+      tags: [memberships]
+      operationId: listMyJoinRequests
+      summary: List the caller's pending memberships
+      description: |
+        The caller's pending memberships, from a join request or an invite,
+        newest first, for the pending section of "Mis equipos". A membership
+        leaves this list once an admin approves or rejects it.
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: The caller's pending memberships; an empty list when there are none.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [join_requests]
+                properties:
+                  join_requests:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/JoinRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/Internal"
+
   /teams:
     post:
       tags: [teams]
@@ -607,6 +636,67 @@ paths:
           $ref: "#/components/responses/TooManyAttempts"
         "500":
           $ref: "#/components/responses/Internal"
+
+  /teams/{id}/join-requests:
+    parameters:
+      - $ref: "#/components/parameters/TeamID"
+    post:
+      tags: [memberships]
+      operationId: requestToJoin
+      summary: Request to join a team
+      description: |
+        Join request from the team's public page; any signed-in user may call
+        it, no membership needed. It creates a pending player membership, the
+        same as accepting an invite; an admin approves or rejects it with
+        `PATCH /memberships/{id}`. A user who left the team gets their old row
+        back as pending. Asking again while pending changes nothing and
+        answers 200. No request body.
+
+        Rate limited to 10 new requests per user per window (NFR 10). The
+        window is fixed: it lasts 24 hours from the user's first new request,
+        then a new one starts, so up to 20 can land close together across the
+        boundary. Only a 201 counts: a 200, 404 or 409 is free. At the limit
+        every call answers 429, even one that would be free. The count lives
+        in memory and resets when the API restarts.
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: The caller was already pending in the team; the membership is unchanged.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InviteAccepted"
+        "201":
+          description: Membership is now pending approval (new, or a left member back to pending).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InviteAccepted"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          description: "`not_found`: unknown or dissolved team. No membership is created."
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Error"
+                  - properties:
+                      error:
+                        const: not_found
+        "409":
+          description: "`already_member`: the caller is already active in the team (`status` is `active`)."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AlreadyMemberError"
+        "429":
+          $ref: "#/components/responses/TooManyAttempts"
+        "500":
+          $ref: "#/components/responses/Internal"
+        "503":
+          $ref: "#/components/responses/TeamBusy"
 
   /teams/{id}/members:
     parameters:
@@ -1566,6 +1656,7 @@ components:
           description: The token from the invite link. Sent in the body so it stays out of access logs.
     InviteAccepted:
       type: object
+      description: Returned by POST /invites/accept and POST /teams/{id}/join-requests.
       required: [team_id, team_name, status]
       properties:
         team_id:
@@ -1576,6 +1667,27 @@ components:
         status:
           description: Always `pending` today.
           $ref: "#/components/schemas/MembershipStatus"
+
+    JoinRequest:
+      type: object
+      description: One of the caller's pending memberships (GET /me/join-requests).
+      required: [id, team_id, team_name, requested_at]
+      properties:
+        id:
+          type: integer
+          format: int64
+          description: The membership id.
+        team_id:
+          type: integer
+          format: int64
+        team_name:
+          type: string
+        requested_at:
+          $ref: "#/components/schemas/Timestamp"
+          description: |
+            When the membership became pending: the join request or invite
+            accept. A member who left and came back gets the date of the new
+            request.
 
     Membership:
       type: object
