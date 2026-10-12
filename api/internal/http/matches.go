@@ -131,6 +131,7 @@ var matchErrors = errorMap{
 	{matches.ErrInvalidRivalName, http.StatusUnprocessableEntity, "invalid_rival_name"},
 	{matches.ErrInvalidLocation, http.StatusUnprocessableEntity, "invalid_location"},
 	{matches.ErrNothingToUpdate, http.StatusUnprocessableEntity, "nothing_to_update"},
+	{matches.ErrAttendanceClosed, http.StatusConflict, "attendance_closed"},
 	{application.ErrNotAdmin, http.StatusForbidden, "forbidden"},
 	{domain.ErrTeamBusy, http.StatusServiceUnavailable, "team_busy"},
 	{domain.ErrNotFound, http.StatusNotFound, "not_found"},

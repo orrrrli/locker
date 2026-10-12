@@ -767,8 +767,9 @@ paths:
       operationId: createMatch
       summary: Schedule a match
       description: |
-        Admins only. `starts_at` is any RFC 3339 time; it is stored and
-        returned in UTC. Rival and location are free text, trimmed.
+        Admins only. `starts_at` is any RFC 3339 time within years 1 to 9999
+        in UTC; it is stored and returned in UTC. Rival and location are free
+        text, trimmed.
       security:
         - bearerAuth: []
       requestBody:
@@ -796,9 +797,9 @@ paths:
           $ref: "#/components/responses/BodyTooLarge"
         "422":
           description: |
-            - `invalid_starts_at`: missing.
-            - `invalid_rival_name`: empty or over 60 characters after trimming, or contains control characters.
-            - `invalid_location`: empty or over 120 characters after trimming, or contains control characters.
+            - `invalid_starts_at`: missing, or outside years 1 to 9999 in UTC.
+            - `invalid_rival_name`: empty or over 60 characters after trimming, or contains control or invisible characters.
+            - `invalid_location`: empty or over 120 characters after trimming, or contains control or invisible characters.
           content:
             application/json:
               schema:
@@ -847,7 +848,8 @@ paths:
       summary: Change a match's time, rival or location
       description: |
         Admins of the match's team only. Send any of the fields; an absent or
-        null field keeps its value.
+        null field keeps its value. Once attendance is saved, `starts_at`
+        cannot change: schedule a new match instead.
       security:
         - bearerAuth: []
       requestBody:
@@ -871,6 +873,16 @@ paths:
           $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/NotFound"
+        "409":
+          description: "`attendance_closed`: attendance is already saved, so `starts_at` cannot change."
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Error"
+                  - properties:
+                      error:
+                        const: attendance_closed
         "413":
           $ref: "#/components/responses/BodyTooLarge"
         "422":
@@ -1128,6 +1140,7 @@ components:
         - invalid_starts_at
         - invalid_rival_name
         - invalid_location
+        - attendance_closed
     AlreadyMemberError:
       type: object
       required: [error, status]
@@ -1251,13 +1264,13 @@ components:
         starts_at:
           type: string
           format: date-time
-          description: RFC 3339 with any offset; stored in UTC.
+          description: RFC 3339 with any offset, within years 1 to 9999 in UTC; stored in UTC.
         rival_name:
           type: string
-          description: 1 to 60 characters after trimming; no control characters.
+          description: 1 to 60 characters after trimming; no control or invisible characters.
         location:
           type: string
-          description: 1 to 120 characters after trimming; no control characters.
+          description: 1 to 120 characters after trimming; no control or invisible characters.
     UpdateMatchRequest:
       type: object
       additionalProperties: false

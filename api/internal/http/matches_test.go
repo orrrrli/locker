@@ -145,6 +145,7 @@ func TestCreateMatchRejectsInvalidInput(t *testing.T) {
 	}{
 		{"no starts_at", map[string]string{"rival_name": "Halcones", "location": "Cancha 3"}, http.StatusUnprocessableEntity, "invalid_starts_at"},
 		{"malformed starts_at", map[string]string{"starts_at": "mañana", "rival_name": "Halcones", "location": "Cancha 3"}, http.StatusBadRequest, "invalid_request"},
+		{"starts_at past year 9999 in UTC", map[string]string{"starts_at": "9999-12-31T23:30:00-23:59", "rival_name": "Halcones", "location": "Cancha 3"}, http.StatusUnprocessableEntity, "invalid_starts_at"},
 		{"empty rival", map[string]string{"starts_at": "2026-10-20T19:00:00Z", "rival_name": " ", "location": "Cancha 3"}, http.StatusUnprocessableEntity, "invalid_rival_name"},
 		{"empty location", map[string]string{"starts_at": "2026-10-20T19:00:00Z", "rival_name": "Halcones"}, http.StatusUnprocessableEntity, "invalid_location"},
 		{"unknown field", map[string]string{"starts_at": "2026-10-20T19:00:00Z", "rival_name": "Halcones", "location": "Cancha 3", "kind": "training"}, http.StatusBadRequest, "invalid_request"},
@@ -195,6 +196,7 @@ func TestUpdateMatch(t *testing.T) {
 		{"bad id", adminToken, "/matches/abc", map[string]string{"location": "Cancha 2"}, http.StatusNotFound, "not_found"},
 		{"empty body", adminToken, path, map[string]string{}, http.StatusUnprocessableEntity, "nothing_to_update"},
 		{"empty rival", adminToken, path, map[string]string{"rival_name": ""}, http.StatusUnprocessableEntity, "invalid_rival_name"},
+		{"unknown field", adminToken, path, map[string]string{"location": "Cancha 2", "kind": "training"}, http.StatusBadRequest, "invalid_request"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			rec := api.do(t, http.MethodPatch, tc.path, tc.token, tc.body)
@@ -210,5 +212,14 @@ func TestUpdateMatch(t *testing.T) {
 	}
 	if location != "Cancha 1" {
 		t.Fatalf("location = %q, want Cancha 1", location)
+	}
+
+	// Once attendance is saved, the time is fixed.
+	if _, err := api.pool.Exec(context.Background(), "UPDATE match SET attendance_closed_at = now() WHERE id = $1", m.ID); err != nil {
+		t.Fatal(err)
+	}
+	rec = api.do(t, http.MethodPatch, path, adminToken, map[string]string{"starts_at": "2026-10-27T19:00:00-07:00"})
+	if rec.Code != http.StatusConflict || errorCode(t, rec) != "attendance_closed" {
+		t.Fatalf("PATCH starts_at after close: status %d, body %s; want 409 attendance_closed", rec.Code, rec.Body)
 	}
 }
