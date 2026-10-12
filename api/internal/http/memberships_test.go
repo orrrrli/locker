@@ -188,8 +188,14 @@ func TestPendingSeesNothingUntilApproved(t *testing.T) {
 	}
 	ana := membershipID(t, api, team.ID, anaID)
 	bea := membershipID(t, api, team.ID, beaID)
+	// An active player keeps DELETE /teams/{id} a no-op for the admin below
+	// (409 team_has_members instead of dissolving the team).
+	playerID, _ := signUp(t, api, "player@example.com")
+	addMember(t, api, team.ID, playerID, "player", "active")
+	match := "/matches/" + strconv.FormatInt(createMatch(t, api, adminToken, team.ID, matchBody).ID, 10)
 
-	// Every team route that exists today. A new team route belongs here too.
+	// Every team route that exists today. A new team route belongs here too,
+	// with a state that keeps it a no-op for the admin's positive control.
 	routes := func(self int64) []struct{ method, path string } {
 		return []struct{ method, path string }{
 			{http.MethodGet, teamPath(team.ID)},
@@ -198,6 +204,14 @@ func TestPendingSeesNothingUntilApproved(t *testing.T) {
 			{http.MethodPost, teamPath(team.ID) + "/invites"},
 			{http.MethodDelete, teamPath(team.ID) + "/invites/" + strconv.FormatInt(inv.ID, 10)},
 			{http.MethodPatch, "/memberships/" + strconv.FormatInt(self, 10)},
+			{http.MethodDelete, teamPath(team.ID)},
+			{http.MethodDelete, "/memberships/" + strconv.FormatInt(self, 10)},
+			{http.MethodPost, teamPath(team.ID) + "/matches"},
+			{http.MethodGet, teamPath(team.ID) + "/matches"},
+			{http.MethodPatch, match},
+			{http.MethodPut, match + "/rsvp"},
+			{http.MethodPut, match + "/attendance"},
+			{http.MethodGet, match + "/attendance"},
 		}
 	}
 	// Positive control. The mux's own miss and authz's 404 look the same
@@ -211,6 +225,13 @@ func TestPendingSeesNothingUntilApproved(t *testing.T) {
 		if rec.Code == http.StatusNotFound || rec.Code == http.StatusMethodNotAllowed {
 			t.Errorf("admin %s %s: status %d, body %s; the route is not registered", r.method, r.path, rec.Code, rec.Body)
 		}
+	}
+	var dissolved bool
+	var matches int
+	if err := api.pool.QueryRow(context.Background(),
+		`SELECT dissolved_at IS NOT NULL, (SELECT count(*) FROM match WHERE team_id = $1) FROM team WHERE id = $1`,
+		team.ID).Scan(&dissolved, &matches); err != nil || dissolved || matches != 1 {
+		t.Fatalf("the positive control changed the team: dissolved %v, matches %d, err %v", dissolved, matches, err)
 	}
 	shutOut := func(t *testing.T, token string, self int64) {
 		t.Helper()
@@ -490,6 +511,67 @@ func TestDeleteMembership(t *testing.T) {
 	}
 	if s := status(admin); s != "active" {
 		t.Fatalf("last admin: status %q, want active", s)
+	}
+}
+
+// TestAdminCannotDemoteOrRemoveAnotherAdmin: with two active admins, neither
+// can demote or remove the other (R6.12) and nothing changes. Promoting a
+// co-admin is a no-op 200, and demoting a player who is already one is too.
+func TestAdminCannotDemoteOrRemoveAnotherAdmin(t *testing.T) {
+	api := newAPI(t, func() time.Time { return today })
+	adminID, adminToken := signUp(t, api, "admin@example.com")
+	coID, coToken := signUp(t, api, "co@example.com")
+	playerID, _ := signUp(t, api, "player@example.com")
+	team := createTeam(t, api, adminToken, "Halcones", "America/Tijuana")
+	addMember(t, api, team.ID, coID, "admin", "active")
+	addMember(t, api, team.ID, playerID, "player", "active")
+	path := func(userID int64) string {
+		return "/memberships/" + strconv.FormatInt(membershipID(t, api, team.ID, userID), 10)
+	}
+	roleAndStatus := func(userID int64) (role, status string) {
+		t.Helper()
+		if err := api.pool.QueryRow(context.Background(), `SELECT role, status FROM membership WHERE team_id = $1 AND user_id = $2`,
+			team.ID, userID).Scan(&role, &status); err != nil {
+			t.Fatal(err)
+		}
+		return role, status
+	}
+
+	for _, c := range []struct {
+		name   string
+		token  string
+		target int64
+	}{
+		{"admin on co-admin", adminToken, coID},
+		{"co-admin on admin", coToken, adminID},
+	} {
+		if rec := api.do(t, http.MethodPatch, path(c.target), c.token, map[string]string{"role": "player"}); rec.Code != http.StatusForbidden || errorCode(t, rec) != "target_is_admin" {
+			t.Fatalf("%s, demote: status %d, body %s", c.name, rec.Code, rec.Body)
+		}
+		if rec := api.do(t, http.MethodDelete, path(c.target), c.token, nil); rec.Code != http.StatusForbidden || errorCode(t, rec) != "target_is_admin" {
+			t.Fatalf("%s, remove: status %d, body %s", c.name, rec.Code, rec.Body)
+		}
+		if role, status := roleAndStatus(c.target); role != "admin" || status != "active" {
+			t.Fatalf("%s: target role %q, status %q; want admin, active", c.name, role, status)
+		}
+	}
+
+	// Same role: no change, 200.
+	for _, c := range []struct {
+		name   string
+		target int64
+		role   string
+	}{
+		{"promote co-admin", coID, "admin"},
+		{"demote player", playerID, "player"},
+	} {
+		rec := api.do(t, http.MethodPatch, path(c.target), adminToken, map[string]string{"role": c.role})
+		if rec.Code != http.StatusOK {
+			t.Fatalf("%s: status %d, body %s", c.name, rec.Code, rec.Body)
+		}
+		if role, status := roleAndStatus(c.target); role != c.role || status != "active" {
+			t.Fatalf("%s: role %q, status %q; want %s, active", c.name, role, status, c.role)
+		}
 	}
 }
 
