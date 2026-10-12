@@ -44,11 +44,14 @@ WITH due AS (
     SELECT id FROM match
     WHERE starts_at <= $1::timestamptz - interval '1 hour'
       AND attendance_closed_at IS NULL
+      AND NOT EXISTS (SELECT 1 FROM charge c WHERE c.match_id = match.id)
     FOR UPDATE SKIP LOCKED
 ), saved AS (
     INSERT INTO attendance (match_id, membership_id)
     SELECT r.match_id, r.membership_id
-    FROM rsvp r JOIN due ON due.id = r.match_id
+    FROM rsvp r
+    JOIN due ON due.id = r.match_id
+    JOIN membership m ON m.id = r.membership_id AND m.status = 'active'
     WHERE r.answer = 'going'
     ON CONFLICT DO NOTHING
 )
@@ -58,11 +61,13 @@ WHERE id IN (SELECT id FROM due)
 `
 
 // The attendance auto-save (R10.1), one statement so it is atomic: matches
-// that started an hour or more ago and are still open get their going RSVPs
-// copied to attendance and attendance_closed_at set. SKIP LOCKED leaves a
-// match an admin is saving right now to the next tick; the admin's save sets
-// attendance_closed_at, so it is never picked again (R10.2). Returns how
-// many matches it closed.
+// that started an hour or more ago and are still open get the going RSVPs of
+// their current active members copied to attendance and attendance_closed_at
+// set. A member who left, or is pending again, is not auto-counted; the admin
+// can still add them by hand. SKIP LOCKED leaves a match an admin is saving
+// right now to the next tick; the admin's save sets attendance_closed_at, so
+// it is never picked again (R10.2). A match a charge already targets is left
+// alone, as the admin save is (R10.4). Returns how many matches it closed.
 func (q *Queries) CloseDueAttendance(ctx context.Context, now pgtype.Timestamptz) (int64, error) {
 	result, err := q.db.Exec(ctx, closeDueAttendance, now)
 	if err != nil {
@@ -73,7 +78,7 @@ func (q *Queries) CloseDueAttendance(ctx context.Context, now pgtype.Timestamptz
 
 const countTeamMembersIn = `-- name: CountTeamMembersIn :one
 SELECT count(*) FROM membership
-WHERE team_id = $1 AND id = ANY($2::bigint[]) AND status <> 'pending'
+WHERE team_id = $1 AND id = ANY($2::bigint[]) AND joined_at IS NOT NULL
 `
 
 type CountTeamMembersInParams struct {
@@ -81,8 +86,9 @@ type CountTeamMembersInParams struct {
 	Ids    []int64
 }
 
-// How many of the ids are memberships of the team that joined at some point
-// (active or left); a pending member never played.
+// How many of the ids are memberships of the team that joined at some point:
+// active, left, or pending again after leaving. One that never joined
+// (joined_at NULL) never played.
 func (q *Queries) CountTeamMembersIn(ctx context.Context, arg CountTeamMembersInParams) (int64, error) {
 	row := q.db.QueryRow(ctx, countTeamMembersIn, arg.TeamID, arg.Ids)
 	var count int64

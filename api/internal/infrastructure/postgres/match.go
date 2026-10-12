@@ -122,7 +122,7 @@ func (r *Matches) ChargeExistsForMatch(ctx context.Context, matchID int64) (bool
 }
 
 // CountTeamMembersIn counts how many of ids are memberships of the team
-// that are not pending.
+// that joined it at some point.
 func (r *Matches) CountTeamMembersIn(ctx context.Context, teamID int64, ids []int64) (int, error) {
 	n, err := sqlcdb.New(Conn(ctx, r.pool)).CountTeamMembersIn(ctx, sqlcdb.CountTeamMembersInParams{TeamID: teamID, Ids: ids})
 	if err != nil {

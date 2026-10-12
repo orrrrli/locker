@@ -110,9 +110,9 @@ func start() error {
 	go tick(ctx, tickEvery, func(ctx context.Context) {
 		loginLimiter.Prune()
 		limits.Prune()
-		job(ctx, "delete idle sessions", authSvc.DeleteIdleSessions)
-		job(ctx, "delete expired invites", inviteSvc.DeleteExpired)
-		job(ctx, "close attendance", matchSvc.CloseDueAttendance)
+		runJob(ctx, "delete idle sessions", authSvc.DeleteIdleSessions)
+		runJob(ctx, "delete expired invites", inviteSvc.DeleteExpired)
+		runJob(ctx, "close attendance", matchSvc.CloseDueAttendance)
 	})
 
 	ln, err := net.Listen("tcp", ":"+strconv.Itoa(cfg.Port))
@@ -128,9 +128,9 @@ func start() error {
 	return nil
 }
 
-// job runs one ticker job that reports how many rows it touched, and logs
-// its outcome.
-func job(ctx context.Context, what string, run func(context.Context) (int64, error)) {
+// runJob runs one ticker job that reports how many rows it touched, and
+// logs its outcome.
+func runJob(ctx context.Context, what string, run func(context.Context) (int64, error)) {
 	n, err := run(ctx)
 	if err != nil {
 		// A run cut short by shutdown is not an error.
