@@ -95,3 +95,41 @@ func TestUpcomingAcrossTeamsWithCountsRoleAndOwnAnswer(t *testing.T) {
 		t.Fatalf("later = %+v (answer %v), want admin, own going, 2 going, 1 not going", l, l.Answer)
 	}
 }
+
+// Teams where the user's membership is pending or left show no matches
+// (R14.3); only the active team's match comes back.
+func TestUpcomingSkipsPendingAndLeftTeams(t *testing.T) {
+	f := newFixture(t)
+	user := userOf(t, f, f.admin)
+	active := insertMatch(t, f, f.team, kickoff, "Halcones")
+	insertMatch(t, f, otherTeam(t, f, user, "player", "pending"), kickoff, "Pending FC")
+	insertMatch(t, f, otherTeam(t, f, user, "admin", "left"), kickoff, "Left FC")
+
+	got, err := f.svc.Upcoming(context.Background(), user)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0].ID != active {
+		t.Fatalf("upcoming = %+v, want only match %d", got, active)
+	}
+}
+
+// A match has started at its kickoff instant (R14.4, as the RSVP lock in
+// R9.5): with the clock on kickoff, that match and earlier ones are gone and
+// one a second later stays.
+func TestUpcomingSkipsStartedMatches(t *testing.T) {
+	f := newFixture(t)
+	user := userOf(t, f, f.admin)
+	insertMatch(t, f, f.team, kickoff.Add(-time.Hour), "Pasado")
+	insertMatch(t, f, f.team, kickoff, "Ahora")
+	next := insertMatch(t, f, f.team, kickoff.Add(time.Second), "Siguiente")
+	*f.now = kickoff
+
+	got, err := f.svc.Upcoming(context.Background(), user)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0].ID != next {
+		t.Fatalf("upcoming = %+v, want only match %d", got, next)
+	}
+}

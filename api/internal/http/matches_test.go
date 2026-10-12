@@ -448,3 +448,22 @@ func TestUpcomingMatchesShapeAndQuery(t *testing.T) {
 		t.Fatalf("no token: status %d, want 401", rec.Code)
 	}
 }
+
+// A user with no active membership, in no team or only pending in one, gets
+// 200 with [] (R14.5), never null or an error.
+func TestUpcomingMatchesEmptyWithoutActiveTeam(t *testing.T) {
+	api := newAPI(t, func() time.Time { return today })
+	_, adminToken := signUp(t, api, "admin@example.com")
+	pendingID, pendingToken := signUp(t, api, "pending@example.com")
+	_, loneToken := signUp(t, api, "lone@example.com")
+	team := createTeam(t, api, adminToken, "Pumas", "America/Tijuana")
+	addMember(t, api, team.ID, pendingID, "player", "pending")
+	createMatch(t, api, adminToken, team.ID, matchBody)
+
+	for name, token := range map[string]string{"pending": pendingToken, "no team": loneToken} {
+		rec := api.do(t, http.MethodGet, "/me/matches?upcoming=true", token, nil)
+		if rec.Code != http.StatusOK || rec.Body.String() != `{"matches":[]}`+"\n" {
+			t.Fatalf("%s: status %d, body %q; want 200 {\"matches\":[]}", name, rec.Code, rec.Body)
+		}
+	}
+}
