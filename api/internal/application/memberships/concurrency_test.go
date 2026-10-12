@@ -134,39 +134,69 @@ func TestConcurrentStepDownsKeepAnAdmin(t *testing.T) {
 
 // gatedRepo holds the transaction before it takes the team lock until gate
 // is closed, so a test can commit another change in between: the window
-// between requireRole and the lock.
+// between the pre-lock caller check and the lock. It closes arrived when the
+// transaction reaches that window.
 type gatedRepo struct {
 	*postgres.Memberships
-	gate <-chan struct{}
+	arrived chan<- struct{}
+	gate    <-chan struct{}
 }
 
 func (r gatedRepo) LockTeamForAdminChange(ctx context.Context, teamID int64) (int, error) {
+	close(r.arrived)
 	<-r.gate
 	return r.Memberships.LockTeamForAdminChange(ctx, teamID)
 }
 
-// TestDemotedCallerCannotFinishInFlightChange: Beto's request passed
-// requireRole while he was still an admin. He steps down in another request
-// before the first one takes the team lock (Ana stays admin, so R6.4 allows
-// it). His request must fail, not promote Carlos or bring
-// Beto back as admin.
+// TestDemotedCallerCannotFinishInFlightChange: Beto's request passed the
+// admin check before the lock (PATCH and DELETE /memberships/{id} sit behind
+// requireActiveMember, so the use case checks the role). He steps down in
+// another request before the first one takes the team lock (Ana stays admin,
+// so R6.4 allows it). His request must fail and change nothing.
 func TestDemotedCallerCannotFinishInFlightChange(t *testing.T) {
+	promote := func(target func(beto, carlos int64) int64) func(*memberships.Service, int64, int64, int64) error {
+		return func(svc *memberships.Service, team, beto, carlos int64) error {
+			_, err := svc.ChangeRole(context.Background(), team, beto, target(beto, carlos), domain.RoleAdmin)
+			return err
+		}
+	}
 	for _, tc := range []struct {
-		name   string
-		target func(beto, carlos int64) int64
+		name     string
+		inFlight func(svc *memberships.Service, team, beto, carlos int64) error
+		stepDown func(svc *memberships.Service, team, beto int64) error
+		want     error
+		beto     domain.MembershipStatus
 	}{
-		{"promote someone else", func(_, carlos int64) int64 { return carlos }},
-		{"promote himself back", func(beto, _ int64) int64 { return beto }},
+		{
+			"promote someone else, after demoting himself",
+			promote(func(_, carlos int64) int64 { return carlos }),
+			demoteSelf, application.ErrNotAdmin, domain.MembershipActive,
+		},
+		{
+			"promote himself back, after demoting himself",
+			promote(func(beto, _ int64) int64 { return beto }),
+			demoteSelf, application.ErrNotAdmin, domain.MembershipActive,
+		},
+		{
+			// A caller who left is not an active member: not found (requireRole's answer).
+			"remove a player, after leaving",
+			func(svc *memberships.Service, team, beto, carlos int64) error {
+				return svc.Leave(context.Background(), team, beto, carlos)
+			},
+			func(svc *memberships.Service, team, beto int64) error {
+				return svc.Leave(context.Background(), team, beto, beto)
+			},
+			domain.ErrNotFound, domain.MembershipLeft,
+		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			f := newFixture(t)
-			ctx := context.Background()
 			team := f.team(t)
 			f.member(t, team, domain.RoleAdmin, domain.MembershipActive) // Ana
 			beto := f.member(t, team, domain.RoleAdmin, domain.MembershipActive)
 			carlos := f.member(t, team, domain.RolePlayer, domain.MembershipActive)
-			target := tc.target(beto, carlos)
 
+			arrived := make(chan struct{})
 			gate := make(chan struct{})
 			// Close the gate on every path: a goroutine left waiting holds a
 			// pool connection and makes the pool's cleanup hang.
@@ -174,29 +204,41 @@ func TestDemotedCallerCannotFinishInFlightChange(t *testing.T) {
 			t.Cleanup(release)
 			betoSvc := memberships.NewService(memberships.Deps{
 				Tx:          postgres.NewTxRunner(f.pool),
-				Memberships: gatedRepo{Memberships: postgres.NewMemberships(f.pool), gate: gate},
+				Memberships: gatedRepo{Memberships: postgres.NewMemberships(f.pool), arrived: arrived, gate: gate},
 			})
 			done := make(chan error, 1)
-			go func() {
-				_, err := betoSvc.ChangeRole(ctx, team, beto, target, domain.RoleAdmin)
-				done <- err
-			}()
+			go func() { done <- tc.inFlight(betoSvc, team, beto, carlos) }()
 
-			// Beto demotes himself while his first request waits before the lock.
-			if _, err := f.svc.ChangeRole(ctx, team, beto, beto, domain.RolePlayer); err != nil {
+			// Beto steps down once his first request has passed the pre-lock
+			// check and waits before the lock.
+			<-arrived
+			if err := tc.stepDown(f.svc, team, beto); err != nil {
 				t.Fatal(err)
 			}
 			release()
 
-			if err := <-done; !errors.Is(err, application.ErrNotAdmin) {
-				t.Fatalf("err = %v, want application.ErrNotAdmin", err)
-			}
-			if got := f.role(t, beto); got != domain.RolePlayer {
-				t.Fatalf("beto role = %s, want player", got)
+			if err := <-done; !errors.Is(err, tc.want) {
+				t.Fatalf("err = %v, want %v", err, tc.want)
 			}
 			if got := f.role(t, carlos); got != domain.RolePlayer {
 				t.Fatalf("carlos role = %s, want player", got)
 			}
+			if s, _ := f.status(t, carlos); s != domain.MembershipActive {
+				t.Fatalf("carlos status = %s, want active", s)
+			}
+			if s, _ := f.status(t, beto); s != tc.beto {
+				t.Fatalf("beto status = %s, want %s", s, tc.beto)
+			}
+			if tc.beto == domain.MembershipActive {
+				if got := f.role(t, beto); got != domain.RolePlayer {
+					t.Fatalf("beto role = %s, want player", got)
+				}
+			}
 		})
 	}
+}
+
+func demoteSelf(svc *memberships.Service, team, id int64) error {
+	_, err := svc.ChangeRole(context.Background(), team, id, id, domain.RolePlayer)
+	return err
 }

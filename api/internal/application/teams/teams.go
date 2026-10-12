@@ -15,7 +15,7 @@ var (
 	ErrInvalidName     = errors.New("team name must be 1 to 35 characters, with no invisible characters")
 	ErrInvalidTimezone = errors.New("timezone must be an IANA zone, like America/Tijuana")
 	ErrNothingToUpdate = errors.New("send a name, a timezone or both")
-	ErrTeamHasMembers  = errors.New("the team has other active members; promote or remove them first")
+	ErrTeamHasMembers  = errors.New("the team has other active members; remove the players, and any other admin must leave first")
 )
 
 const maxNameLen = 35

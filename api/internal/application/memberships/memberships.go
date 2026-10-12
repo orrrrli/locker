@@ -61,9 +61,10 @@ func NewService(d Deps) *Service {
 
 // ChangeRole lets the admin callerID promote or demote a membership of the
 // team (R6.2, R6.3), but never demotes another admin (R6.12). It rejects a
-// demotion that would leave the team with no active admin, checked under the team lock in the same transaction as the
-// write (R6.4). callerID is the caller's active membership, from
-// requireActiveMember; LockTeamAsAdmin checks it is an admin.
+// demotion that would leave the team with no active admin, checked under the
+// team lock in the same transaction as the write (R6.4). callerID is the
+// caller's active membership, from requireActiveMember; LockTeamAsAdmin
+// checks it is an admin.
 func (s *Service) ChangeRole(ctx context.Context, teamID, callerID, membershipID int64, role domain.Role) (domain.Membership, error) {
 	if role != domain.RoleAdmin && role != domain.RolePlayer {
 		return domain.Membership{}, ErrInvalidRole
@@ -151,7 +152,7 @@ func (s *Service) lockAndCheckPending(ctx context.Context, teamID, callerID, mem
 
 // Leave sets an active membership of the team to left, keeping its row and
 // history (R8.3): the member leaves when callerID is membershipID, otherwise
-// the admin callerID removes them. Either way it rejects losing the team's
+// the admin callerID removes them, players only (R6.12). Either way it rejects losing the team's
 // last active admin, checked under the team lock in the same transaction as
 // the write (R6.4). callerID is the caller's active membership, from
 // requireActiveMember.

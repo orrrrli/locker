@@ -494,28 +494,63 @@ func TestDeleteMembership(t *testing.T) {
 }
 
 // TestAdminCannotDemoteOrRemoveAnotherAdmin: with two active admins, neither
-// can demote or remove the other (R6.12); nothing changes.
+// can demote or remove the other (R6.12) and nothing changes. Promoting a
+// co-admin is a no-op 200, and demoting a player who is already one is too.
 func TestAdminCannotDemoteOrRemoveAnotherAdmin(t *testing.T) {
 	api := newAPI(t, func() time.Time { return today })
-	_, adminToken := signUp(t, api, "admin@example.com")
-	coID, _ := signUp(t, api, "co@example.com")
+	adminID, adminToken := signUp(t, api, "admin@example.com")
+	coID, coToken := signUp(t, api, "co@example.com")
+	playerID, _ := signUp(t, api, "player@example.com")
 	team := createTeam(t, api, adminToken, "Halcones", "America/Tijuana")
 	addMember(t, api, team.ID, coID, "admin", "active")
-	co := "/memberships/" + strconv.FormatInt(membershipID(t, api, team.ID, coID), 10)
+	addMember(t, api, team.ID, playerID, "player", "active")
+	path := func(userID int64) string {
+		return "/memberships/" + strconv.FormatInt(membershipID(t, api, team.ID, userID), 10)
+	}
+	roleAndStatus := func(userID int64) (role, status string) {
+		t.Helper()
+		if err := api.pool.QueryRow(context.Background(), `SELECT role, status FROM membership WHERE team_id = $1 AND user_id = $2`,
+			team.ID, userID).Scan(&role, &status); err != nil {
+			t.Fatal(err)
+		}
+		return role, status
+	}
 
-	if rec := api.do(t, http.MethodPatch, co, adminToken, map[string]string{"role": "player"}); rec.Code != http.StatusForbidden || errorCode(t, rec) != "target_is_admin" {
-		t.Fatalf("demote: status %d, body %s", rec.Code, rec.Body)
+	for _, c := range []struct {
+		name   string
+		token  string
+		target int64
+	}{
+		{"admin on co-admin", adminToken, coID},
+		{"co-admin on admin", coToken, adminID},
+	} {
+		if rec := api.do(t, http.MethodPatch, path(c.target), c.token, map[string]string{"role": "player"}); rec.Code != http.StatusForbidden || errorCode(t, rec) != "target_is_admin" {
+			t.Fatalf("%s, demote: status %d, body %s", c.name, rec.Code, rec.Body)
+		}
+		if rec := api.do(t, http.MethodDelete, path(c.target), c.token, nil); rec.Code != http.StatusForbidden || errorCode(t, rec) != "target_is_admin" {
+			t.Fatalf("%s, remove: status %d, body %s", c.name, rec.Code, rec.Body)
+		}
+		if role, status := roleAndStatus(c.target); role != "admin" || status != "active" {
+			t.Fatalf("%s: target role %q, status %q; want admin, active", c.name, role, status)
+		}
 	}
-	if rec := api.do(t, http.MethodDelete, co, adminToken, nil); rec.Code != http.StatusForbidden || errorCode(t, rec) != "target_is_admin" {
-		t.Fatalf("remove: status %d, body %s", rec.Code, rec.Body)
-	}
-	var role, status string
-	if err := api.pool.QueryRow(context.Background(), `SELECT role, status FROM membership WHERE team_id = $1 AND user_id = $2`,
-		team.ID, coID).Scan(&role, &status); err != nil {
-		t.Fatal(err)
-	}
-	if role != "admin" || status != "active" {
-		t.Fatalf("other admin: role %q, status %q; want admin, active", role, status)
+
+	// Same role: no change, 200.
+	for _, c := range []struct {
+		name   string
+		target int64
+		role   string
+	}{
+		{"promote co-admin", coID, "admin"},
+		{"demote player", playerID, "player"},
+	} {
+		rec := api.do(t, http.MethodPatch, path(c.target), adminToken, map[string]string{"role": c.role})
+		if rec.Code != http.StatusOK {
+			t.Fatalf("%s: status %d, body %s", c.name, rec.Code, rec.Body)
+		}
+		if role, status := roleAndStatus(c.target); role != c.role || status != "active" {
+			t.Fatalf("%s: role %q, status %q; want %s, active", c.name, role, status, c.role)
+		}
 	}
 }
 
