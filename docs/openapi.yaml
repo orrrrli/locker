@@ -38,6 +38,7 @@ tags:
   - name: teams
   - name: invites
   - name: memberships
+  - name: matches
   - name: infra
     description: Health check, Universal Links and the invite landing page.
 
@@ -758,6 +759,137 @@ paths:
         "503":
           $ref: "#/components/responses/TeamBusy"
 
+  /teams/{id}/matches:
+    parameters:
+      - $ref: "#/components/parameters/TeamID"
+    post:
+      tags: [matches]
+      operationId: createMatch
+      summary: Schedule a match
+      description: |
+        Admins only. `starts_at` is any RFC 3339 time; it is stored and
+        returned in UTC. Rival and location are free text, trimmed.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateMatchRequest"
+      responses:
+        "201":
+          description: Match created.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Match"
+        "400":
+          $ref: "#/components/responses/InvalidRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "413":
+          $ref: "#/components/responses/BodyTooLarge"
+        "422":
+          description: |
+            - `invalid_starts_at`: missing.
+            - `invalid_rival_name`: empty or over 60 characters after trimming, or contains control characters.
+            - `invalid_location`: empty or over 120 characters after trimming, or contains control characters.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Error"
+                  - properties:
+                      error:
+                        enum: [invalid_starts_at, invalid_rival_name, invalid_location]
+        "500":
+          $ref: "#/components/responses/Internal"
+        "503":
+          $ref: "#/components/responses/TeamBusy"
+    get:
+      tags: [matches]
+      operationId: listMatches
+      summary: List the team's matches, soonest first
+      description: Active members only. Every match of the team, past and upcoming.
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: The team's matches.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [matches]
+                properties:
+                  matches:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Match"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/Internal"
+
+  /matches/{id}:
+    parameters:
+      - $ref: "#/components/parameters/MatchID"
+    patch:
+      tags: [matches]
+      operationId: updateMatch
+      summary: Change a match's time, rival or location
+      description: |
+        Admins of the match's team only. Send any of the fields; an absent or
+        null field keeps its value.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateMatchRequest"
+      responses:
+        "200":
+          description: The updated match.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Match"
+        "400":
+          $ref: "#/components/responses/InvalidRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "413":
+          $ref: "#/components/responses/BodyTooLarge"
+        "422":
+          description: |
+            - `nothing_to_update`: no field sent.
+            - `invalid_starts_at`, `invalid_rival_name`, `invalid_location`: as in create.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Error"
+                  - properties:
+                      error:
+                        enum: [nothing_to_update, invalid_starts_at, invalid_rival_name, invalid_location]
+        "500":
+          $ref: "#/components/responses/Internal"
+        "503":
+          $ref: "#/components/responses/TeamBusy"
+
 components:
   securitySchemes:
     bearerAuth:
@@ -774,6 +906,15 @@ components:
       in: path
       required: true
       description: Team id.
+      schema:
+        type: integer
+        format: int64
+        minimum: 1
+    MatchID:
+      name: id
+      in: path
+      required: true
+      description: Match id. An unknown id answers 404, the same as a match of a team the caller is not active in.
       schema:
         type: integer
         format: int64
@@ -984,6 +1125,9 @@ components:
         - not_pending
         - last_admin
         - last_admin_of_teams
+        - invalid_starts_at
+        - invalid_rival_name
+        - invalid_location
     AlreadyMemberError:
       type: object
       required: [error, status]
@@ -1081,6 +1225,50 @@ components:
         name:
           type: [string, "null"]
         timezone:
+          type: [string, "null"]
+
+    Match:
+      type: object
+      required: [id, team_id, starts_at, rival_name, location]
+      properties:
+        id:
+          type: integer
+          format: int64
+        team_id:
+          type: integer
+          format: int64
+        starts_at:
+          $ref: "#/components/schemas/Timestamp"
+        rival_name:
+          type: string
+        location:
+          type: string
+    CreateMatchRequest:
+      type: object
+      additionalProperties: false
+      required: [starts_at, rival_name, location]
+      properties:
+        starts_at:
+          type: string
+          format: date-time
+          description: RFC 3339 with any offset; stored in UTC.
+        rival_name:
+          type: string
+          description: 1 to 60 characters after trimming; no control characters.
+        location:
+          type: string
+          description: 1 to 120 characters after trimming; no control characters.
+    UpdateMatchRequest:
+      type: object
+      additionalProperties: false
+      description: At least one field. Absent or null keeps the current value.
+      properties:
+        starts_at:
+          type: [string, "null"]
+          format: date-time
+        rival_name:
+          type: [string, "null"]
+        location:
           type: [string, "null"]
 
     InviteCreated:
