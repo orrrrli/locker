@@ -155,8 +155,7 @@ type joinRequestJSON struct {
 }
 
 // listJoinRequests lists the caller's pending memberships for "Mis equipos"
-// (R24.5). requested_at is the row's created_at, so a member who left and
-// asked again shows the date the row was first made.
+// (R24.5). requested_at is when the membership last became pending.
 func (h inviteHandlers) listJoinRequests(w http.ResponseWriter, r *http.Request) {
 	userID, _ := userIDFrom(r.Context())
 	ps, err := h.svc.JoinRequests(r.Context(), userID)
@@ -166,7 +165,7 @@ func (h inviteHandlers) listJoinRequests(w http.ResponseWriter, r *http.Request)
 	}
 	out := make([]joinRequestJSON, len(ps))
 	for i, p := range ps {
-		out[i] = joinRequestJSON{ID: p.ID, TeamID: p.TeamID, TeamName: p.TeamName, RequestedAt: apiTime(p.CreatedAt)}
+		out[i] = joinRequestJSON{ID: p.ID, TeamID: p.TeamID, TeamName: p.TeamName, RequestedAt: apiTime(p.PendingSince)}
 	}
 	writeJSON(w, http.StatusOK, map[string][]joinRequestJSON{"join_requests": out})
 }

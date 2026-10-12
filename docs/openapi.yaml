@@ -1685,9 +1685,9 @@ components:
         requested_at:
           $ref: "#/components/schemas/Timestamp"
           description: |
-            When the membership row was created. A member who left and asked
-            again (or accepted an invite) reuses their old row, so this is the
-            date that row was first made, not the date of the new request.
+            When the membership became pending: the join request or invite
+            accept. A member who left and came back gets the date of the new
+            request.
 
     Membership:
       type: object

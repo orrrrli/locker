@@ -37,7 +37,7 @@ const approvePendingMembership = `-- name: ApprovePendingMembership :one
 UPDATE membership
 SET status = 'active', role = 'player', joined_at = coalesce(joined_at, now())
 WHERE id = $1 AND status = 'pending'
-RETURNING id, team_id, user_id, role, status, shirt_number, position, display_name_override, push_muted, created_at, joined_at
+RETURNING id, team_id, user_id, role, status, shirt_number, position, display_name_override, push_muted, created_at, joined_at, pending_since
 `
 
 // Approval makes a pending membership an active player (R7.3). Only a row
@@ -58,6 +58,7 @@ func (q *Queries) ApprovePendingMembership(ctx context.Context, id int64) (Membe
 		&i.PushMuted,
 		&i.CreatedAt,
 		&i.JoinedAt,
+		&i.PendingSince,
 	)
 	return i, err
 }
@@ -87,8 +88,8 @@ func (q *Queries) CountMembershipsOfUser(ctx context.Context, userID pgtype.Int8
 }
 
 const createMembership = `-- name: CreateMembership :one
-INSERT INTO membership (team_id, user_id, role, status, joined_at)
-VALUES ($1, $2, $3, $4, CASE WHEN $4 = 'active' THEN now() END)
+INSERT INTO membership (team_id, user_id, role, status, joined_at, pending_since)
+VALUES ($1, $2, $3, $4, CASE WHEN $4 = 'active' THEN now() END, CASE WHEN $4 = 'pending' THEN now() END)
 RETURNING id
 `
 
@@ -100,7 +101,7 @@ type CreateMembershipParams struct {
 }
 
 // A membership created active (the team's creator) joins now; a pending one
-// joins when it is approved.
+// joins when it is approved, and is pending since now.
 func (q *Queries) CreateMembership(ctx context.Context, arg CreateMembershipParams) (int64, error) {
 	row := q.db.QueryRow(ctx, createMembership,
 		arg.TeamID,
@@ -152,7 +153,7 @@ func (q *Queries) DeleteNeverJoinedPendingMembershipsOfUser(ctx context.Context,
 }
 
 const getMembership = `-- name: GetMembership :one
-SELECT id, team_id, user_id, role, status, shirt_number, position, display_name_override, push_muted, created_at, joined_at FROM membership
+SELECT id, team_id, user_id, role, status, shirt_number, position, display_name_override, push_muted, created_at, joined_at, pending_since FROM membership
 WHERE id = $1
 `
 
@@ -171,12 +172,13 @@ func (q *Queries) GetMembership(ctx context.Context, id int64) (Membership, erro
 		&i.PushMuted,
 		&i.CreatedAt,
 		&i.JoinedAt,
+		&i.PendingSince,
 	)
 	return i, err
 }
 
 const getMembershipByTeamAndUser = `-- name: GetMembershipByTeamAndUser :one
-SELECT id, team_id, user_id, role, status, shirt_number, position, display_name_override, push_muted, created_at, joined_at FROM membership
+SELECT id, team_id, user_id, role, status, shirt_number, position, display_name_override, push_muted, created_at, joined_at, pending_since FROM membership
 WHERE team_id = $1 AND user_id = $2
 `
 
@@ -200,12 +202,13 @@ func (q *Queries) GetMembershipByTeamAndUser(ctx context.Context, arg GetMembers
 		&i.PushMuted,
 		&i.CreatedAt,
 		&i.JoinedAt,
+		&i.PendingSince,
 	)
 	return i, err
 }
 
 const getMembershipInTeam = `-- name: GetMembershipInTeam :one
-SELECT id, team_id, user_id, role, status, shirt_number, position, display_name_override, push_muted, created_at, joined_at FROM membership
+SELECT id, team_id, user_id, role, status, shirt_number, position, display_name_override, push_muted, created_at, joined_at, pending_since FROM membership
 WHERE team_id = $1 AND id = $2
 `
 
@@ -230,28 +233,30 @@ func (q *Queries) GetMembershipInTeam(ctx context.Context, arg GetMembershipInTe
 		&i.PushMuted,
 		&i.CreatedAt,
 		&i.JoinedAt,
+		&i.PendingSince,
 	)
 	return i, err
 }
 
 const listPendingMembershipsOfUser = `-- name: ListPendingMembershipsOfUser :many
-SELECT m.id, m.team_id, t.name AS team_name, m.created_at
+SELECT m.id, m.team_id, t.name AS team_name,
+       coalesce(m.pending_since, m.created_at)::timestamptz AS pending_since
 FROM membership m
 JOIN team t ON t.id = m.team_id
 WHERE m.user_id = $1 AND m.status = 'pending'
-ORDER BY m.created_at DESC, m.id DESC
+ORDER BY coalesce(m.pending_since, m.created_at) DESC, m.id DESC
 `
 
 type ListPendingMembershipsOfUserRow struct {
-	ID        int64
-	TeamID    int64
-	TeamName  string
-	CreatedAt pgtype.Timestamptz
+	ID           int64
+	TeamID       int64
+	TeamName     string
+	PendingSince pgtype.Timestamptz
 }
 
 // The user's pending memberships, from a join request or an invite, for the
-// pending section of "Mis equipos" (R24.5). Newest first. created_at is when
-// the row was made: a member who left and asked again keeps the old date.
+// pending section of "Mis equipos" (R24.5), newest request first. A pending
+// row an older image wrote has no pending_since; created_at stands in.
 func (q *Queries) ListPendingMembershipsOfUser(ctx context.Context, userID pgtype.Int8) ([]ListPendingMembershipsOfUserRow, error) {
 	rows, err := q.db.Query(ctx, listPendingMembershipsOfUser, userID)
 	if err != nil {
@@ -265,7 +270,7 @@ func (q *Queries) ListPendingMembershipsOfUser(ctx context.Context, userID pgtyp
 			&i.ID,
 			&i.TeamID,
 			&i.TeamName,
-			&i.CreatedAt,
+			&i.PendingSince,
 		); err != nil {
 			return nil, err
 		}
@@ -334,14 +339,14 @@ func (q *Queries) ListRoster(ctx context.Context, arg ListRosterParams) ([]ListR
 
 const rejoinMembership = `-- name: RejoinMembership :execrows
 UPDATE membership
-SET role = 'player', status = 'pending'
+SET role = 'player', status = 'pending', pending_since = now()
 WHERE id = $1 AND status = 'left'
 `
 
 // A member who left comes back through an invite: the same row, keeping its
 // history, number and position (R8.4), as a pending player waiting for an
 // admin (R7.2). Only a row that is still `left` changes, so a stale read can
-// never demote an active member.
+// never demote an active member. pending_since restarts: this is a new request.
 func (q *Queries) RejoinMembership(ctx context.Context, id int64) (int64, error) {
 	result, err := q.db.Exec(ctx, rejoinMembership, id)
 	if err != nil {
@@ -398,7 +403,7 @@ UPDATE membership
 SET shirt_number = CASE WHEN $1::boolean THEN $2::integer ELSE shirt_number END,
     position     = CASE WHEN $3::boolean THEN $4::text ELSE position END
 WHERE id = $5 AND status = 'active'
-RETURNING id, team_id, user_id, role, status, shirt_number, position, display_name_override, push_muted, created_at, joined_at
+RETURNING id, team_id, user_id, role, status, shirt_number, position, display_name_override, push_muted, created_at, joined_at, pending_since
 `
 
 type UpdateMembershipProfileParams struct {
@@ -433,6 +438,7 @@ func (q *Queries) UpdateMembershipProfile(ctx context.Context, arg UpdateMembers
 		&i.PushMuted,
 		&i.CreatedAt,
 		&i.JoinedAt,
+		&i.PendingSince,
 	)
 	return i, err
 }
@@ -441,7 +447,7 @@ const updateMembershipRole = `-- name: UpdateMembershipRole :one
 UPDATE membership
 SET role = $2
 WHERE id = $1
-RETURNING id, team_id, user_id, role, status, shirt_number, position, display_name_override, push_muted, created_at, joined_at
+RETURNING id, team_id, user_id, role, status, shirt_number, position, display_name_override, push_muted, created_at, joined_at, pending_since
 `
 
 type UpdateMembershipRoleParams struct {
@@ -464,6 +470,7 @@ func (q *Queries) UpdateMembershipRole(ctx context.Context, arg UpdateMembership
 		&i.PushMuted,
 		&i.CreatedAt,
 		&i.JoinedAt,
+		&i.PendingSince,
 	)
 	return i, err
 }

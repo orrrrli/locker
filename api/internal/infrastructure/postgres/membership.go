@@ -212,7 +212,7 @@ func (r *Memberships) PendingOfUser(ctx context.Context, userID int64) ([]domain
 	}
 	out := make([]domain.PendingMembership, len(rows))
 	for i, row := range rows {
-		out[i] = domain.PendingMembership{ID: row.ID, TeamID: row.TeamID, TeamName: row.TeamName, CreatedAt: row.CreatedAt.Time}
+		out[i] = domain.PendingMembership{ID: row.ID, TeamID: row.TeamID, TeamName: row.TeamName, PendingSince: row.PendingSince.Time}
 	}
 	return out, nil
 }

@@ -173,6 +173,7 @@ type joinRow struct {
 	Role, Status string
 	ShirtNumber  *int
 	CreatedAt    time.Time
+	PendingSince *time.Time
 }
 
 // rowOf returns the user's membership in the team and how many they have.
@@ -188,8 +189,8 @@ func rowOf(t *testing.T, api apiTest, teamID, userID int64) (joinRow, int) {
 		return r, 0
 	}
 	if err := api.pool.QueryRow(context.Background(),
-		`SELECT id, role, status, shirt_number, created_at FROM membership WHERE team_id = $1 AND user_id = $2`,
-		teamID, userID).Scan(&r.ID, &r.Role, &r.Status, &r.ShirtNumber, &r.CreatedAt); err != nil {
+		`SELECT id, role, status, shirt_number, created_at, pending_since FROM membership WHERE team_id = $1 AND user_id = $2`,
+		teamID, userID).Scan(&r.ID, &r.Role, &r.Status, &r.ShirtNumber, &r.CreatedAt, &r.PendingSince); err != nil {
 		t.Fatal(err)
 	}
 	return r, n
@@ -231,7 +232,8 @@ func TestJoinRequestAgainWhilePendingChangesNothing(t *testing.T) {
 		before, _ := rowOf(t, api, team.ID, u.id)
 		requestJoin(t, api, u.token, team.ID, http.StatusOK)
 		after, n := rowOf(t, api, team.ID, u.id)
-		if n != 1 || after.ID != before.ID || after.Status != "pending" || !after.CreatedAt.Equal(before.CreatedAt) {
+		if n != 1 || after.ID != before.ID || after.Status != "pending" || !after.CreatedAt.Equal(before.CreatedAt) ||
+			after.PendingSince == nil || !after.PendingSince.Equal(*before.PendingSince) {
 			t.Fatalf("user %d: %d rows, %+v; want the same pending row %+v", u.id, n, after, before)
 		}
 	}
@@ -355,8 +357,40 @@ func TestListMyJoinRequests(t *testing.T) {
 	for i, want := range []teamJSON{invited, joined} {
 		row, _ := rowOf(t, api, want.ID, userID)
 		g := got[i]
-		if g.ID != row.ID || g.TeamID != want.ID || g.TeamName != want.Name || !g.RequestedAt.Equal(row.CreatedAt.UTC().Truncate(time.Second)) {
-			t.Fatalf("join_requests[%d] = %+v, want %s (membership %d, created %v)", i, g, want.Name, row.ID, row.CreatedAt)
+		if g.ID != row.ID || g.TeamID != want.ID || g.TeamName != want.Name || row.PendingSince == nil || !g.RequestedAt.Equal(row.PendingSince.UTC().Truncate(time.Second)) {
+			t.Fatalf("join_requests[%d] = %+v, want %s (membership %d, pending since %v)", i, g, want.Name, row.ID, row.PendingSince)
 		}
+	}
+}
+
+// A member who left and asks again gets a fresh requested_at, not the date
+// their row was made, so the new request sorts first (R24.5).
+func TestListMyJoinRequestsShowsWhenAReturningMemberAskedAgain(t *testing.T) {
+	api := newAPI(t, func() time.Time { return today })
+	_, adminToken := signUp(t, api, "admin@example.com")
+	userID, userToken := signUp(t, api, "back@example.com")
+	fresh := createTeam(t, api, adminToken, "Pumas", "America/Tijuana")
+	old := createTeam(t, api, adminToken, "Tigres", "America/Tijuana")
+	if _, err := api.pool.Exec(context.Background(),
+		`INSERT INTO membership (team_id, user_id, role, status, joined_at, created_at)
+		 VALUES ($1, $2, 'player', 'left', now() - interval '60 days', now() - interval '60 days')`, old.ID, userID); err != nil {
+		t.Fatal(err)
+	}
+
+	requestJoin(t, api, userToken, fresh.ID, http.StatusCreated)
+	requestJoin(t, api, userToken, old.ID, http.StatusCreated)
+
+	rec := api.do(t, http.MethodGet, "/me/join-requests", userToken, nil)
+	var body map[string][]joinRequestJSON
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	got := body["join_requests"]
+	row, _ := rowOf(t, api, old.ID, userID)
+	if len(got) != 2 || got[0].TeamID != old.ID || got[1].TeamID != fresh.ID {
+		t.Fatalf("join_requests = %+v, want Tigres (asked last) first", got)
+	}
+	if !got[0].RequestedAt.After(row.CreatedAt.Add(24 * time.Hour)) {
+		t.Fatalf("requested_at = %v, want the new request, not the row's %v", got[0].RequestedAt, row.CreatedAt)
 	}
 }
