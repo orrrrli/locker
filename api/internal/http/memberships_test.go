@@ -113,12 +113,12 @@ func TestPatchMembershipApproveReject(t *testing.T) {
 	path := func(id int64) string { return "/memberships/" + strconv.FormatInt(id, 10) }
 
 	// A player cannot approve.
-	if rec := api.do(t, http.MethodPatch, path(a), cToken, map[string]string{"status": "active"}); rec.Code != http.StatusForbidden {
+	if rec := api.do(t, http.MethodPatch, path(a), cToken, map[string]string{"decision": "approve"}); rec.Code != http.StatusForbidden {
 		t.Fatalf("player approves: status %d, body %s", rec.Code, rec.Body)
 	}
 
 	// Approve (R7.3).
-	rec := api.do(t, http.MethodPatch, path(a), adminToken, map[string]string{"status": "active"})
+	rec := api.do(t, http.MethodPatch, path(a), adminToken, map[string]string{"decision": "approve"})
 	if rec.Code != http.StatusOK {
 		t.Fatalf("approve: status %d, body %s", rec.Code, rec.Body)
 	}
@@ -131,13 +131,13 @@ func TestPatchMembershipApproveReject(t *testing.T) {
 	}
 
 	// Approving again: no longer pending.
-	rec = api.do(t, http.MethodPatch, path(a), adminToken, map[string]string{"status": "active"})
+	rec = api.do(t, http.MethodPatch, path(a), adminToken, map[string]string{"decision": "approve"})
 	if rec.Code != http.StatusConflict || errorCode(t, rec) != "not_pending" {
 		t.Fatalf("approve twice: status %d, body %s", rec.Code, rec.Body)
 	}
 
 	// Reject (R7.4): 204, and the row is gone.
-	if rec := api.do(t, http.MethodPatch, path(b), adminToken, map[string]string{"status": "rejected"}); rec.Code != http.StatusNoContent {
+	if rec := api.do(t, http.MethodPatch, path(b), adminToken, map[string]string{"decision": "reject"}); rec.Code != http.StatusNoContent {
 		t.Fatalf("reject: status %d, body %s", rec.Code, rec.Body)
 	}
 	var n int
@@ -150,8 +150,8 @@ func TestPatchMembershipApproveReject(t *testing.T) {
 		body any
 		code string
 	}{
-		{"unknown status", map[string]string{"status": "left"}, "invalid_status"},
-		{"role and status together", map[string]string{"role": "admin", "status": "active"}, "one_change_at_a_time"},
+		{"unknown decision", map[string]string{"decision": "left"}, "invalid_decision"},
+		{"role and decision together", map[string]string{"role": "admin", "decision": "approve"}, "one_change_at_a_time"},
 		{"empty body", map[string]string{}, "nothing_to_update"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -161,6 +161,13 @@ func TestPatchMembershipApproveReject(t *testing.T) {
 			}
 		})
 	}
+	// status was the old field; it is now rejected like any unknown field.
+	t.Run("status rejected as unknown field", func(t *testing.T) {
+		rec := api.do(t, http.MethodPatch, path(a), adminToken, map[string]string{"status": "active"})
+		if rec.Code != http.StatusBadRequest || errorCode(t, rec) != "invalid_request" {
+			t.Fatalf("status %d, body %s", rec.Code, rec.Body)
+		}
+	})
 }
 
 // TestPendingSeesNothingUntilApproved: a user who joins through a real invite
@@ -193,12 +200,22 @@ func TestPendingSeesNothingUntilApproved(t *testing.T) {
 			{http.MethodPatch, "/memberships/" + strconv.FormatInt(self, 10)},
 		}
 	}
+	// Positive control. The mux's own miss and authz's 404 look the same
+	// (JSON not_found), so a 404 alone cannot tell a hidden route from a dead
+	// one. The admin reaches every route here, and an empty body keeps the
+	// mutating ones from changing anything: a mux miss (404 or 405) means the
+	// method+path is no longer registered, and the shut-out check below would
+	// pass for the wrong reason.
+	for _, r := range routes(ana) {
+		rec := api.do(t, r.method, r.path, adminToken, map[string]string{})
+		if rec.Code == http.StatusNotFound || rec.Code == http.StatusMethodNotAllowed {
+			t.Errorf("admin %s %s: status %d, body %s; the route is not registered", r.method, r.path, rec.Code, rec.Body)
+		}
+	}
 	shutOut := func(t *testing.T, token string, self int64) {
 		t.Helper()
 		for _, r := range routes(self) {
-			// The API's own not_found, not the mux's: a route that moved
-			// would otherwise keep passing against its old path.
-			rec := api.do(t, r.method, r.path, token, map[string]string{"name": "Hackers", "status": "active"})
+			rec := api.do(t, r.method, r.path, token, map[string]string{"name": "Hackers", "decision": "approve"})
 			if rec.Code != http.StatusNotFound || errorCode(t, rec) != "not_found" {
 				t.Errorf("%s %s: status %d, body %s; want 404 not_found", r.method, r.path, rec.Code, rec.Body)
 			}
@@ -212,7 +229,7 @@ func TestPendingSeesNothingUntilApproved(t *testing.T) {
 	shutOut(t, beaToken, bea)
 
 	// Approved: Ana reads the team as a player, and still cannot change it.
-	if rec := api.do(t, http.MethodPatch, "/memberships/"+strconv.FormatInt(ana, 10), adminToken, map[string]string{"status": "active"}); rec.Code != http.StatusOK {
+	if rec := api.do(t, http.MethodPatch, "/memberships/"+strconv.FormatInt(ana, 10), adminToken, map[string]string{"decision": "approve"}); rec.Code != http.StatusOK {
 		t.Fatalf("approve: status %d, body %s", rec.Code, rec.Body)
 	}
 	if rec := api.do(t, http.MethodGet, teamPath(team.ID), anaToken, nil); rec.Code != http.StatusOK {
@@ -226,7 +243,7 @@ func TestPendingSeesNothingUntilApproved(t *testing.T) {
 	}
 
 	// Rejected: Bea stays shut out, now as a stranger.
-	if rec := api.do(t, http.MethodPatch, "/memberships/"+strconv.FormatInt(bea, 10), adminToken, map[string]string{"status": "rejected"}); rec.Code != http.StatusNoContent {
+	if rec := api.do(t, http.MethodPatch, "/memberships/"+strconv.FormatInt(bea, 10), adminToken, map[string]string{"decision": "reject"}); rec.Code != http.StatusNoContent {
 		t.Fatalf("reject: status %d, body %s", rec.Code, rec.Body)
 	}
 	shutOut(t, beaToken, bea)
@@ -355,6 +372,10 @@ func TestPatchMembershipProfile(t *testing.T) {
 	if got.ShirtNumber != nil || got.Position == nil || *got.Position != "forward" {
 		t.Fatalf("clear = %+v", got)
 	}
+	got = patch(t, playerToken, player, map[string]any{"position": nil})
+	if got.Position != nil {
+		t.Fatalf("clear position = %+v", got)
+	}
 	// The admin edits anyone.
 	if got = patch(t, adminToken, player, map[string]any{"shirt_number": 9}); got.ShirtNumber == nil || *got.ShirtNumber != 9 {
 		t.Fatalf("admin = %+v", got)
@@ -365,7 +386,7 @@ func TestPatchMembershipProfile(t *testing.T) {
 	for name, body := range map[string]any{
 		"profile": map[string]any{"shirt_number": 1},
 		"role":    map[string]string{"role": "player"},
-		"approve": map[string]string{"status": "active"},
+		"approve": map[string]string{"decision": "approve"},
 	} {
 		if rec := api.do(t, http.MethodPatch, path(admin), playerToken, body); rec.Code != http.StatusForbidden || errorCode(t, rec) != "forbidden" {
 			t.Errorf("player %s on admin: status %d, body %s", name, rec.Code, rec.Body)
@@ -386,7 +407,7 @@ func TestPatchMembershipProfile(t *testing.T) {
 		{"position as number", map[string]any{"position": 3}, "invalid_position"},
 		{"unknown position", map[string]any{"position": "striker"}, "invalid_position"},
 		{"profile and role", map[string]any{"position": "defender", "role": "player"}, "one_change_at_a_time"},
-		{"profile and status", map[string]any{"shirt_number": 4, "status": "active"}, "one_change_at_a_time"},
+		{"profile and decision", map[string]any{"shirt_number": 4, "decision": "approve"}, "one_change_at_a_time"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			rec := api.do(t, http.MethodPatch, path(player), playerToken, tc.body)
@@ -502,7 +523,7 @@ func TestRejoinReactivatesTheSameMembership(t *testing.T) {
 	if id := membershipID(t, api, team.ID, playerID); id != player {
 		t.Fatalf("after accept: membership %d, want the same row %d", id, player)
 	}
-	rec := api.do(t, http.MethodPatch, path, adminToken, map[string]string{"status": "active"})
+	rec := api.do(t, http.MethodPatch, path, adminToken, map[string]string{"decision": "approve"})
 	if rec.Code != http.StatusOK {
 		t.Fatalf("approve: status %d, body %s", rec.Code, rec.Body)
 	}

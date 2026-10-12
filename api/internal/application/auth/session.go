@@ -56,36 +56,41 @@ func (s *Service) createSession(ctx context.Context, userID int64) (string, erro
 
 // Login checks an email and password and opens a session. An unknown email
 // costs the same argon2id work as a wrong password, so the response time
-// does not reveal which emails are registered.
-func (s *Service) Login(ctx context.Context, email, password string) (string, error) {
+// does not reveal which emails are registered. It answers like Register, so
+// the client gets the user id from either.
+func (s *Service) Login(ctx context.Context, email, password string) (Registered, error) {
 	email, err := NormalizeEmail(email)
 	if err != nil {
-		return "", ErrInvalidCredentials
+		return Registered{}, ErrInvalidCredentials
 	}
 	userID, hash, err := s.users.PasswordIdentity(ctx, email)
 	if errors.Is(err, domain.ErrNotFound) {
 		dummy, err := s.dummyHash(ctx)
 		if err != nil {
-			return "", err
+			return Registered{}, err
 		}
 		// Return Verify's error like the known-email branch does, so a
 		// cancelled request looks the same whether or not the email exists.
 		if _, err := s.hasher.Verify(ctx, password, dummy); err != nil {
-			return "", err
+			return Registered{}, err
 		}
-		return "", ErrInvalidCredentials
+		return Registered{}, ErrInvalidCredentials
 	}
 	if err != nil {
-		return "", err
+		return Registered{}, err
 	}
 	ok, err := s.hasher.Verify(ctx, password, hash)
 	if err != nil {
-		return "", err
+		return Registered{}, err
 	}
 	if !ok {
-		return "", ErrInvalidCredentials
+		return Registered{}, ErrInvalidCredentials
 	}
-	return s.createSession(ctx, userID)
+	t, err := s.createSession(ctx, userID)
+	if err != nil {
+		return Registered{}, err
+	}
+	return Registered{UserID: userID, Token: t}, nil
 }
 
 func (s *Service) dummyHash(ctx context.Context) (string, error) {

@@ -34,7 +34,7 @@ func (h inviteHandlers) create(w http.ResponseWriter, r *http.Request) {
 		"id":         inv.ID,
 		"token":      inv.Token,
 		"url":        inv.URL,
-		"expires_at": inv.ExpiresAt.UTC(), // same encoding as teams' created_at
+		"expires_at": apiTime(inv.ExpiresAt),
 	})
 }
 
@@ -44,7 +44,7 @@ func (h inviteHandlers) revoke(w http.ResponseWriter, r *http.Request) {
 	m, _ := membershipFrom(r.Context())
 	inviteID, err := strconv.ParseInt(r.PathValue("inviteId"), 10, 64)
 	if err != nil || inviteID <= 0 {
-		writeError(w, http.StatusNotFound, "not_found")
+		writeError(w, http.StatusNotFound, "invite_not_found")
 		return
 	}
 	if err := h.svc.Revoke(r.Context(), m.TeamID, m.ID, inviteID); err != nil {

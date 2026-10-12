@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"regexp"
 	"strconv"
 	"strings"
 	"testing"
@@ -69,6 +70,33 @@ func TestCreateInviteAdminOnly(t *testing.T) {
 		if rec := api.do(t, http.MethodPost, teamPath(team.ID)+"/invites", tc.token, nil); rec.Code != tc.status {
 			t.Fatalf("%s: status %d, want %d", tc.name, rec.Code, tc.status)
 		}
+	}
+}
+
+// TestCreateInviteExpiresAtIsWholeSecondsUTC: the client decodes with Swift's
+// .iso8601, which rejects fractions and needs the Z. The clock here has
+// nanoseconds and a non-UTC zone, so only apiTime can produce this string.
+func TestCreateInviteExpiresAtIsWholeSecondsUTC(t *testing.T) {
+	zone := time.FixedZone("UTC-7", -7*60*60)
+	now := time.Date(2026, 10, 6, 8, 0, 0, 123456789, zone)
+	api := newAPI(t, func() time.Time { return now })
+	_, adminToken := signUp(t, api, "admin@example.com")
+	team := createTeam(t, api, adminToken, "Pumas", "America/Tijuana")
+
+	rec := api.do(t, http.MethodPost, teamPath(team.ID)+"/invites", adminToken, nil)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create invite: status %d, body %s", rec.Code, rec.Body)
+	}
+	var raw struct {
+		ExpiresAt string `json:"expires_at"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &raw); err != nil {
+		t.Fatal(err)
+	}
+
+	const want = "2026-10-13T15:00:00Z" // 7 days after 15:00 UTC, fraction dropped
+	if !regexp.MustCompile(`^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$`).MatchString(raw.ExpiresAt) || raw.ExpiresAt != want {
+		t.Fatalf("expires_at = %q, want %q (whole seconds, UTC)", raw.ExpiresAt, want)
 	}
 }
 
@@ -177,16 +205,19 @@ func TestRevokeInviteAdminOfItsTeamOnly(t *testing.T) {
 	playerID, playerToken := signUp(t, api, "player@example.com")
 	addMember(t, api, victimTeam.ID, playerID, "player", "active")
 
+	// An invite the path's team does not have reads invite_not_found, like
+	// accept with an unknown token; a team the caller cannot see stays
+	// not_found (authz answers it).
 	for _, tc := range []struct {
-		name, path string
-		status     int
+		name, path, code string
 	}{
-		{"own team path", teamPath(attackerTeam.ID) + "/invites/" + id, http.StatusNotFound},
-		{"victim team path", teamPath(victimTeam.ID) + "/invites/" + id, http.StatusNotFound},
-		{"bad id", teamPath(attackerTeam.ID) + "/invites/abc", http.StatusNotFound},
+		{"own team path", teamPath(attackerTeam.ID) + "/invites/" + id, "invite_not_found"},
+		{"victim team path", teamPath(victimTeam.ID) + "/invites/" + id, "not_found"},
+		{"bad id", teamPath(attackerTeam.ID) + "/invites/abc", "invite_not_found"},
+		{"zero id", teamPath(attackerTeam.ID) + "/invites/0", "invite_not_found"},
 	} {
-		if rec := api.do(t, http.MethodDelete, tc.path, attackerToken, nil); rec.Code != tc.status {
-			t.Fatalf("%s: status %d, want %d", tc.name, rec.Code, tc.status)
+		if rec := api.do(t, http.MethodDelete, tc.path, attackerToken, nil); rec.Code != http.StatusNotFound || errorCode(t, rec) != tc.code {
+			t.Fatalf("%s: status %d, body %s; want 404 %s", tc.name, rec.Code, rec.Body, tc.code)
 		}
 	}
 	for _, tc := range []struct {

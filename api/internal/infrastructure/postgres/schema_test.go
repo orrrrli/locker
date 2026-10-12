@@ -59,17 +59,19 @@ func TestDomainEnumsMatchCheckConstraints(t *testing.T) {
 		{"auth_identity", "provider", []string{string(domain.ProviderApple), string(domain.ProviderPassword)}},
 		{"membership", "role", []string{string(domain.RoleAdmin), string(domain.RolePlayer)}},
 		{"membership", "status", []string{string(domain.MembershipPending), string(domain.MembershipActive), string(domain.MembershipLeft)}},
+		{"membership", "position", []string{string(domain.PositionGoalkeeper), string(domain.PositionDefender), string(domain.PositionMidfielder), string(domain.PositionForward)}},
 		{"rsvp", "answer", []string{string(domain.RSVPGoing), string(domain.RSVPNotGoing)}},
 		{"notification", "kind", []string{string(domain.NotificationManual), string(domain.NotificationMatchCreated), string(domain.NotificationMatchChanged), string(domain.NotificationRSVPReminder)}},
 		{"charge_member", "status", []string{string(domain.ChargePending), string(domain.ChargePaid)}},
 	}
 	for _, e := range enums {
 		// The column's own CHECK is the one that lists every value with = ANY.
+		// quote_ident: Postgres prints a keyword column like position quoted.
 		var def string
 		err := pool.QueryRow(ctx, `
 			SELECT pg_get_constraintdef(oid) FROM pg_constraint
 			WHERE conrelid = to_regclass($1) AND contype = 'c'
-			  AND pg_get_constraintdef(oid) LIKE '%(' || $2 || ' = ANY%'`,
+			  AND pg_get_constraintdef(oid) LIKE '%(' || quote_ident($2) || ' = ANY%'`,
 			e.table, e.column).Scan(&def)
 		if err != nil {
 			t.Fatalf("%s.%s: %v", e.table, e.column, err)
@@ -172,6 +174,10 @@ func TestSchemaConstraints(t *testing.T) {
 			[]any{f.team}, checkViolation},
 		{"membership status CHECK", "",
 			`INSERT INTO membership (team_id, role, status) VALUES ($1, 'player', 'banned')`,
+			[]any{f.team}, checkViolation},
+		{"membership position CHECK",
+			`INSERT INTO membership (team_id, role, status, position) VALUES ($1, 'player', 'active', 'forward')`,
+			`INSERT INTO membership (team_id, role, status, position) VALUES ($1, 'player', 'active', 'striker')`,
 			[]any{f.team}, checkViolation},
 		{"rsvp PK (match_id, membership_id)",
 			`INSERT INTO rsvp (match_id, membership_id, answer) VALUES ($1, $2, 'going')`,

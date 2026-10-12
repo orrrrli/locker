@@ -35,7 +35,7 @@ func TestMembershipByTeamAndUser(t *testing.T) {
 		}
 		if _, err := db.Exec(ctx, `
 			INSERT INTO membership (team_id, user_id, role, status, shirt_number, position)
-			VALUES ($1, $2, 'admin', 'active', 10, 'delantero')`, teamID, userID); err != nil {
+			VALUES ($1, $2, 'admin', 'active', 10, 'forward')`, teamID, userID); err != nil {
 			t.Fatal(err)
 		}
 
@@ -46,7 +46,7 @@ func TestMembershipByTeamAndUser(t *testing.T) {
 		}
 		if m.TeamID != teamID || m.UserID == nil || *m.UserID != userID ||
 			m.Role != domain.RoleAdmin || m.Status != domain.MembershipActive ||
-			m.ShirtNumber == nil || *m.ShirtNumber != 10 || m.Position == nil || *m.Position != "delantero" ||
+			m.ShirtNumber == nil || *m.ShirtNumber != 10 || m.Position == nil || *m.Position != domain.PositionForward ||
 			m.DisplayNameOverride != nil || m.CreatedAt.IsZero() {
 			t.Fatalf("unexpected membership: %+v", m)
 		}

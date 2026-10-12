@@ -28,3 +28,16 @@ func TestCheckAdminLoss(t *testing.T) {
 		})
 	}
 }
+
+func TestPositionValid(t *testing.T) {
+	for _, p := range []Position{PositionGoalkeeper, PositionDefender, PositionMidfielder, PositionForward} {
+		if !p.Valid() {
+			t.Errorf("%q not valid", p)
+		}
+	}
+	for _, p := range []Position{"", "striker", "Forward", "delantero"} {
+		if p.Valid() {
+			t.Errorf("%q valid", p)
+		}
+	}
+}

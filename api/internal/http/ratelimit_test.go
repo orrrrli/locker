@@ -36,18 +36,18 @@ type fakeAuth struct {
 	user int64
 }
 
-func (f *fakeAuth) Login(_ context.Context, _, password string) (string, error) {
+func (f *fakeAuth) Login(_ context.Context, _, password string) (auth.Registered, error) {
 	f.calls.Add(1)
 	time.Sleep(f.delay)
 	switch password {
 	case rightPassword:
-		return "token", nil
+		return auth.Registered{UserID: 1, Token: "token"}, nil
 	case boomPassword:
-		return "", errors.New("db down")
+		return auth.Registered{}, errors.New("db down")
 	case busyPassword:
-		return "", domain.ErrServerBusy
+		return auth.Registered{}, domain.ErrServerBusy
 	}
-	return "", auth.ErrInvalidCredentials
+	return auth.Registered{}, auth.ErrInvalidCredentials
 }
 
 func (f *fakeAuth) Register(context.Context, auth.RegisterInput) (auth.Registered, error) {

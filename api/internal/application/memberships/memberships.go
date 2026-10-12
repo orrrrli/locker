@@ -27,8 +27,6 @@ var (
 
 const maxShirtNumber = 99
 
-var positions = map[string]bool{"goalkeeper": true, "defender": true, "midfielder": true, "forward": true}
-
 // Memberships is what the membership use cases need from the membership table.
 type Memberships interface {
 	application.AdminLocker
@@ -194,7 +192,7 @@ func (s *Service) UpdateProfile(ctx context.Context, teamID, callerID, membershi
 	if p.ShirtNumber != nil && (*p.ShirtNumber < 0 || *p.ShirtNumber > maxShirtNumber) {
 		return domain.Membership{}, ErrInvalidShirtNumber
 	}
-	if p.Position != nil && !positions[*p.Position] {
+	if p.Position != nil && !p.Position.Valid() {
 		return domain.Membership{}, ErrInvalidPosition
 	}
 	update := func(ctx context.Context) (domain.Membership, error) {

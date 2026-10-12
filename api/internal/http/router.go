@@ -72,7 +72,55 @@ func NewRouter(d Deps) http.Handler {
 	mux.Handle("GET /teams/{id}/members", a.requireAuth(z.requireActiveMember(team, http.HandlerFunc(mem.list))))
 	mux.Handle("PATCH /memberships/{id}", a.requireAuth(z.requireActiveMember(teamFromMembership("id", d.Memberships), http.HandlerFunc(mem.update))))
 	mux.Handle("DELETE /memberships/{id}", a.requireAuth(z.requireActiveMember(teamFromMembership("id", d.Memberships), http.HandlerFunc(mem.leave))))
-	return mux
+	return jsonMisses(mux)
+}
+
+// jsonMisses makes the mux's own 404 and 405 answer JSON like every other
+// error, instead of text/plain. The mux reports a miss as an empty pattern;
+// only then is the writer wrapped, so routes (and the 405's Allow header)
+// are untouched. A catch-all pattern would do the 404 but not the 405.
+func jsonMisses(mux *http.ServeMux) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if _, pattern := mux.Handler(r); pattern == "" {
+			w = &missWriter{ResponseWriter: w}
+		}
+		mux.ServeHTTP(w, r)
+	})
+}
+
+// missWriter replaces the mux's plain-text 404 and 405 with {"error": code}
+// and drops the text body that follows. Anything else the mux answers
+// without a pattern (the 307 that cleans a path) passes through untouched.
+type missWriter struct {
+	http.ResponseWriter
+	wrote, swallow bool
+}
+
+func (m *missWriter) WriteHeader(status int) {
+	if m.wrote {
+		return
+	}
+	m.wrote = true
+	switch status {
+	case http.StatusNotFound:
+		writeError(m.ResponseWriter, status, "not_found")
+	case http.StatusMethodNotAllowed:
+		writeError(m.ResponseWriter, status, "method_not_allowed")
+	default:
+		m.ResponseWriter.WriteHeader(status)
+		return
+	}
+	m.swallow = true
+}
+
+func (m *missWriter) Write(b []byte) (int, error) {
+	if !m.wrote {
+		m.WriteHeader(http.StatusOK)
+	}
+	if !m.swallow {
+		return m.ResponseWriter.Write(b)
+	}
+	return len(b), nil
 }
 
 // health reports that the process is up. It does not check dependencies.

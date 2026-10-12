@@ -100,7 +100,7 @@ func (r *Memberships) UpdateProfile(ctx context.Context, id int64, p domain.Prof
 		arg.ShirtNumber = pgtype.Int4{Int32: int32(*p.ShirtNumber), Valid: true}
 	}
 	if p.Position != nil {
-		arg.Position = pgtype.Text{String: *p.Position, Valid: true}
+		arg.Position = pgtype.Text{String: string(*p.Position), Valid: true}
 	}
 	row, err := sqlcdb.New(Conn(ctx, r.pool)).UpdateMembershipProfile(ctx, arg)
 	return membershipOrNotFound(row, err, "update membership profile")
@@ -156,7 +156,7 @@ func (r *Memberships) Roster(ctx context.Context, teamID int64, withPending bool
 			Role:        domain.Role(row.Role),
 			Status:      domain.MembershipStatus(row.Status),
 			ShirtNumber: intPtr(row.ShirtNumber),
-			Position:    textPtr(row.Position),
+			Position:    positionPtr(row.Position),
 		}
 	}
 	return out, nil
@@ -254,7 +254,7 @@ func membershipFromRow(row sqlcdb.Membership) domain.Membership {
 		TeamID:              row.TeamID,
 		Role:                domain.Role(row.Role),
 		Status:              domain.MembershipStatus(row.Status),
-		Position:            textPtr(row.Position),
+		Position:            positionPtr(row.Position),
 		DisplayNameOverride: textPtr(row.DisplayNameOverride),
 		PushMuted:           row.PushMuted,
 		CreatedAt:           row.CreatedAt.Time,
@@ -279,4 +279,8 @@ func textPtr(t pgtype.Text) *string {
 		return nil
 	}
 	return &t.String
+}
+
+func positionPtr(t pgtype.Text) *domain.Position {
+	return (*domain.Position)(textPtr(t))
 }

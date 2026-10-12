@@ -30,7 +30,7 @@ type membershipJSON struct {
 	Role        domain.Role             `json:"role"`
 	Status      domain.MembershipStatus `json:"status"`
 	ShirtNumber *int                    `json:"shirt_number"`
-	Position    *string                 `json:"position"`
+	Position    *domain.Position        `json:"position"`
 }
 
 // rosterMemberJSON is one member of GET /teams/{id}/members. role stays
@@ -41,7 +41,7 @@ type rosterMemberJSON struct {
 	Role        domain.Role             `json:"role"`
 	Status      domain.MembershipStatus `json:"status"`
 	ShirtNumber *int                    `json:"shirt_number"`
-	Position    *string                 `json:"position"`
+	Position    *domain.Position        `json:"position"`
 }
 
 // list runs behind requireActiveMember, which puts the caller's membership
@@ -62,12 +62,13 @@ func (h membershipHandlers) list(w http.ResponseWriter, r *http.Request) {
 
 // updateMembershipRequest carries one change per request: a role, a
 // decision on a pending membership, or the profile (shirt number and
-// position, together or alone). "rejected" is an action, not a stored
-// status: a rejected membership is discarded. The profile fields are raw so
-// that an absent field (kept) differs from null (cleared).
+// position, together or alone). The decision is an action, not a stored
+// status: approve makes the membership active, reject discards it. The
+// profile fields are raw so that an absent field (kept) differs from null
+// (cleared).
 type updateMembershipRequest struct {
 	Role        *domain.Role    `json:"role"`
-	Status      *string         `json:"status"`
+	Decision    *decision       `json:"decision"`
 	ShirtNumber json.RawMessage `json:"shirt_number"`
 	Position    json.RawMessage `json:"position"`
 }
@@ -87,9 +88,14 @@ func (req updateMembershipRequest) profile() (p domain.ProfileChange, numberOK, 
 	return p, numberOK, positionOK
 }
 
+// decision is what an admin does with a pending membership. It lives here,
+// not in domain, because it is a request action: the stored result is a
+// domain.MembershipStatus (approve) or no row at all (reject).
+type decision string
+
 const (
-	statusApprove = string(domain.MembershipActive)
-	statusReject  = "rejected"
+	decisionApprove decision = "approve"
+	decisionReject  decision = "reject"
 )
 
 // update runs behind requireActiveMember(teamFromMembership), because a
@@ -105,7 +111,7 @@ func (h membershipHandlers) update(w http.ResponseWriter, r *http.Request) {
 	profile, numberOK, positionOK := req.profile()
 	isProfile := profile.SetShirtNumber || profile.SetPosition
 	changes := 0
-	for _, set := range []bool{req.Role != nil, req.Status != nil, isProfile} {
+	for _, set := range []bool{req.Role != nil, req.Decision != nil, isProfile} {
 		if set {
 			changes++
 		}
@@ -117,8 +123,8 @@ func (h membershipHandlers) update(w http.ResponseWriter, r *http.Request) {
 	case changes > 1:
 		writeError(w, http.StatusUnprocessableEntity, "one_change_at_a_time")
 		return
-	case req.Status != nil && *req.Status != statusApprove && *req.Status != statusReject:
-		writeError(w, http.StatusUnprocessableEntity, "invalid_status")
+	case req.Decision != nil && *req.Decision != decisionApprove && *req.Decision != decisionReject:
+		writeError(w, http.StatusUnprocessableEntity, "invalid_decision")
 		return
 	case !numberOK:
 		writeError(w, http.StatusUnprocessableEntity, "invalid_shirt_number")
@@ -140,7 +146,7 @@ func (h membershipHandlers) update(w http.ResponseWriter, r *http.Request) {
 		m, err = h.svc.UpdateProfile(ctx, caller.TeamID, caller.ID, id, profile)
 	case req.Role != nil:
 		m, err = h.svc.ChangeRole(ctx, caller.TeamID, caller.ID, id, *req.Role)
-	case *req.Status == statusApprove:
+	case *req.Decision == decisionApprove:
 		m, err = h.svc.Approve(ctx, caller.TeamID, caller.ID, id)
 	default:
 		if err = h.svc.Reject(ctx, caller.TeamID, caller.ID, id); err == nil {

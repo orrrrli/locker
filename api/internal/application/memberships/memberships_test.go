@@ -371,8 +371,8 @@ func (p probedMemberships) UpdateProfile(ctx context.Context, id int64, c domain
 	return p.Memberships.UpdateProfile(ctx, id, c)
 }
 
-func number(n int) *int     { return &n }
-func text(s string) *string { return &s }
+func number(n int) *int                           { return &n }
+func position(s domain.Position) *domain.Position { return &s }
 
 func TestUpdateProfile(t *testing.T) {
 	f := newFixture(t)
@@ -380,7 +380,7 @@ func TestUpdateProfile(t *testing.T) {
 	team := f.team(t)
 	admin := f.member(t, team, domain.RoleAdmin, domain.MembershipActive)
 	player := f.member(t, team, domain.RolePlayer, domain.MembershipActive)
-	both := domain.ProfileChange{SetShirtNumber: true, ShirtNumber: number(10), SetPosition: true, Position: text("forward")}
+	both := domain.ProfileChange{SetShirtNumber: true, ShirtNumber: number(10), SetPosition: true, Position: position("forward")}
 
 	// The member sets their own (R8.2).
 	m, err := f.svc.UpdateProfile(ctx, team, player, player, both)
@@ -404,7 +404,7 @@ func TestUpdateProfile(t *testing.T) {
 	if _, err := f.svc.UpdateProfile(ctx, team, player, player, domain.ProfileChange{SetShirtNumber: true, ShirtNumber: number(8)}); err != nil {
 		t.Fatal(err)
 	}
-	m, err = f.svc.UpdateProfile(ctx, team, player, player, domain.ProfileChange{SetPosition: true, Position: text("defender")})
+	m, err = f.svc.UpdateProfile(ctx, team, player, player, domain.ProfileChange{SetPosition: true, Position: position("defender")})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -462,7 +462,7 @@ func TestUpdateProfileRejects(t *testing.T) {
 	}{
 		{"negative number", admin, domain.ProfileChange{SetShirtNumber: true, ShirtNumber: number(-1)}, memberships.ErrInvalidShirtNumber},
 		{"number over 99", admin, domain.ProfileChange{SetShirtNumber: true, ShirtNumber: number(100)}, memberships.ErrInvalidShirtNumber},
-		{"unknown position", admin, domain.ProfileChange{SetPosition: true, Position: text("striker")}, memberships.ErrInvalidPosition},
+		{"unknown position", admin, domain.ProfileChange{SetPosition: true, Position: position("striker")}, memberships.ErrInvalidPosition},
 		{"pending", pending, domain.ProfileChange{SetShirtNumber: true, ShirtNumber: number(9)}, memberships.ErrNotActive},
 		{"left", left, domain.ProfileChange{SetShirtNumber: true, ShirtNumber: number(9)}, memberships.ErrNotActive},
 		{"other team", elsewhere, domain.ProfileChange{SetShirtNumber: true, ShirtNumber: number(9)}, domain.ErrNotFound},
@@ -473,8 +473,8 @@ func TestUpdateProfileRejects(t *testing.T) {
 			}
 		})
 	}
-	for _, p := range []string{"goalkeeper", "defender", "midfielder", "forward"} {
-		if _, err := f.svc.UpdateProfile(ctx, team, admin, admin, domain.ProfileChange{SetPosition: true, Position: text(p)}); err != nil {
+	for _, p := range []domain.Position{domain.PositionGoalkeeper, domain.PositionDefender, domain.PositionMidfielder, domain.PositionForward} {
+		if _, err := f.svc.UpdateProfile(ctx, team, admin, admin, domain.ProfileChange{SetPosition: true, Position: position(p)}); err != nil {
 			t.Fatalf("%s: %v", p, err)
 		}
 	}

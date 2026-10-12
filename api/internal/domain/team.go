@@ -29,6 +29,26 @@ const (
 	MembershipLeft    MembershipStatus = "left"
 )
 
+// Position is where a member plays (R8.2).
+type Position string
+
+const (
+	PositionGoalkeeper Position = "goalkeeper"
+	PositionDefender   Position = "defender"
+	PositionMidfielder Position = "midfielder"
+	PositionForward    Position = "forward"
+)
+
+// Valid reports whether p is one of the four positions; the use case checks
+// it before a write, and a CHECK constraint backs it in the database.
+func (p Position) Valid() bool {
+	switch p {
+	case PositionGoalkeeper, PositionDefender, PositionMidfielder, PositionForward:
+		return true
+	}
+	return false
+}
+
 // Membership links a user to a team. All team history hangs off it, so
 // UserID is nil once the user deletes the account (R5.3).
 type Membership struct {
@@ -38,7 +58,7 @@ type Membership struct {
 	Role                Role
 	Status              MembershipStatus
 	ShirtNumber         *int
-	Position            *string
+	Position            *Position
 	DisplayNameOverride *string
 	PushMuted           bool
 	CreatedAt           time.Time
@@ -50,7 +70,7 @@ type ProfileChange struct {
 	SetShirtNumber bool
 	ShirtNumber    *int
 	SetPosition    bool
-	Position       *string
+	Position       *Position
 }
 
 // RosterMember is one line of the team's member list (R8.1).
@@ -60,7 +80,7 @@ type RosterMember struct {
 	Role        Role
 	Status      MembershipStatus
 	ShirtNumber *int
-	Position    *string
+	Position    *Position
 }
 
 type Invite struct {

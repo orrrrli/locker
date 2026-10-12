@@ -1,0 +1,1215 @@
+openapi: 3.1.0
+info:
+  title: Locker API
+  version: 0.1.0
+  description: |
+    HTTP contract of the Locker Go API, written from the code in
+    `api/internal/http` (router.go lists every route). Only registered routes
+    are documented.
+
+    Conventions every client can rely on:
+
+    - JSON bodies are capped at 16 KiB. A larger body answers 413
+      `body_too_large`; a body that is not valid JSON for the endpoint (wrong
+      type, malformed, or with a field the endpoint does not know) answers
+      400 `invalid_request`. Field names match case-insensitively (Go's
+      encoding/json), so `"Position"` reads as `position`; always send the
+      exact lowercase names. Only the first JSON value of the body is read.
+    - Every error is JSON `{"error": "<code>"}` with a stable code (see the
+      `Error` schema). Two codes carry extra fields: `already_member` and
+      `last_admin_of_teams`.
+    - An unknown path answers 404 `not_found` and a known path with the wrong
+      method answers 405 `method_not_allowed` with an `Allow` header, both as
+      JSON (see `components/responses/NotFound` and `MethodNotAllowed`).
+      A GET route also answers HEAD.
+    - Any unexpected failure answers 500 `internal`.
+    - Timestamps are RFC 3339 strings, always UTC with whole seconds and no
+      fraction, e.g. "2026-10-11T23:53:00Z", so Swift's `.iso8601` strategy
+      decodes them.
+    - Ids are positive 64-bit integers. A path id that is not a positive
+      integer answers 404, the same as an unknown id.
+    - Team routes hide a team from anyone who is not an active member of it
+      (strangers, pending and left members): they get 404 `not_found`, not 403.
+servers:
+  - url: https://api.locker.center
+tags:
+  - name: auth
+  - name: account
+  - name: teams
+  - name: invites
+  - name: memberships
+  - name: infra
+    description: Health check, Universal Links and the invite landing page.
+
+paths:
+  /health:
+    get:
+      tags: [infra]
+      operationId: health
+      summary: Liveness check
+      description: Reports that the process is up. It does not check the database.
+      responses:
+        "200":
+          description: The process is up.
+          content:
+            text/plain:
+              schema:
+                type: string
+                const: ok
+
+  /.well-known/apple-app-site-association:
+    get:
+      tags: [infra]
+      operationId: appleAppSiteAssociation
+      summary: Universal Links association file
+      description: |
+        Tells iOS to open invite links (`/i/*`) in the app. Answers 404
+        `not_found` while no Apple app ID is configured.
+      responses:
+        "200":
+          description: The association file.
+          content:
+            application/json:
+              schema:
+                type: object
+              example:
+                applinks:
+                  details:
+                    - appIDs: ["<team id>.<bundle id>"]
+                      components:
+                        - "/": "/i/*"
+                          comment: invite links
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /i/{token}:
+    get:
+      tags: [infra]
+      operationId: inviteLanding
+      summary: Invite link landing page (HTML)
+      description: |
+        What a browser shows for an invite link when the app is not installed.
+        With the app installed, iOS opens the link in the app instead. The page
+        never reads the token or the database. The app accepts the invite with
+        `POST /invites/accept`, sending the token in the body.
+      parameters:
+        - name: token
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Static HTML page (Spanish), sent with `Cache-Control no-store` and `Referrer-Policy no-referrer`.
+          content:
+            text/html:
+              schema:
+                type: string
+
+  /auth/register:
+    post:
+      tags: [auth]
+      operationId: register
+      summary: Create an account with email and password and sign in
+      description: |
+        Rate limited to 30 registrations per client IP per hour. Only requests
+        that reach the password hash count (a new account or a taken email).
+        The limit is checked before the body is read, so a 429 can come before
+        a 400.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RegisterRequest"
+      responses:
+        "201":
+          description: Account created; the session token is ready to use.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthSession"
+        "400":
+          $ref: "#/components/responses/InvalidRequest"
+        "409":
+          description: "`email_taken`: the email already has an account."
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Error"
+                  - properties:
+                      error:
+                        const: email_taken
+        "413":
+          $ref: "#/components/responses/BodyTooLarge"
+        "422":
+          description: |
+            Validation failed. Codes:
+            - `invalid_name`: name empty or over 100 characters after trimming.
+            - `invalid_email`: not a valid address, or over 254 bytes.
+            - `password_too_short`: under 8 characters.
+            - `password_too_long`: over 128 characters.
+            - `birth_date_required`: birth_date missing or empty.
+            - `invalid_birth_date`: not `YYYY-MM-DD` (a client bug).
+            - `birth_date_in_future`: a date after today.
+            - `underage`: younger than 15.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Error"
+                  - properties:
+                      error:
+                        enum:
+                          - invalid_name
+                          - invalid_email
+                          - password_too_short
+                          - password_too_long
+                          - birth_date_required
+                          - invalid_birth_date
+                          - birth_date_in_future
+                          - underage
+        "429":
+          $ref: "#/components/responses/TooManyAttempts"
+        "500":
+          $ref: "#/components/responses/Internal"
+        "503":
+          $ref: "#/components/responses/ServerBusy"
+
+  /auth/login:
+    post:
+      tags: [auth]
+      operationId: login
+      summary: Sign in with email and password
+      description: |
+        Throttled per (email, IP) pair, per account and per client IP, plus a
+        budget of successful logins per account. A throttled request gets 429
+        whether or not the email exists. An email that is not even a valid
+        address answers 401 `invalid_credentials`, never 422.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LoginRequest"
+      responses:
+        "200":
+          description: Signed in.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthSession"
+        "400":
+          $ref: "#/components/responses/InvalidRequest"
+        "401":
+          description: "`invalid_credentials`: unknown email or wrong password (same answer for both)."
+          headers:
+            WWW-Authenticate:
+              $ref: "#/components/headers/WWWAuthenticate"
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Error"
+                  - properties:
+                      error:
+                        const: invalid_credentials
+        "413":
+          $ref: "#/components/responses/BodyTooLarge"
+        "429":
+          $ref: "#/components/responses/TooManyAttempts"
+        "500":
+          $ref: "#/components/responses/Internal"
+        "503":
+          $ref: "#/components/responses/ServerBusy"
+
+  /auth/logout:
+    post:
+      tags: [auth]
+      operationId: logout
+      summary: Delete the caller's session
+      description: No request body. The token stops working at once.
+      security:
+        - bearerAuth: []
+      responses:
+        "204":
+          description: Session deleted.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/Internal"
+
+  /me:
+    delete:
+      tags: [account]
+      operationId: deleteMe
+      summary: Delete the caller's account
+      description: |
+        Deletes the account behind the session (never from a path or body id).
+        Memberships become left "Ex-jugador #<id>" rows so team history stays.
+        Refused with 409 `last_admin_of_teams` while the caller is the only
+        active admin (Capitán) of any team; the body lists those teams.
+      security:
+        - bearerAuth: []
+      responses:
+        "204":
+          description: Account deleted; every session is gone.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          description: "`not_found`: the account was deleted by a concurrent request between authentication and deletion."
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Error"
+                  - properties:
+                      error:
+                        const: not_found
+        "409":
+          description: "`last_admin_of_teams`: promote another admin in each listed team first."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LastAdminOfTeamsError"
+        "500":
+          $ref: "#/components/responses/Internal"
+        "503":
+          $ref: "#/components/responses/TeamBusy"
+
+  /teams:
+    post:
+      tags: [teams]
+      operationId: createTeam
+      summary: Create a team; the caller becomes its active admin
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateTeamRequest"
+      responses:
+        "201":
+          description: Team created.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Team"
+        "400":
+          $ref: "#/components/responses/InvalidRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "413":
+          $ref: "#/components/responses/BodyTooLarge"
+        "422":
+          description: |
+            - `invalid_name`: empty or over 35 characters after trimming, or contains control or invisible characters.
+            - `invalid_timezone`: not a canonical IANA zone such as `America/Tijuana`.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Error"
+                  - properties:
+                      error:
+                        enum: [invalid_name, invalid_timezone]
+        "500":
+          $ref: "#/components/responses/Internal"
+    get:
+      tags: [teams]
+      operationId: listTeams
+      summary: List the teams where the caller is an active member
+      description: Pending and left memberships do not count.
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: The caller's teams.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [teams]
+                properties:
+                  teams:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Team"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/Internal"
+
+  /teams/{id}:
+    parameters:
+      - $ref: "#/components/parameters/TeamID"
+    get:
+      tags: [teams]
+      operationId: getTeam
+      summary: Get a team
+      description: Active members only.
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: The team.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Team"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/Internal"
+    patch:
+      tags: [teams]
+      operationId: updateTeam
+      summary: Rename a team or change its timezone
+      description: |
+        Admins only. Send `name`, `timezone` or both; an absent or null field
+        keeps its value.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateTeamRequest"
+      responses:
+        "200":
+          description: The updated team.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Team"
+        "400":
+          $ref: "#/components/responses/InvalidRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "413":
+          $ref: "#/components/responses/BodyTooLarge"
+        "422":
+          description: |
+            - `nothing_to_update`: neither name nor timezone sent.
+            - `invalid_name`: empty or over 35 characters after trimming, or contains control or invisible characters.
+            - `invalid_timezone`: not a canonical IANA zone.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Error"
+                  - properties:
+                      error:
+                        enum: [nothing_to_update, invalid_name, invalid_timezone]
+        "500":
+          $ref: "#/components/responses/Internal"
+        "503":
+          $ref: "#/components/responses/TeamBusy"
+
+  /teams/{id}/invites:
+    parameters:
+      - $ref: "#/components/parameters/TeamID"
+    post:
+      tags: [invites]
+      operationId: createInvite
+      summary: Create an invite link
+      description: |
+        Admins only. No request body. The link works for 7 days. The token
+        and url are returned only here. Rate limited to 20 per user per hour;
+        the limit is checked before the admin check, so a 429 can come before
+        a 403 or 404.
+      security:
+        - bearerAuth: []
+      responses:
+        "201":
+          description: Invite created.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InviteCreated"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          description: "`too_many_invites`: the team already has 20 live invites; revoke one or wait for one to expire."
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Error"
+                  - properties:
+                      error:
+                        const: too_many_invites
+        "429":
+          $ref: "#/components/responses/TooManyAttempts"
+        "500":
+          $ref: "#/components/responses/Internal"
+        "503":
+          $ref: "#/components/responses/TeamBusy"
+
+  /teams/{id}/invites/{inviteId}:
+    parameters:
+      - $ref: "#/components/parameters/TeamID"
+      - name: inviteId
+        in: path
+        required: true
+        schema:
+          type: integer
+          format: int64
+          minimum: 1
+    delete:
+      tags: [invites]
+      operationId: revokeInvite
+      summary: Revoke an invite
+      description: |
+        Admins only. Idempotent: revoking an already revoked or expired invite
+        of the team answers 204 again.
+      security:
+        - bearerAuth: []
+      responses:
+        "204":
+          description: Invite revoked.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          description: |
+            - `not_found`: the team is unknown or hidden from the caller.
+            - `invite_not_found`: the team has no such invite (including an invite of another team, or an inviteId that is not a positive integer).
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Error"
+                  - properties:
+                      error:
+                        enum: [not_found, invite_not_found]
+        "500":
+          $ref: "#/components/responses/Internal"
+        "503":
+          $ref: "#/components/responses/TeamBusy"
+
+  /invites/accept:
+    post:
+      tags: [invites]
+      operationId: acceptInvite
+      summary: Accept an invite
+      description: |
+        Creates a pending player membership; an admin approves it later. A
+        user who left the team gets their old row back as pending. Rate
+        limited to 20 per user per 15 minutes.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AcceptInviteRequest"
+      responses:
+        "201":
+          description: Membership is now pending approval.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InviteAccepted"
+        "400":
+          $ref: "#/components/responses/InvalidRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          description: |
+            - `invite_not_found`: the token is missing, malformed or unknown.
+            - `not_found`: rare race; the caller's membership disappeared while the request ran.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Error"
+                  - properties:
+                      error:
+                        enum: [invite_not_found, not_found]
+        "409":
+          description: "`already_member`: the caller is already active or pending in the team; `status` says which."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AlreadyMemberError"
+        "410":
+          description: |
+            - `invite_expired`: the invite is past its 7 days.
+            - `invite_revoked`: an admin revoked it. Revoked is checked before expired.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Error"
+                  - properties:
+                      error:
+                        enum: [invite_expired, invite_revoked]
+        "413":
+          $ref: "#/components/responses/BodyTooLarge"
+        "429":
+          $ref: "#/components/responses/TooManyAttempts"
+        "500":
+          $ref: "#/components/responses/Internal"
+
+  /teams/{id}/members:
+    parameters:
+      - $ref: "#/components/parameters/TeamID"
+    get:
+      tags: [memberships]
+      operationId: listMembers
+      summary: List the team's roster
+      description: |
+        Active members only. Returns the active members; an admin also gets
+        the pending ones (the approval list). Left members are never listed.
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: The roster.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [members]
+                properties:
+                  members:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/RosterMember"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/Internal"
+
+  /memberships/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        description: Membership id. An unknown id answers 404, the same as a membership of a team the caller is not active in.
+        schema:
+          type: integer
+          format: int64
+          minimum: 1
+    patch:
+      tags: [memberships]
+      operationId: updateMembership
+      summary: Change a membership's role, decide a pending one, or edit the profile
+      description: |
+        Exactly one change per request (see the request body's `oneOf`):
+
+        - `role`: promote or demote. Admins only. Answers 200 with the Membership.
+        - `decision: approve`: make a pending membership an active player. Admins only. Answers 200 with the Membership.
+        - `decision: reject`: discard a pending membership. Admins only. Answers **204 with no body**.
+        - `shirt_number` and/or `position`: edit the profile. Any active member
+          can edit their own; editing someone else's is admin only. Answers 200
+          with the Membership.
+
+        Any active member of the team passes the route check; the admin check
+        runs in the use case and answers 403 `forbidden`. Body validation
+        (422) runs before that check, so a non-admin with an invalid body gets
+        422, not 403.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateMembershipRequest"
+      responses:
+        "200":
+          description: Role changed, membership approved, or profile updated.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Membership"
+        "204":
+          description: Pending membership rejected. No body.
+        "400":
+          $ref: "#/components/responses/InvalidRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          description: "`forbidden`: role, decision or another member's profile sent by a non-admin."
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Error"
+                  - properties:
+                      error:
+                        const: forbidden
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          description: |
+            - `not_active` (role, profile): the target is pending or left.
+            - `not_pending` (decision): the target is not pending.
+            - `last_admin` (role): demoting the team's only active admin. No extra fields.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Error"
+                  - properties:
+                      error:
+                        enum: [not_active, not_pending, last_admin]
+        "413":
+          $ref: "#/components/responses/BodyTooLarge"
+        "422":
+          description: |
+            - `nothing_to_update`: none of role, decision, shirt_number, position sent (a null role or decision counts as absent).
+            - `one_change_at_a_time`: more than one kind of change sent.
+            - `invalid_decision`: decision is a string other than approve or reject.
+            - `invalid_role`: role is a string other than admin or player.
+            - `invalid_shirt_number`: not an integer or null, or outside 0..99.
+            - `invalid_position`: not a string or null, or not one of the positions.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Error"
+                  - properties:
+                      error:
+                        enum:
+                          - nothing_to_update
+                          - one_change_at_a_time
+                          - invalid_decision
+                          - invalid_role
+                          - invalid_shirt_number
+                          - invalid_position
+        "500":
+          $ref: "#/components/responses/Internal"
+        "503":
+          description: "`team_busy`: the team lock stayed held too long (role, decision, or editing another member). Retry after `Retry-After` seconds."
+          headers:
+            Retry-After:
+              $ref: "#/components/headers/RetryAfter"
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Error"
+                  - properties:
+                      error:
+                        const: team_busy
+    delete:
+      tags: [memberships]
+      operationId: leaveOrRemoveMembership
+      summary: Leave the team, or remove a member
+      description: |
+        With the caller's own membership id, the caller leaves. With anyone
+        else's, it removes them, admins only. The row stays as `left` so team
+        history is kept. Only active memberships can leave or be removed; a
+        pending one is rejected with `PATCH` `decision: reject` instead.
+      security:
+        - bearerAuth: []
+      responses:
+        "204":
+          description: The membership is now left.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          description: "`forbidden`: a non-admin removing someone else."
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Error"
+                  - properties:
+                      error:
+                        const: forbidden
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          description: |
+            - `not_active`: the target is pending or left.
+            - `last_admin`: the target is the team's only active admin. No extra fields.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Error"
+                  - properties:
+                      error:
+                        enum: [not_active, last_admin]
+        "500":
+          $ref: "#/components/responses/Internal"
+        "503":
+          $ref: "#/components/responses/TeamBusy"
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      description: |
+        Opaque session token (not a JWT) from register or login, sent as
+        `Authorization: Bearer <token>`. A session unused for 60 days expires.
+        Tokens are not rotated.
+
+  parameters:
+    TeamID:
+      name: id
+      in: path
+      required: true
+      description: Team id.
+      schema:
+        type: integer
+        format: int64
+        minimum: 1
+
+  headers:
+    RetryAfter:
+      description: Seconds to wait before retrying (integer).
+      schema:
+        type: integer
+        minimum: 0
+    WWWAuthenticate:
+      description: Always `Bearer`.
+      schema:
+        type: string
+        const: Bearer
+    Allow:
+      description: Methods the path accepts, e.g. `GET, HEAD`.
+      schema:
+        type: string
+
+  responses:
+    InvalidRequest:
+      description: "`invalid_request`: the body is not valid JSON for this endpoint (including an unknown field), or the client address could not be read (rate-limited routes)."
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: "#/components/schemas/Error"
+              - properties:
+                  error:
+                    const: invalid_request
+    Unauthorized:
+      description: "`unauthorized`: missing, malformed, unknown or expired bearer token."
+      headers:
+        WWW-Authenticate:
+          $ref: "#/components/headers/WWWAuthenticate"
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: "#/components/schemas/Error"
+              - properties:
+                  error:
+                    const: unauthorized
+    Forbidden:
+      description: "`forbidden`: the caller is an active member but not an admin."
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: "#/components/schemas/Error"
+              - properties:
+                  error:
+                    const: forbidden
+    NotFound:
+      description: "`not_found`: unknown route or resource, or a team hidden from the caller (not an active member)."
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: "#/components/schemas/Error"
+              - properties:
+                  error:
+                    const: not_found
+    MethodNotAllowed:
+      description: "`method_not_allowed`: the path exists but not with this method. Applies to every path."
+      headers:
+        Allow:
+          $ref: "#/components/headers/Allow"
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: "#/components/schemas/Error"
+              - properties:
+                  error:
+                    const: method_not_allowed
+    BodyTooLarge:
+      description: "`body_too_large`: the JSON body is over 16 KiB."
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: "#/components/schemas/Error"
+              - properties:
+                  error:
+                    const: body_too_large
+    TooManyAttempts:
+      description: "`too_many_attempts`: rate limit reached."
+      headers:
+        Retry-After:
+          $ref: "#/components/headers/RetryAfter"
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: "#/components/schemas/Error"
+              - properties:
+                  error:
+                    const: too_many_attempts
+    TeamBusy:
+      description: "`team_busy`: the team lock stayed held too long; nothing changed. Retry after `Retry-After` seconds (always 1)."
+      headers:
+        Retry-After:
+          $ref: "#/components/headers/RetryAfter"
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: "#/components/schemas/Error"
+              - properties:
+                  error:
+                    const: team_busy
+    ServerBusy:
+      description: "`server_busy`: the password hasher is at capacity; nothing was done. Retry after `Retry-After` seconds (always 1)."
+      headers:
+        Retry-After:
+          $ref: "#/components/headers/RetryAfter"
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: "#/components/schemas/Error"
+              - properties:
+                  error:
+                    const: server_busy
+    Internal:
+      description: "`internal`: unexpected server error."
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: "#/components/schemas/Error"
+              - properties:
+                  error:
+                    const: internal
+
+  schemas:
+    Role:
+      type: string
+      enum: [admin, player]
+      description: Permission role. The app shows `admin` as "Capitán". The team's captain label (`captain_membership_id`) is separate and grants nothing.
+    MembershipStatus:
+      type: string
+      enum: [pending, active, left]
+    Decision:
+      type: string
+      enum: [approve, reject]
+      description: Request-only action on a pending membership. Never returned; approve stores `active`, reject removes the pending row.
+    Position:
+      type: string
+      enum: [goalkeeper, defender, midfielder, forward]
+    ShirtNumber:
+      type: integer
+      minimum: 0
+      maximum: 99
+    Timestamp:
+      type: string
+      format: date-time
+      description: Always UTC with whole seconds, e.g. "2026-10-11T23:53:00Z".
+      examples: ["2026-10-11T23:53:00Z"]
+
+    Error:
+      type: object
+      required: [error]
+      description: Body of every error response. Switch on `error`.
+      properties:
+        error:
+          $ref: "#/components/schemas/ErrorCode"
+    ErrorCode:
+      type: string
+      description: Every error code the API emits.
+      enum:
+        - invalid_request
+        - body_too_large
+        - internal
+        - not_found
+        - method_not_allowed
+        - unauthorized
+        - forbidden
+        - too_many_attempts
+        - server_busy
+        - team_busy
+        - invalid_name
+        - invalid_email
+        - password_too_short
+        - password_too_long
+        - birth_date_required
+        - invalid_birth_date
+        - birth_date_in_future
+        - underage
+        - email_taken
+        - invalid_credentials
+        - invalid_timezone
+        - nothing_to_update
+        - too_many_invites
+        - invite_not_found
+        - invite_expired
+        - invite_revoked
+        - already_member
+        - invalid_role
+        - invalid_decision
+        - invalid_shirt_number
+        - invalid_position
+        - one_change_at_a_time
+        - not_active
+        - not_pending
+        - last_admin
+        - last_admin_of_teams
+    AlreadyMemberError:
+      type: object
+      required: [error, status]
+      properties:
+        error:
+          type: string
+          const: already_member
+        status:
+          description: The caller's current status in the team (active or pending).
+          $ref: "#/components/schemas/MembershipStatus"
+    LastAdminOfTeamsError:
+      type: object
+      required: [error, teams]
+      properties:
+        error:
+          type: string
+          const: last_admin_of_teams
+        teams:
+          type: array
+          description: Teams where the caller is the only active admin.
+          items:
+            $ref: "#/components/schemas/Team"
+
+    RegisterRequest:
+      type: object
+      additionalProperties: false
+      required: [name, email, password, birth_date]
+      properties:
+        name:
+          type: string
+          description: 1 to 100 characters after trimming.
+        email:
+          type: string
+          format: email
+          description: Trimmed and lowercased; at most 254 bytes.
+        password:
+          type: string
+          minLength: 8
+          maxLength: 128
+        birth_date:
+          type: string
+          format: date
+          description: "`YYYY-MM-DD`. The user must be at least 15."
+    LoginRequest:
+      type: object
+      additionalProperties: false
+      required: [email, password]
+      properties:
+        email:
+          type: string
+        password:
+          type: string
+    AuthSession:
+      type: object
+      required: [user_id, token]
+      description: Returned by register (201) and login (200).
+      properties:
+        user_id:
+          type: integer
+          format: int64
+        token:
+          type: string
+          description: Opaque bearer token. Store it in the Keychain.
+
+    Team:
+      type: object
+      required: [id, name, timezone, captain_membership_id, created_at]
+      properties:
+        id:
+          type: integer
+          format: int64
+        name:
+          type: string
+        timezone:
+          type: string
+          description: IANA zone, e.g. `America/Tijuana`.
+        captain_membership_id:
+          type: [integer, "null"]
+          format: int64
+          description: Membership shown as captain; a label only, grants no permission. Always present, null when unset.
+        created_at:
+          $ref: "#/components/schemas/Timestamp"
+    CreateTeamRequest:
+      type: object
+      additionalProperties: false
+      required: [name, timezone]
+      properties:
+        name:
+          type: string
+          description: 1 to 35 characters after trimming; no control or invisible characters.
+        timezone:
+          type: string
+          description: Canonical IANA zone, e.g. `America/Tijuana`.
+    UpdateTeamRequest:
+      type: object
+      additionalProperties: false
+      description: At least one field. Absent or null keeps the current value.
+      properties:
+        name:
+          type: [string, "null"]
+        timezone:
+          type: [string, "null"]
+
+    InviteCreated:
+      type: object
+      required: [id, token, url, expires_at]
+      properties:
+        id:
+          type: integer
+          format: int64
+        token:
+          type: string
+          description: Returned only here; the server keeps a hash.
+        url:
+          type: string
+          format: uri
+          description: Universal Link, `<public base URL>/i/<token>`.
+        expires_at:
+          $ref: "#/components/schemas/Timestamp"
+    AcceptInviteRequest:
+      type: object
+      additionalProperties: false
+      required: [token]
+      properties:
+        token:
+          type: string
+          description: The token from the invite link. Sent in the body so it stays out of access logs.
+    InviteAccepted:
+      type: object
+      required: [team_id, team_name, status]
+      properties:
+        team_id:
+          type: integer
+          format: int64
+        team_name:
+          type: string
+        status:
+          description: Always `pending` today.
+          $ref: "#/components/schemas/MembershipStatus"
+
+    Membership:
+      type: object
+      description: Returned by PATCH /memberships/{id}.
+      required: [id, team_id, role, status, shirt_number, position]
+      properties:
+        id:
+          type: integer
+          format: int64
+        team_id:
+          type: integer
+          format: int64
+        role:
+          $ref: "#/components/schemas/Role"
+        status:
+          $ref: "#/components/schemas/MembershipStatus"
+        shirt_number:
+          description: Always present, null when unset.
+          oneOf:
+            - $ref: "#/components/schemas/ShirtNumber"
+            - type: "null"
+        position:
+          description: Always present, null when unset.
+          oneOf:
+            - $ref: "#/components/schemas/Position"
+            - type: "null"
+    RosterMember:
+      type: object
+      required: [id, name, role, status, shirt_number, position]
+      properties:
+        id:
+          type: integer
+          format: int64
+          description: Membership id.
+        name:
+          type: string
+        role:
+          $ref: "#/components/schemas/Role"
+        status:
+          description: "`active`, or `pending` (admins only see pending)."
+          $ref: "#/components/schemas/MembershipStatus"
+        shirt_number:
+          description: Always present, null when unset.
+          oneOf:
+            - $ref: "#/components/schemas/ShirtNumber"
+            - type: "null"
+        position:
+          description: Always present, null when unset.
+          oneOf:
+            - $ref: "#/components/schemas/Position"
+            - type: "null"
+
+    UpdateMembershipRequest:
+      description: Exactly one kind of change per request.
+      oneOf:
+        - $ref: "#/components/schemas/RoleChange"
+        - $ref: "#/components/schemas/DecisionChange"
+        - $ref: "#/components/schemas/ProfileChange"
+    RoleChange:
+      type: object
+      additionalProperties: false
+      required: [role]
+      properties:
+        role:
+          $ref: "#/components/schemas/Role"
+    DecisionChange:
+      type: object
+      additionalProperties: false
+      required: [decision]
+      properties:
+        decision:
+          $ref: "#/components/schemas/Decision"
+    ProfileChange:
+      type: object
+      additionalProperties: false
+      description: |
+        One or both fields. An absent field keeps its value; an explicit null
+        clears it.
+      properties:
+        shirt_number:
+          oneOf:
+            - $ref: "#/components/schemas/ShirtNumber"
+            - type: "null"
+        position:
+          oneOf:
+            - $ref: "#/components/schemas/Position"
+            - type: "null"
+      anyOf:
+        - required: [shirt_number]
+        - required: [position]

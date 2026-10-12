@@ -14,7 +14,7 @@ import (
 // authService is the slice of the auth use cases the handlers call.
 type authService interface {
 	Register(ctx context.Context, in auth.RegisterInput) (auth.Registered, error)
-	Login(ctx context.Context, email, password string) (string, error)
+	Login(ctx context.Context, email, password string) (auth.Registered, error)
 	Authenticate(ctx context.Context, token string) (auth.Auth, error)
 	Logout(ctx context.Context, sessionID int64) error
 }
@@ -110,7 +110,14 @@ func (h authHandlers) register(w http.ResponseWriter, r *http.Request) {
 		authErrors.write(w, r, "auth", err)
 		return
 	}
-	writeJSON(w, http.StatusCreated, map[string]any{"user_id": reg.UserID, "token": reg.Token})
+	writeJSON(w, http.StatusCreated, authSessionJSON{UserID: reg.UserID, Token: reg.Token})
+}
+
+// authSessionJSON is what register and login both answer, so the client
+// decodes one type for either.
+type authSessionJSON struct {
+	UserID int64  `json:"user_id"`
+	Token  string `json:"token"`
 }
 
 type loginRequest struct {
@@ -134,12 +141,14 @@ func (h authHandlers) login(w http.ResponseWriter, r *http.Request) {
 		tooManyAttempts(w, retryAfter)
 		return
 	}
-	token, err := h.svc.Login(r.Context(), req.Email, req.Password)
+	reg, err := h.svc.Login(r.Context(), req.Email, req.Password)
 	switch {
 	case err == nil:
 		attempt.succeeded()
 	case errors.Is(err, auth.ErrInvalidCredentials):
 		attempt.failed()
+		// RFC 9110 requires the challenge on every 401, not only unauthorized().
+		w.Header().Set("WWW-Authenticate", "Bearer")
 	default:
 		attempt.cancelled()
 	}
@@ -147,7 +156,7 @@ func (h authHandlers) login(w http.ResponseWriter, r *http.Request) {
 		authErrors.write(w, r, "auth", err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]string{"token": token})
+	writeJSON(w, http.StatusOK, authSessionJSON{UserID: reg.UserID, Token: reg.Token})
 }
 
 // logout deletes the caller's session. It runs behind requireAuth.
@@ -167,7 +176,7 @@ var authErrors = errorMap{
 	{auth.ErrPasswordTooShort, http.StatusUnprocessableEntity, "password_too_short"},
 	{auth.ErrPasswordTooLong, http.StatusUnprocessableEntity, "password_too_long"},
 	{domain.ErrBirthDateRequired, http.StatusUnprocessableEntity, "birth_date_required"},
-	{domain.ErrBirthDateInFuture, http.StatusUnprocessableEntity, "invalid_birth_date"},
+	{domain.ErrBirthDateInFuture, http.StatusUnprocessableEntity, "birth_date_in_future"},
 	{domain.ErrUnderage, http.StatusUnprocessableEntity, "underage"},
 	{auth.ErrEmailTaken, http.StatusConflict, "email_taken"},
 	// Same response for an unknown email and a wrong password.
