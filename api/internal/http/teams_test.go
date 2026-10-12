@@ -278,7 +278,8 @@ func TestUpdateTeam(t *testing.T) {
 // TestDissolveTeam: only the team's sole active member, an admin, dissolves
 // it (R6.8, R6.9); afterwards the team is gone from every route. The rows
 // it touches (invites, pending, history) and the lock are tested in package
-// teams; the race with an invite accept in BE-TEAM-12-T4.
+// teams; the race with an invite accept in
+// invites.TestAcceptRacingDissolveLeavesNoPending.
 func TestDissolveTeam(t *testing.T) {
 	api := newAPI(t, func() time.Time { return today })
 	_, adminToken := signUp(t, api, "admin@example.com")

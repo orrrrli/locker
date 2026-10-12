@@ -188,3 +188,51 @@ func TestDeleteMeAfterPromotingKeepsHistory(t *testing.T) {
 		t.Fatalf("former admin = user %v, %s, %s, %q, attendance %d, fees %d", userID, role, status, name, attended, fees)
 	}
 }
+
+// TestSoleMemberDissolvesThenDeletesAccount: the only member of a team cannot
+// promote anyone, so DELETE /me marks the team sole_member; after dissolving
+// it the deletion goes through and the team's history stays, anonymized
+// (R5.4, R6.8, R5.3).
+func TestSoleMemberDissolvesThenDeletesAccount(t *testing.T) {
+	api := newAPI(t, func() time.Time { return today })
+	ctx := context.Background()
+	userID, token := signUp(t, api, "solo@example.com")
+	team := createTeam(t, api, token, "Solo FC", "America/Tijuana")
+	m := membershipID(t, api, team.ID, userID)
+
+	// History: a match the member attended (no endpoints yet).
+	var match int64
+	if err := api.pool.QueryRow(ctx, `INSERT INTO match (team_id, starts_at, rival_name, location, created_by)
+		VALUES ($1, now(), 'Pumas', 'Cancha 2', $2) RETURNING id`, team.ID, m).Scan(&match); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := api.pool.Exec(ctx, `INSERT INTO attendance (match_id, membership_id) VALUES ($1, $2)`, match, m); err != nil {
+		t.Fatal(err)
+	}
+
+	rec := api.do(t, http.MethodDelete, "/me", token, nil)
+	if rec.Code != http.StatusConflict || errorCode(t, rec) != "last_admin_of_teams" {
+		t.Fatalf("before dissolving: status %d, body %s", rec.Code, rec.Body)
+	}
+	if teams := decodeBlockedTeams(t, rec); len(teams) != 1 || teams[0].ID != team.ID || !teams[0].SoleMember {
+		t.Fatalf("teams = %+v, want only %d with sole_member", teams, team.ID)
+	}
+	if rec := api.do(t, http.MethodDelete, "/teams/"+strconv.FormatInt(team.ID, 10), token, nil); rec.Code != http.StatusNoContent {
+		t.Fatalf("dissolve: status %d, body %s", rec.Code, rec.Body)
+	}
+	if rec := api.do(t, http.MethodDelete, "/me", token, nil); rec.Code != http.StatusNoContent {
+		t.Fatalf("after dissolving: status %d, body %s", rec.Code, rec.Body)
+	}
+
+	var uid *int64
+	var status, name string
+	var attended int
+	if err := api.pool.QueryRow(ctx, `SELECT m.user_id, m.status, m.display_name_override,
+		(SELECT count(*) FROM attendance WHERE membership_id = m.id)
+		FROM membership m WHERE m.id = $1`, m).Scan(&uid, &status, &name, &attended); err != nil {
+		t.Fatal(err)
+	}
+	if uid != nil || status != "left" || name != "Ex-jugador #"+strconv.FormatInt(m, 10) || attended != 1 {
+		t.Fatalf("former member = user %v, %s, %q, attendance %d", uid, status, name, attended)
+	}
+}

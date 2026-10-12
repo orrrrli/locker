@@ -298,6 +298,10 @@ func TestDissolve(t *testing.T) {
 	svc, pool := newService(t)
 	ctx := context.Background()
 	f := newDissolveFixture(t, svc, pool)
+	var dissolved bool
+	if err := pool.QueryRow(ctx, `SELECT dissolved_at IS NOT NULL FROM team WHERE id = $1`, f.teamID).Scan(&dissolved); err != nil || dissolved {
+		t.Fatalf("new team dissolved_at set = %v, err %v; want NULL", dissolved, err)
+	}
 
 	var player int64
 	if err := pool.QueryRow(ctx,
@@ -336,7 +340,6 @@ func TestDissolve(t *testing.T) {
 	if err := pool.QueryRow(ctx, `SELECT revoked_at = $2 FROM invite WHERE team_id = $1 AND token_hash = 'c'`, f.teamID, f.revokedAt).Scan(&keptFirst); err != nil || !keptFirst {
 		t.Fatalf("already revoked invite kept its first time = %v, err %v", keptFirst, err)
 	}
-	var dissolved bool
 	if err := pool.QueryRow(ctx, `SELECT dissolved_at IS NOT NULL FROM team WHERE id = $1`, f.teamID).Scan(&dissolved); err != nil || !dissolved {
 		t.Fatalf("dissolved_at set = %v, err %v", dissolved, err)
 	}
