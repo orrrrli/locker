@@ -14,6 +14,9 @@ type matchService interface {
 	Create(ctx context.Context, teamID, callerID int64, startsAt time.Time, rival, location string) (domain.Match, error)
 	List(ctx context.Context, teamID int64) ([]domain.Match, error)
 	Update(ctx context.Context, teamID, callerID, matchID int64, startsAt *time.Time, rival, location *string) (domain.Match, error)
+	Answer(ctx context.Context, caller domain.Membership, matchID int64, answer domain.RSVPAnswer) (domain.RSVP, error)
+	SaveAttendance(ctx context.Context, teamID, callerID, matchID int64, ids []int64) (matches.Attendance, error)
+	GetAttendance(ctx context.Context, teamID, matchID int64) (matches.Attendance, error)
 }
 
 // matchFinder resolves the team of a match. Routes on /matches/{id} use it.
@@ -126,12 +129,115 @@ func (h matchHandlers) update(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, toMatchJSON(m))
 }
 
+type rsvpRequest struct {
+	Answer domain.RSVPAnswer `json:"answer"`
+}
+
+type rsvpJSON struct {
+	MatchID      int64             `json:"match_id"`
+	MembershipID int64             `json:"membership_id"`
+	Answer       domain.RSVPAnswer `json:"answer"`
+	UpdatedAt    time.Time         `json:"updated_at"`
+}
+
+// rsvp runs behind requireActiveMember(teamFromMatch): any active member
+// answers for themselves (R9.3-R9.5).
+func (h matchHandlers) rsvp(w http.ResponseWriter, r *http.Request) {
+	var req rsvpRequest
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+	id, err := idFromPath(r, "id")
+	if err != nil {
+		writeError(w, http.StatusNotFound, "not_found")
+		return
+	}
+	caller, _ := membershipFrom(r.Context())
+	a, err := h.svc.Answer(r.Context(), caller, id, req.Answer)
+	if err != nil {
+		matchErrors.write(w, r, "matches", err)
+		return
+	}
+	writeJSON(w, http.StatusOK, rsvpJSON{MatchID: a.MatchID, MembershipID: a.MembershipID, Answer: a.Answer, UpdatedAt: apiTime(a.UpdatedAt)})
+}
+
+// attendanceRequest: membership_ids is required; an empty list means nobody
+// played. A pointer so an absent field differs from [].
+type attendanceRequest struct {
+	MembershipIDs *[]int64 `json:"membership_ids"`
+}
+
+type attendanceJSON struct {
+	MatchID       int64      `json:"match_id"`
+	MembershipIDs []int64    `json:"membership_ids"`
+	ClosedAt      *time.Time `json:"closed_at"`
+	Locked        bool       `json:"locked"`
+}
+
+func toAttendanceJSON(a matches.Attendance) attendanceJSON {
+	out := attendanceJSON{MatchID: a.MatchID, MembershipIDs: a.MembershipIDs, Locked: a.Locked}
+	if out.MembershipIDs == nil {
+		out.MembershipIDs = []int64{} // [], never null
+	}
+	if a.ClosedAt != nil {
+		t := apiTime(*a.ClosedAt)
+		out.ClosedAt = &t
+	}
+	return out
+}
+
+// saveAttendance runs behind requireRole(teamFromMatch): admins replace the
+// attendee list after kickoff, until a charge locks it (R10.3, R10.4).
+func (h matchHandlers) saveAttendance(w http.ResponseWriter, r *http.Request) {
+	var req attendanceRequest
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+	if req.MembershipIDs == nil {
+		writeError(w, http.StatusUnprocessableEntity, "invalid_attendees")
+		return
+	}
+	id, err := idFromPath(r, "id")
+	if err != nil {
+		writeError(w, http.StatusNotFound, "not_found")
+		return
+	}
+	caller, _ := membershipFrom(r.Context())
+	a, err := h.svc.SaveAttendance(r.Context(), caller.TeamID, caller.ID, id, *req.MembershipIDs)
+	if err != nil {
+		matchErrors.write(w, r, "matches", err)
+		return
+	}
+	writeJSON(w, http.StatusOK, toAttendanceJSON(a))
+}
+
+// getAttendance runs behind requireActiveMember(teamFromMatch).
+func (h matchHandlers) getAttendance(w http.ResponseWriter, r *http.Request) {
+	id, err := idFromPath(r, "id")
+	if err != nil {
+		writeError(w, http.StatusNotFound, "not_found")
+		return
+	}
+	caller, _ := membershipFrom(r.Context())
+	a, err := h.svc.GetAttendance(r.Context(), caller.TeamID, id)
+	if err != nil {
+		matchErrors.write(w, r, "matches", err)
+		return
+	}
+	writeJSON(w, http.StatusOK, toAttendanceJSON(a))
+}
+
 var matchErrors = errorMap{
+	{matches.ErrMatchNotStarted, http.StatusConflict, "match_not_started"},
+	{matches.ErrAttendanceLocked, http.StatusConflict, "attendance_locked"},
+	{matches.ErrInvalidAttendee, http.StatusUnprocessableEntity, "invalid_attendees"},
 	{matches.ErrInvalidStartsAt, http.StatusUnprocessableEntity, "invalid_starts_at"},
 	{matches.ErrInvalidRivalName, http.StatusUnprocessableEntity, "invalid_rival_name"},
 	{matches.ErrInvalidLocation, http.StatusUnprocessableEntity, "invalid_location"},
 	{matches.ErrNothingToUpdate, http.StatusUnprocessableEntity, "nothing_to_update"},
 	{matches.ErrAttendanceClosed, http.StatusConflict, "attendance_closed"},
+	{matches.ErrInvalidAnswer, http.StatusUnprocessableEntity, "invalid_answer"},
+	{matches.ErrMatchStarted, http.StatusConflict, "match_started"},
 	{application.ErrNotAdmin, http.StatusForbidden, "forbidden"},
 	{domain.ErrTeamBusy, http.StatusServiceUnavailable, "team_busy"},
 	{domain.ErrNotFound, http.StatusNotFound, "not_found"},

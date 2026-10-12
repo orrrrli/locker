@@ -166,6 +166,173 @@ func TestCreateMatchRejectsInvalidInput(t *testing.T) {
 	}
 }
 
+// Active members answer for themselves until kickoff; from then on 409
+// match_started and the stored answer stays (R9.3-R9.5).
+func TestRSVP(t *testing.T) {
+	now := today
+	api := newAPI(t, func() time.Time { return now })
+	_, adminToken := signUp(t, api, "admin@example.com")
+	playerID, playerToken := signUp(t, api, "player@example.com")
+	pendingID, pendingToken := signUp(t, api, "pending@example.com")
+	_, strangerToken := signUp(t, api, "stranger@example.com")
+	team := createTeam(t, api, adminToken, "Pumas", "America/Tijuana")
+	addMember(t, api, team.ID, playerID, "player", "active")
+	addMember(t, api, team.ID, pendingID, "player", "pending")
+	m := createMatch(t, api, adminToken, team.ID, matchBody)
+	path := "/matches/" + strconv.FormatInt(m.ID, 10) + "/rsvp"
+
+	rec := api.do(t, http.MethodPut, path, playerToken, map[string]string{"answer": "going"})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("PUT going: status %d, body %s", rec.Code, rec.Body)
+	}
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(rec.Body.Bytes(), &raw); err != nil {
+		t.Fatal(err)
+	}
+	if keys, want := slices.Sorted(maps.Keys(raw)), []string{"answer", "match_id", "membership_id", "updated_at"}; !slices.Equal(keys, want) {
+		t.Fatalf("rsvp keys = %v, want %v", keys, want)
+	}
+	var got rsvpJSON
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatal(err)
+	}
+	if got.MatchID != m.ID || got.Answer != "going" {
+		t.Fatalf("rsvp = %+v", got)
+	}
+	if rec := api.do(t, http.MethodPut, path, playerToken, map[string]string{"answer": "not_going"}); rec.Code != http.StatusOK {
+		t.Fatalf("PUT not_going: status %d, body %s", rec.Code, rec.Body)
+	}
+
+	for _, tc := range []struct {
+		name, token, answer string
+		status              int
+		code                string
+	}{
+		{"pending", pendingToken, "going", http.StatusNotFound, "not_found"},
+		{"stranger", strangerToken, "going", http.StatusNotFound, "not_found"},
+		{"invalid answer", playerToken, "maybe", http.StatusUnprocessableEntity, "invalid_answer"},
+		{"no token", "", "going", http.StatusUnauthorized, "unauthorized"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			rec := api.do(t, http.MethodPut, path, tc.token, map[string]string{"answer": tc.answer})
+			if rec.Code != tc.status || errorCode(t, rec) != tc.code {
+				t.Fatalf("status %d, body %s; want %d %s", rec.Code, rec.Body, tc.status, tc.code)
+			}
+		})
+	}
+	rec = api.do(t, http.MethodPut, path, playerToken, map[string]string{"answer": "going", "note": "late"})
+	if rec.Code != http.StatusBadRequest || errorCode(t, rec) != "invalid_request" {
+		t.Fatalf("unknown field: status %d, body %s; want 400 invalid_request", rec.Code, rec.Body)
+	}
+
+	// Kickoff: locked for everyone, answered or not.
+	now = m.StartsAt
+	for _, token := range []string{playerToken, adminToken} {
+		rec := api.do(t, http.MethodPut, path, token, map[string]string{"answer": "going"})
+		if rec.Code != http.StatusConflict || errorCode(t, rec) != "match_started" {
+			t.Fatalf("at kickoff: status %d, body %s; want 409 match_started", rec.Code, rec.Body)
+		}
+	}
+	var answer string
+	if err := api.pool.QueryRow(context.Background(), "SELECT answer FROM rsvp WHERE match_id = $1", m.ID).Scan(&answer); err != nil {
+		t.Fatal(err)
+	}
+	if answer != "not_going" {
+		t.Fatalf("stored answer = %s, want not_going", answer)
+	}
+}
+
+func decodeAttendance(t *testing.T, rec *httptest.ResponseRecorder) attendanceJSON {
+	t.Helper()
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(rec.Body.Bytes(), &raw); err != nil {
+		t.Fatal(err)
+	}
+	if keys, want := slices.Sorted(maps.Keys(raw)), []string{"closed_at", "locked", "match_id", "membership_ids"}; !slices.Equal(keys, want) {
+		t.Fatalf("attendance keys = %v, want %v", keys, want)
+	}
+	if string(raw["membership_ids"])[0] != '[' {
+		t.Fatalf("membership_ids = %s, want a JSON array", raw["membership_ids"])
+	}
+	var a attendanceJSON
+	if err := json.Unmarshal(rec.Body.Bytes(), &a); err != nil {
+		t.Fatal(err)
+	}
+	return a
+}
+
+// Admins replace the attendee list after kickoff; every active member reads
+// it with the locked flag; a charge locks it (R10.3, R10.4).
+func TestAttendance(t *testing.T) {
+	now := today
+	api := newAPI(t, func() time.Time { return now })
+	adminID, adminToken := signUp(t, api, "admin@example.com")
+	playerID, playerToken := signUp(t, api, "player@example.com")
+	pendingID, _ := signUp(t, api, "pending@example.com")
+	_, strangerToken := signUp(t, api, "stranger@example.com")
+	team := createTeam(t, api, adminToken, "Pumas", "America/Tijuana")
+	addMember(t, api, team.ID, playerID, "player", "active")
+	addMember(t, api, team.ID, pendingID, "player", "pending")
+	admin, player, pending := membershipID(t, api, team.ID, adminID), membershipID(t, api, team.ID, playerID), membershipID(t, api, team.ID, pendingID)
+	m := createMatch(t, api, adminToken, team.ID, matchBody)
+	path := "/matches/" + strconv.FormatInt(m.ID, 10) + "/attendance"
+
+	rec := api.do(t, http.MethodGet, path, playerToken, nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET before kickoff: status %d, body %s", rec.Code, rec.Body)
+	}
+	if a := decodeAttendance(t, rec); a.MatchID != m.ID || len(a.MembershipIDs) != 0 || a.ClosedAt != nil || a.Locked {
+		t.Fatalf("attendance = %+v, want empty and open", a)
+	}
+	if rec := api.do(t, http.MethodPut, path, adminToken, map[string][]int64{"membership_ids": {player}}); rec.Code != http.StatusConflict || errorCode(t, rec) != "match_not_started" {
+		t.Fatalf("PUT before kickoff: status %d, body %s; want 409 match_not_started", rec.Code, rec.Body)
+	}
+
+	now = m.StartsAt.Add(10 * time.Minute)
+	for _, tc := range []struct {
+		name, token string
+		body        any
+		status      int
+		code        string
+	}{
+		{"player", playerToken, map[string][]int64{"membership_ids": {player}}, http.StatusForbidden, "forbidden"},
+		{"stranger", strangerToken, map[string][]int64{"membership_ids": {player}}, http.StatusNotFound, "not_found"},
+		{"no membership_ids", adminToken, map[string]string{}, http.StatusUnprocessableEntity, "invalid_attendees"},
+		{"pending attendee", adminToken, map[string][]int64{"membership_ids": {player, pending}}, http.StatusUnprocessableEntity, "invalid_attendees"},
+		{"not a list", adminToken, map[string]string{"membership_ids": "1"}, http.StatusBadRequest, "invalid_request"},
+		{"unknown field", adminToken, map[string]any{"membership_ids": []int64{player}, "note": "x"}, http.StatusBadRequest, "invalid_request"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			rec := api.do(t, http.MethodPut, path, tc.token, tc.body)
+			if rec.Code != tc.status || errorCode(t, rec) != tc.code {
+				t.Fatalf("status %d, body %s; want %d %s", rec.Code, rec.Body, tc.status, tc.code)
+			}
+		})
+	}
+
+	rec = api.do(t, http.MethodPut, path, adminToken, map[string][]int64{"membership_ids": {player, admin}})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("PUT: status %d, body %s", rec.Code, rec.Body)
+	}
+	a := decodeAttendance(t, rec)
+	if !slices.Equal(a.MembershipIDs, []int64{admin, player}) || a.ClosedAt == nil || !a.ClosedAt.Equal(now) || a.Locked {
+		t.Fatalf("attendance = %+v", a)
+	}
+
+	if _, err := api.pool.Exec(context.Background(),
+		`INSERT INTO charge (team_id, concept, amount_cents, match_id, created_by) VALUES ($1, 'Arbitraje', 5000, $2, $3)`,
+		team.ID, m.ID, admin); err != nil {
+		t.Fatal(err)
+	}
+	if rec := api.do(t, http.MethodPut, path, adminToken, map[string][]int64{"membership_ids": {player}}); rec.Code != http.StatusConflict || errorCode(t, rec) != "attendance_locked" {
+		t.Fatalf("PUT with a charge: status %d, body %s; want 409 attendance_locked", rec.Code, rec.Body)
+	}
+	rec = api.do(t, http.MethodGet, path, playerToken, nil)
+	if a := decodeAttendance(t, rec); rec.Code != http.StatusOK || !a.Locked || !slices.Equal(a.MembershipIDs, []int64{admin, player}) {
+		t.Fatalf("GET with a charge: status %d, body %s; want locked and unchanged", rec.Code, rec.Body)
+	}
+}
+
 func TestUpdateMatch(t *testing.T) {
 	api := newAPI(t, func() time.Time { return today })
 	_, adminToken := signUp(t, api, "admin@example.com")

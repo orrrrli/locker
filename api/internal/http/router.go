@@ -81,7 +81,11 @@ func NewRouter(d Deps) http.Handler {
 	mt := matchHandlers{svc: d.Matches}
 	mux.Handle("POST /teams/{id}/matches", a.requireAuth(z.requireRole(team, domain.RoleAdmin, http.HandlerFunc(mt.create))))
 	mux.Handle("GET /teams/{id}/matches", a.requireAuth(z.requireActiveMember(team, http.HandlerFunc(mt.list))))
-	mux.Handle("PATCH /matches/{id}", a.requireAuth(z.requireRole(teamFromMatch("id", d.MatchFinder), domain.RoleAdmin, http.HandlerFunc(mt.update))))
+	match := teamFromMatch("id", d.MatchFinder)
+	mux.Handle("PATCH /matches/{id}", a.requireAuth(z.requireRole(match, domain.RoleAdmin, http.HandlerFunc(mt.update))))
+	mux.Handle("PUT /matches/{id}/rsvp", a.requireAuth(z.requireActiveMember(match, http.HandlerFunc(mt.rsvp))))
+	mux.Handle("PUT /matches/{id}/attendance", a.requireAuth(z.requireRole(match, domain.RoleAdmin, http.HandlerFunc(mt.saveAttendance))))
+	mux.Handle("GET /matches/{id}/attendance", a.requireAuth(z.requireActiveMember(match, http.HandlerFunc(mt.getAttendance))))
 	return jsonMisses(mux)
 }
 

@@ -974,6 +974,150 @@ paths:
         "503":
           $ref: "#/components/responses/TeamBusy"
 
+  /matches/{id}/rsvp:
+    parameters:
+      - $ref: "#/components/parameters/MatchID"
+    put:
+      tags: [matches]
+      operationId: answerRSVP
+      summary: Answer going or not going to a match
+      description: |
+        Any active member of the match's team, for themselves. A new answer
+        replaces the old one until kickoff; from `starts_at` on the answer is
+        locked (R9.3-R9.5).
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RSVPRequest"
+      responses:
+        "200":
+          description: The stored answer.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RSVP"
+        "400":
+          $ref: "#/components/responses/InvalidRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          description: "`match_started`: `starts_at` is now or in the past; the answer did not change."
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Error"
+                  - properties:
+                      error:
+                        const: match_started
+        "413":
+          $ref: "#/components/responses/BodyTooLarge"
+        "422":
+          description: "`invalid_answer`: not `going` or `not_going`."
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Error"
+                  - properties:
+                      error:
+                        const: invalid_answer
+        "500":
+          $ref: "#/components/responses/Internal"
+
+  /matches/{id}/attendance:
+    parameters:
+      - $ref: "#/components/parameters/MatchID"
+    get:
+      tags: [matches]
+      operationId: getAttendance
+      summary: The match's real attendee list
+      description: |
+        Active members only. Attendance saves itself from the going answers of
+        current active members one hour after kickoff; `closed_at` is null
+        until then. `locked` is true
+        once a charge targets the match: the list can no longer change (R10).
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: The attendee list.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Attendance"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/Internal"
+    put:
+      tags: [matches]
+      operationId: saveAttendance
+      summary: Replace the match's attendee list
+      description: |
+        Admins only, after kickoff. Replaces the whole list and closes the
+        attendance, so the automatic save skips the match. An empty list means
+        nobody played. Rejected once a charge targets the match.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AttendanceRequest"
+      responses:
+        "200":
+          description: The stored list.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Attendance"
+        "400":
+          $ref: "#/components/responses/InvalidRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          description: |
+            - `match_not_started`: `starts_at` is still in the future.
+            - `attendance_locked`: a charge targets this match; the list did not change.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Error"
+                  - properties:
+                      error:
+                        enum: [match_not_started, attendance_locked]
+        "413":
+          $ref: "#/components/responses/BodyTooLarge"
+        "422":
+          description: "`invalid_attendees`: `membership_ids` is missing or null, or an id is not a membership of the team, or never joined it."
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Error"
+                  - properties:
+                      error:
+                        const: invalid_attendees
+        "500":
+          $ref: "#/components/responses/Internal"
+        "503":
+          $ref: "#/components/responses/TeamBusy"
+
 components:
   securitySchemes:
     bearerAuth:
@@ -1214,6 +1358,11 @@ components:
         - invalid_rival_name
         - invalid_location
         - attendance_closed
+        - invalid_answer
+        - match_started
+        - match_not_started
+        - attendance_locked
+        - invalid_attendees
     AlreadyMemberError:
       type: object
       required: [error, status]
@@ -1366,6 +1515,63 @@ components:
           type: [string, "null"]
         location:
           type: [string, "null"]
+    RSVPAnswer:
+      type: string
+      enum: [going, not_going]
+    RSVPRequest:
+      type: object
+      additionalProperties: false
+      required: [answer]
+      properties:
+        answer:
+          $ref: "#/components/schemas/RSVPAnswer"
+    RSVP:
+      type: object
+      required: [match_id, membership_id, answer, updated_at]
+      properties:
+        match_id:
+          type: integer
+          format: int64
+        membership_id:
+          type: integer
+          format: int64
+          description: The caller's membership.
+        answer:
+          $ref: "#/components/schemas/RSVPAnswer"
+        updated_at:
+          $ref: "#/components/schemas/Timestamp"
+    AttendanceRequest:
+      type: object
+      additionalProperties: false
+      required: [membership_ids]
+      properties:
+        membership_ids:
+          type: array
+          description: Memberships that joined the team at some point (active, left, or pending again after leaving); one that never joined is rejected. Duplicates are folded. Empty means nobody played.
+          items:
+            type: integer
+            format: int64
+    Attendance:
+      type: object
+      required: [match_id, membership_ids, closed_at, locked]
+      properties:
+        match_id:
+          type: integer
+          format: int64
+        membership_ids:
+          type: array
+          description: Always an array, ascending; `[]` when nobody is listed.
+          items:
+            type: integer
+            format: int64
+        closed_at:
+          description: When the list was first saved (automatic or by an admin); null while open.
+          oneOf:
+            - $ref: "#/components/schemas/Timestamp"
+            - type: "null"
+        locked:
+          type: boolean
+          description: True once a charge targets the match; PUT then answers 409.
 
     InviteCreated:
       type: object
