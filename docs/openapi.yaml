@@ -967,8 +967,9 @@ paths:
       operationId: getAttendance
       summary: The match's real attendee list
       description: |
-        Active members only. Attendance saves itself from the going answers one
-        hour after kickoff; `closed_at` is null until then. `locked` is true
+        Active members only. Attendance saves itself from the going answers of
+        current active members one hour after kickoff; `closed_at` is null
+        until then. `locked` is true
         once a charge targets the match: the list can no longer change (R10).
       security:
         - bearerAuth: []
@@ -1031,7 +1032,7 @@ paths:
         "413":
           $ref: "#/components/responses/BodyTooLarge"
         "422":
-          description: "`invalid_attendees`: `membership_ids` is missing, or an id is not a membership of the team, or is still pending."
+          description: "`invalid_attendees`: `membership_ids` is missing or null, or an id is not a membership of the team, or never joined it."
           content:
             application/json:
               schema:
@@ -1463,7 +1464,7 @@ components:
       properties:
         membership_ids:
           type: array
-          description: Memberships of the team that played (active or left, never pending). Duplicates are folded. Empty means nobody played.
+          description: Memberships that joined the team at some point (active, left, or pending again after leaving); one that never joined is rejected. Duplicates are folded. Empty means nobody played.
           items:
             type: integer
             format: int64

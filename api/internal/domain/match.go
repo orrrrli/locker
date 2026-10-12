@@ -28,16 +28,10 @@ func (a RSVPAnswer) Valid() bool {
 }
 
 // RSVP is an intention. Attendance, not RSVP, feeds attendance-based
-// features (R10.3).
+// features (R10.5).
 type RSVP struct {
 	MatchID      int64
 	MembershipID int64
 	Answer       RSVPAnswer
 	UpdatedAt    time.Time
-}
-
-// Attendance records that a membership really played a match (R10.2).
-type Attendance struct {
-	MatchID      int64
-	MembershipID int64
 }
