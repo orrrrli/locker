@@ -493,6 +493,32 @@ func TestDeleteMembership(t *testing.T) {
 	}
 }
 
+// TestAdminCannotDemoteOrRemoveAnotherAdmin: with two active admins, neither
+// can demote or remove the other (R6.12); nothing changes.
+func TestAdminCannotDemoteOrRemoveAnotherAdmin(t *testing.T) {
+	api := newAPI(t, func() time.Time { return today })
+	_, adminToken := signUp(t, api, "admin@example.com")
+	coID, _ := signUp(t, api, "co@example.com")
+	team := createTeam(t, api, adminToken, "Halcones", "America/Tijuana")
+	addMember(t, api, team.ID, coID, "admin", "active")
+	co := "/memberships/" + strconv.FormatInt(membershipID(t, api, team.ID, coID), 10)
+
+	if rec := api.do(t, http.MethodPatch, co, adminToken, map[string]string{"role": "player"}); rec.Code != http.StatusForbidden || errorCode(t, rec) != "target_is_admin" {
+		t.Fatalf("demote: status %d, body %s", rec.Code, rec.Body)
+	}
+	if rec := api.do(t, http.MethodDelete, co, adminToken, nil); rec.Code != http.StatusForbidden || errorCode(t, rec) != "target_is_admin" {
+		t.Fatalf("remove: status %d, body %s", rec.Code, rec.Body)
+	}
+	var role, status string
+	if err := api.pool.QueryRow(context.Background(), `SELECT role, status FROM membership WHERE team_id = $1 AND user_id = $2`,
+		team.ID, coID).Scan(&role, &status); err != nil {
+		t.Fatal(err)
+	}
+	if role != "admin" || status != "active" {
+		t.Fatalf("other admin: role %q, status %q; want admin, active", role, status)
+	}
+}
+
 // TestRejoinReactivatesTheSameMembership: a member who left comes back
 // through an invite and the admin's approval, on the same row, with their
 // number and first join date (R8.4).

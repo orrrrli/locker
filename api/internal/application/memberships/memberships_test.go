@@ -121,6 +121,8 @@ func TestChangeRoleRejects(t *testing.T) {
 	pending := f.member(t, team, domain.RolePlayer, domain.MembershipPending)
 	left := f.member(t, team, domain.RoleAdmin, domain.MembershipLeft)
 	elsewhere := f.member(t, other, domain.RolePlayer, domain.MembershipActive)
+	coAdmin := f.member(t, team, domain.RoleAdmin, domain.MembershipActive)
+	pendingAdmin := f.member(t, team, domain.RoleAdmin, domain.MembershipPending)
 
 	for _, tc := range []struct {
 		name   string
@@ -133,6 +135,10 @@ func TestChangeRoleRejects(t *testing.T) {
 		{"invalid role", team, admin, pending, "owner", memberships.ErrInvalidRole},
 		{"pending membership", team, admin, pending, domain.RoleAdmin, memberships.ErrNotActive},
 		{"left membership", team, admin, left, domain.RolePlayer, memberships.ErrNotActive},
+		// R6.12: an admin steps down only by themselves.
+		{"demote another admin", team, admin, coAdmin, domain.RolePlayer, memberships.ErrTargetIsAdmin},
+		// A pending or left admin row is not active: not_active answers first.
+		{"pending admin membership", team, admin, pendingAdmin, domain.RolePlayer, memberships.ErrNotActive},
 		{"membership of another team", team, admin, elsewhere, domain.RoleAdmin, domain.ErrNotFound},
 		{"unknown membership", team, admin, 999999, domain.RoleAdmin, domain.ErrNotFound},
 		{"unknown team", 999999, admin, elsewhere, domain.RoleAdmin, domain.ErrNotFound},
@@ -151,6 +157,9 @@ func TestChangeRoleRejects(t *testing.T) {
 	}
 	if got := f.role(t, elsewhere); got != domain.RolePlayer {
 		t.Fatalf("other team's membership role = %s, want player", got)
+	}
+	if got := f.role(t, coAdmin); got != domain.RoleAdmin {
+		t.Fatalf("other admin's role = %s, want admin", got)
 	}
 }
 
@@ -601,6 +610,9 @@ func TestLeaveRejects(t *testing.T) {
 	pending := f.member(t, team, domain.RolePlayer, domain.MembershipPending)
 	left := f.member(t, team, domain.RolePlayer, domain.MembershipLeft)
 	elsewhere := f.member(t, f.team(t), domain.RolePlayer, domain.MembershipActive)
+	coAdmin := f.member(t, team, domain.RoleAdmin, domain.MembershipActive)
+	pendingAdmin := f.member(t, team, domain.RoleAdmin, domain.MembershipPending)
+	leftAdmin := f.member(t, team, domain.RoleAdmin, domain.MembershipLeft)
 
 	for _, tc := range []struct {
 		name           string
@@ -611,6 +623,11 @@ func TestLeaveRejects(t *testing.T) {
 		{"pending target", admin, pending, memberships.ErrNotActive},
 		{"left target", admin, left, memberships.ErrNotActive},
 		{"other team's membership", admin, elsewhere, domain.ErrNotFound},
+		// R6.12: an admin removes only players.
+		{"admin removes another admin", admin, coAdmin, memberships.ErrTargetIsAdmin},
+		// A pending or left admin row is not active: not_active answers first.
+		{"pending admin target", admin, pendingAdmin, memberships.ErrNotActive},
+		{"left admin target", admin, leftAdmin, memberships.ErrNotActive},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			if err := f.svc.Leave(ctx, team, tc.caller, tc.target); !errors.Is(err, tc.want) {
@@ -618,7 +635,7 @@ func TestLeaveRejects(t *testing.T) {
 			}
 		})
 	}
-	for _, id := range []int64{other, elsewhere} {
+	for _, id := range []int64{other, elsewhere, coAdmin} {
 		if s, _ := f.status(t, id); s != domain.MembershipActive {
 			t.Fatalf("membership %d: status %q, want active", id, s)
 		}
