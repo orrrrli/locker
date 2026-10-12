@@ -266,8 +266,10 @@ const (
 	inviteCreateWindow     = time.Hour
 	inviteAcceptMaxPerUser = 20
 	inviteAcceptWindow     = 15 * time.Minute
-	// NFR 10. The window starts at the user's first new request, not at
-	// midnight: no timezone to pick, and still at most 10 in any day.
+	// NFR 10. A fixed window that starts at the user's first new request, not
+	// at midnight, so there is no timezone to pick. Fixed, not sliding: up to
+	// 10 at the end of one window and 10 at the start of the next can land
+	// within a few minutes, so any 24 hours can hold up to 20.
 	joinRequestMaxPerUser = 10
 	joinRequestWindow     = 24 * time.Hour
 )

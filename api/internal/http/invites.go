@@ -71,16 +71,29 @@ func (h inviteHandlers) accept(w http.ResponseWriter, r *http.Request) {
 	}
 	userID, _ := userIDFrom(r.Context())
 	acc, err := h.svc.Accept(r.Context(), userID, req.Token)
-	var already *invites.AlreadyMemberError
-	if errors.As(err, &already) {
-		writeJSON(w, http.StatusConflict, map[string]string{"error": "already_member", "status": string(already.Status)})
+	if writeAlreadyMember(w, err) {
 		return
 	}
 	if err != nil {
 		inviteErrors.write(w, r, "invites", err)
 		return
 	}
-	writeJSON(w, http.StatusCreated, map[string]any{
+	writeAccepted(w, http.StatusCreated, acc)
+}
+
+// writeAlreadyMember answers an AlreadyMemberError with 409 and the caller's
+// status, and reports whether err was one.
+func writeAlreadyMember(w http.ResponseWriter, err error) bool {
+	var already *invites.AlreadyMemberError
+	if !errors.As(err, &already) {
+		return false
+	}
+	writeJSON(w, http.StatusConflict, map[string]string{"error": "already_member", "status": string(already.Status)})
+	return true
+}
+
+func writeAccepted(w http.ResponseWriter, status int, acc invites.Accepted) {
+	writeJSON(w, status, map[string]any{
 		"team_id":   acc.TeamID,
 		"team_name": acc.TeamName,
 		"status":    acc.Status,
@@ -95,9 +108,10 @@ func (h inviteHandlers) accept(w http.ResponseWriter, r *http.Request) {
 //
 // Only a new request counts against the daily limit (NFR 10). Like register,
 // it reserves a slot up front, so parallel requests cannot all pass, and
-// returns it unless a membership became pending: asking again while pending,
-// an active member or a dissolved team cost nothing. A user at the limit gets
-// 429 even for a request that would cost nothing.
+// returns it only on an outcome known to have written nothing: asking again
+// while pending, an active member, or an unknown or dissolved team. Any other
+// error keeps it, since the write may have committed. A user at the limit
+// gets 429 even for a request that would cost nothing.
 func (h inviteHandlers) requestToJoin(w http.ResponseWriter, r *http.Request) {
 	teamID, err := idFromPath(r, "id")
 	if err != nil {
@@ -114,13 +128,12 @@ func (h inviteHandlers) requestToJoin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	userID, _ := userIDFrom(r.Context())
-	acc, created, err := h.svc.RequestToJoin(r.Context(), teamID, userID)
-	if !created {
+	acc, isNew, err := h.svc.RequestToJoin(r.Context(), teamID, userID)
+	var already *invites.AlreadyMemberError
+	if (err == nil && !isNew) || errors.As(err, &already) || errors.Is(err, domain.ErrNotFound) {
 		h.joins.undo(key)
 	}
-	var already *invites.AlreadyMemberError
-	if errors.As(err, &already) {
-		writeJSON(w, http.StatusConflict, map[string]string{"error": "already_member", "status": string(already.Status)})
+	if writeAlreadyMember(w, err) {
 		return
 	}
 	if err != nil {
@@ -128,14 +141,10 @@ func (h inviteHandlers) requestToJoin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	status := http.StatusOK
-	if created {
+	if isNew {
 		status = http.StatusCreated
 	}
-	writeJSON(w, status, map[string]any{
-		"team_id":   acc.TeamID,
-		"team_name": acc.TeamName,
-		"status":    acc.Status,
-	})
+	writeAccepted(w, status, acc)
 }
 
 type joinRequestJSON struct {

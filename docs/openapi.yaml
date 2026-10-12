@@ -652,10 +652,12 @@ paths:
         back as pending. Asking again while pending changes nothing and
         answers 200. No request body.
 
-        Rate limited to 10 new requests per user per 24 hours (NFR 10). Only a
-        201 counts: a 200, 404 or 409 is free. At the limit every call answers
-        429, even one that would be free. The count lives in memory and resets
-        when the API restarts.
+        Rate limited to 10 new requests per user per window (NFR 10). The
+        window is fixed: it lasts 24 hours from the user's first new request,
+        then a new one starts, so up to 20 can land close together across the
+        boundary. Only a 201 counts: a 200, 404 or 409 is free. At the limit
+        every call answers 429, even one that would be free. The count lives
+        in memory and resets when the API restarts.
       security:
         - bearerAuth: []
       responses:

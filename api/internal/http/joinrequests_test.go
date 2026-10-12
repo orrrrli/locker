@@ -3,6 +3,7 @@ package http
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strconv"
@@ -68,31 +69,45 @@ func TestRequestToJoinDissolvedTeamIsNotFound(t *testing.T) {
 	}
 }
 
-// fakeJoins answers every join request with created and err.
+// fakeJoins answers every join request with isNew and err.
 type fakeJoins struct {
 	fakeInvites
-	created bool
-	err     error
+	isNew bool
+	err   error
 }
 
 func (f *fakeJoins) RequestToJoin(context.Context, int64, int64) (invites.Accepted, bool, error) {
-	return invites.Accepted{Status: domain.MembershipPending}, f.created, f.err
+	return invites.Accepted{Status: domain.MembershipPending}, f.isNew, f.err
 }
 
-// Only a request that leaves a new pending membership counts against the
-// daily limit (NFR 10); asking again while pending, an active member and a
-// dissolved team are free.
+// joinLimitTest is a router with the production limits on a fake clock, a
+// fake join use case, and a caller that can be switched.
+type joinLimitTest struct {
+	clk  *clock
+	svc  *fakeJoins
+	auth *fakeAuth
+	h    http.Handler
+}
+
+func newJoinLimitTest() joinLimitTest {
+	lt := joinLimitTest{clk: &clock{t: today}, svc: &fakeJoins{}, auth: &fakeAuth{user: userID}}
+	lt.h = NewRouter(Deps{Auth: lt.auth, Invites: lt.svc, Limits: NewLimits(lt.clk.now)})
+	return lt
+}
+
+func (lt joinLimitTest) join() *httptest.ResponseRecorder {
+	req := httptest.NewRequest(http.MethodPost, joinPath(teamID), nil)
+	req.Header.Set("Authorization", "Bearer x")
+	rec := httptest.NewRecorder()
+	lt.h.ServeHTTP(rec, req)
+	return rec
+}
+
+// NFR 10, pinned: 10 new requests per user, in a window of 24 hours from the
+// first, keyed by the signed-in user. Asking again while pending, an active
+// member and an unknown or dissolved team are free.
 func TestJoinRequestsAreLimitedPerUser(t *testing.T) {
-	clk := &clock{t: today}
-	svc := &fakeJoins{}
-	h := NewRouter(Deps{Auth: &fakeAuth{user: userID}, Invites: svc, Limits: NewLimits(clk.now)})
-	join := func() int {
-		req := httptest.NewRequest(http.MethodPost, joinPath(teamID), nil)
-		req.Header.Set("Authorization", "Bearer x")
-		rec := httptest.NewRecorder()
-		h.ServeHTTP(rec, req)
-		return rec.Code
-	}
+	lt := newJoinLimitTest()
 	for _, free := range []struct {
 		name string
 		err  error
@@ -102,25 +117,53 @@ func TestJoinRequestsAreLimitedPerUser(t *testing.T) {
 		{"active member", &invites.AlreadyMemberError{Status: domain.MembershipActive}, http.StatusConflict},
 		{"dissolved team", domain.ErrNotFound, http.StatusNotFound},
 	} {
-		svc.created, svc.err = false, free.err
-		for i := 0; i < 2*joinRequestMaxPerUser; i++ {
-			if code := join(); code != free.want {
+		lt.svc.isNew, lt.svc.err = false, free.err
+		for i := 0; i < 20; i++ {
+			if code := lt.join().Code; code != free.want {
 				t.Fatalf("%s call %d = %d, want %d", free.name, i+1, code, free.want)
 			}
 		}
 	}
-	svc.created, svc.err = true, nil
-	for i := 0; i < joinRequestMaxPerUser; i++ {
-		if code := join(); code != http.StatusCreated {
+	lt.svc.isNew, lt.svc.err = true, nil
+	for i := 0; i < 10; i++ {
+		if code := lt.join().Code; code != http.StatusCreated {
 			t.Fatalf("new request %d = %d, want 201", i+1, code)
 		}
 	}
-	if code := join(); code != http.StatusTooManyRequests {
-		t.Fatalf("request past the limit = %d, want 429", code)
+	rec := lt.join()
+	if rec.Code != http.StatusTooManyRequests || rec.Header().Get("Retry-After") != "86400" {
+		t.Fatalf("11th request = %d, Retry-After %q; want 429 and 86400", rec.Code, rec.Header().Get("Retry-After"))
 	}
-	clk.advance(joinRequestWindow)
-	if code := join(); code != http.StatusCreated {
-		t.Fatalf("after the window = %d, want 201", code)
+
+	// The key is the user: someone else still has their 10.
+	lt.auth.user = userID + 1
+	if code := lt.join().Code; code != http.StatusCreated {
+		t.Fatalf("another user = %d, want 201", code)
+	}
+	lt.auth.user = userID
+
+	lt.clk.advance(24*time.Hour - time.Second)
+	if code := lt.join().Code; code != http.StatusTooManyRequests {
+		t.Fatalf("a second before the window ends = %d, want 429", code)
+	}
+	lt.clk.advance(time.Second)
+	if code := lt.join().Code; code != http.StatusCreated {
+		t.Fatalf("after 24 hours = %d, want 201", code)
+	}
+}
+
+// A request that fails for an unknown reason keeps its slot: its write may
+// have committed (a lost connection, a cancelled request).
+func TestJoinRequestKeepsTheSlotOnUnknownErrors(t *testing.T) {
+	lt := newJoinLimitTest()
+	lt.svc.err = errors.New("db down")
+	for i := 0; i < 10; i++ {
+		if code := lt.join().Code; code != http.StatusInternalServerError {
+			t.Fatalf("call %d = %d, want 500", i+1, code)
+		}
+	}
+	if code := lt.join().Code; code != http.StatusTooManyRequests {
+		t.Fatalf("after 10 failed requests = %d, want 429", code)
 	}
 }
 

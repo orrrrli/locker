@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/orrrrli/locker/api/internal/application/invites"
 	"github.com/orrrrli/locker/api/internal/application/teams"
@@ -66,7 +67,8 @@ type probedMembers struct {
 }
 
 func (p probedMembers) TeamForJoin(ctx context.Context, teamID int64) (string, bool, error) {
-	p.locked["read"] = testdb.TeamLocked(p.t, p.f.pool, teamID)
+	// The first read runs without the lock; the one that counts is under it.
+	p.locked["read"] = p.locked["read"] || testdb.TeamLocked(p.t, p.f.pool, teamID)
 	return p.Memberships.TeamForJoin(ctx, teamID)
 }
 
@@ -76,8 +78,9 @@ func (p probedMembers) CreateMembership(ctx context.Context, teamID, userID int6
 }
 
 // TestRequestToJoinRunsUnderTheTeamLock: the dissolve holds the team lock
-// until commit, so reading dissolved_at and writing under the same lock
-// leaves no window for a dissolve to miss the new pending row (R6.8, R6.10).
+// until commit, so a request that writes reads dissolved_at again and writes
+// under the same lock, which leaves no window for a dissolve to miss the new
+// pending row (R6.8, R6.10).
 func TestRequestToJoinRunsUnderTheTeamLock(t *testing.T) {
 	f := setup(t)
 	locked := map[string]bool{}
@@ -89,5 +92,44 @@ func TestRequestToJoinRunsUnderTheTeamLock(t *testing.T) {
 		if !locked[op] {
 			t.Errorf("%s ran without the team lock", op)
 		}
+	}
+}
+
+// TestRequestToJoinAnswersWithoutWritingSkipTheLock: while another
+// transaction holds the team lock, a pending or active caller still gets an
+// answer at once, so looping on those answers queues nothing behind the lock.
+// A request that writes does wait, which shows the lock is really held.
+func TestRequestToJoinAnswersWithoutWritingSkipTheLock(t *testing.T) {
+	f := setup(t)
+	ctx := context.Background()
+	pending := newUser(t, f.pool, "pending@example.com")
+	if _, err := f.members.CreateMembership(ctx, f.teamID, pending, domain.RolePlayer, domain.MembershipPending); err != nil {
+		t.Fatal(err)
+	}
+	tx, err := f.pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	if _, err := tx.Exec(ctx, `SELECT 1 FROM team WHERE id = $1 FOR NO KEY UPDATE`, f.teamID); err != nil {
+		t.Fatal(err)
+	}
+	soon := func() (context.Context, context.CancelFunc) { return context.WithTimeout(ctx, 500*time.Millisecond) }
+
+	c, cancel := soon()
+	defer cancel()
+	if _, isNew, err := f.svc.RequestToJoin(c, f.teamID, pending); err != nil || isNew {
+		t.Fatalf("pending: isNew %v, err %v; want an answer without the lock", isNew, err)
+	}
+	c, cancel = soon()
+	defer cancel()
+	var already *invites.AlreadyMemberError
+	if _, _, err := f.svc.RequestToJoin(c, f.teamID, f.admin); !errors.As(err, &already) || already.Status != domain.MembershipActive {
+		t.Fatalf("active: err = %v, want already member (active) without the lock", err)
+	}
+	c, cancel = soon()
+	defer cancel()
+	if _, _, err := f.svc.RequestToJoin(c, f.teamID, newUser(t, f.pool, "new@example.com")); err == nil {
+		t.Fatal("a new request did not wait for the team lock")
 	}
 }
