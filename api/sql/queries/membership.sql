@@ -119,3 +119,13 @@ WHERE team_id = $1 AND status = 'pending' AND joined_at IS NULL;
 UPDATE membership
 SET status = 'left'
 WHERE team_id = $1 AND status = 'pending' AND joined_at IS NOT NULL;
+
+-- name: ListPendingMembershipsOfUser :many
+-- The user's pending memberships, from a join request or an invite, for the
+-- pending section of "Mis equipos" (R24.5). Newest first. created_at is when
+-- the row was made: a member who left and asked again keeps the old date.
+SELECT m.id, m.team_id, t.name AS team_name, m.created_at
+FROM membership m
+JOIN team t ON t.id = m.team_id
+WHERE m.user_id = $1 AND m.status = 'pending'
+ORDER BY m.created_at DESC, m.id DESC;

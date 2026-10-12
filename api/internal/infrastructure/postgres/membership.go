@@ -203,6 +203,20 @@ func (r *Memberships) RejoinMembership(ctx context.Context, id int64) error {
 	return nil
 }
 
+// PendingOfUser lists the user's pending memberships with their team's name,
+// newest first.
+func (r *Memberships) PendingOfUser(ctx context.Context, userID int64) ([]domain.PendingMembership, error) {
+	rows, err := sqlcdb.New(Conn(ctx, r.pool)).ListPendingMembershipsOfUser(ctx, pgtype.Int8{Int64: userID, Valid: true})
+	if err != nil {
+		return nil, fmt.Errorf("postgres: pending memberships of user: %w", err)
+	}
+	out := make([]domain.PendingMembership, len(rows))
+	for i, row := range rows {
+		out[i] = domain.PendingMembership{ID: row.ID, TeamID: row.TeamID, TeamName: row.TeamName, CreatedAt: row.CreatedAt.Time}
+	}
+	return out, nil
+}
+
 // TeamForJoin returns the team's name and whether it is dissolved, or
 // domain.ErrNotFound. A join request calls it after LockTeamForAdminChange.
 func (r *Memberships) TeamForJoin(ctx context.Context, teamID int64) (string, bool, error) {

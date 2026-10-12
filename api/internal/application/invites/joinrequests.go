@@ -42,3 +42,9 @@ func (s *Service) RequestToJoin(ctx context.Context, teamID, userID int64) (out 
 	}
 	return out, true, nil
 }
+
+// JoinRequests lists the user's pending memberships, from a join request or
+// an invite, for the pending section of "Mis equipos" (R24.5).
+func (s *Service) JoinRequests(ctx context.Context, userID int64) ([]domain.PendingMembership, error) {
+	return s.memberships.PendingOfUser(ctx, userID)
+}

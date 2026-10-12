@@ -234,6 +234,49 @@ func (q *Queries) GetMembershipInTeam(ctx context.Context, arg GetMembershipInTe
 	return i, err
 }
 
+const listPendingMembershipsOfUser = `-- name: ListPendingMembershipsOfUser :many
+SELECT m.id, m.team_id, t.name AS team_name, m.created_at
+FROM membership m
+JOIN team t ON t.id = m.team_id
+WHERE m.user_id = $1 AND m.status = 'pending'
+ORDER BY m.created_at DESC, m.id DESC
+`
+
+type ListPendingMembershipsOfUserRow struct {
+	ID        int64
+	TeamID    int64
+	TeamName  string
+	CreatedAt pgtype.Timestamptz
+}
+
+// The user's pending memberships, from a join request or an invite, for the
+// pending section of "Mis equipos" (R24.5). Newest first. created_at is when
+// the row was made: a member who left and asked again keeps the old date.
+func (q *Queries) ListPendingMembershipsOfUser(ctx context.Context, userID pgtype.Int8) ([]ListPendingMembershipsOfUserRow, error) {
+	rows, err := q.db.Query(ctx, listPendingMembershipsOfUser, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListPendingMembershipsOfUserRow
+	for rows.Next() {
+		var i ListPendingMembershipsOfUserRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.TeamID,
+			&i.TeamName,
+			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listRoster = `-- name: ListRoster :many
 SELECT m.id, m.role, m.status, m.shirt_number, m.position,
        coalesce(m.display_name_override, u.name, '')::text AS name

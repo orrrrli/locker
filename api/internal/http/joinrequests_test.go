@@ -266,3 +266,54 @@ func TestJoinRequestApproveRejectAndAskAgain(t *testing.T) {
 		t.Fatalf("asked again = %+v, want row %d pending", got, back.ID)
 	}
 }
+
+// GET /me/join-requests lists only the caller's pending memberships, from a
+// join request or an invite, newest first, with team name and request time
+// (R24.5).
+func TestListMyJoinRequests(t *testing.T) {
+	api := newAPI(t, func() time.Time { return today })
+	_, adminToken := signUp(t, api, "admin@example.com")
+	userID, userToken := signUp(t, api, "user@example.com")
+	_, otherToken := signUp(t, api, "other@example.com")
+	joined := createTeam(t, api, adminToken, "Pumas", "America/Tijuana")
+	invited := createTeam(t, api, adminToken, "Halcones", "America/Tijuana")
+	left := createTeam(t, api, adminToken, "Tigres", "America/Tijuana")
+	createTeam(t, api, userToken, "Mi equipo", "America/Tijuana") // active: not listed
+	addMember(t, api, left.ID, userID, "player", "left")
+	requestJoin(t, api, otherToken, joined.ID, http.StatusCreated) // someone else's
+
+	list := func(token string) (*httptest.ResponseRecorder, []joinRequestJSON) {
+		rec := api.do(t, http.MethodGet, "/me/join-requests", token, nil)
+		var body map[string][]joinRequestJSON
+		if rec.Code == http.StatusOK {
+			if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+				t.Fatal(err)
+			}
+		}
+		return rec, body["join_requests"]
+	}
+	if rec, _ := list(""); rec.Code != http.StatusUnauthorized {
+		t.Fatalf("no session: status %d, want 401", rec.Code)
+	}
+	if rec, got := list(userToken); rec.Code != http.StatusOK || got == nil || len(got) != 0 {
+		t.Fatalf("nothing pending: status %d, body %s; want an empty list", rec.Code, rec.Body)
+	}
+
+	requestJoin(t, api, userToken, joined.ID, http.StatusCreated)
+	inv := createInvite(t, api, adminToken, invited.ID)
+	if rec := api.do(t, http.MethodPost, "/invites/accept", userToken, map[string]string{"token": inv.Token}); rec.Code != http.StatusCreated {
+		t.Fatalf("accept: status %d, body %s", rec.Code, rec.Body)
+	}
+
+	rec, got := list(userToken)
+	if rec.Code != http.StatusOK || len(got) != 2 {
+		t.Fatalf("status %d, body %s; want 2 pending", rec.Code, rec.Body)
+	}
+	for i, want := range []teamJSON{invited, joined} {
+		row, _ := rowOf(t, api, want.ID, userID)
+		g := got[i]
+		if g.ID != row.ID || g.TeamID != want.ID || g.TeamName != want.Name || !g.RequestedAt.Equal(row.CreatedAt.UTC().Truncate(time.Second)) {
+			t.Fatalf("join_requests[%d] = %+v, want %s (membership %d, created %v)", i, g, want.Name, row.ID, row.CreatedAt)
+		}
+	}
+}

@@ -70,6 +70,8 @@ type Memberships interface {
 	// TeamForJoin returns the team's name and whether it is dissolved, or
 	// domain.ErrNotFound for an unknown team.
 	TeamForJoin(ctx context.Context, teamID int64) (name string, dissolved bool, err error)
+	// PendingOfUser lists the user's pending memberships, newest first.
+	PendingOfUser(ctx context.Context, userID int64) ([]domain.PendingMembership, error)
 }
 
 type Deps struct {

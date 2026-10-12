@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"strconv"
+	"time"
 
 	"github.com/orrrrli/locker/api/internal/application"
 	"github.com/orrrrli/locker/api/internal/application/invites"
@@ -16,6 +17,7 @@ type inviteService interface {
 	Revoke(ctx context.Context, teamID, callerID, inviteID int64) error
 	Accept(ctx context.Context, userID int64, token string) (invites.Accepted, error)
 	RequestToJoin(ctx context.Context, teamID, userID int64) (invites.Accepted, bool, error)
+	JoinRequests(ctx context.Context, userID int64) ([]domain.PendingMembership, error)
 }
 
 type inviteHandlers struct {
@@ -134,6 +136,30 @@ func (h inviteHandlers) requestToJoin(w http.ResponseWriter, r *http.Request) {
 		"team_name": acc.TeamName,
 		"status":    acc.Status,
 	})
+}
+
+type joinRequestJSON struct {
+	ID          int64     `json:"id"`
+	TeamID      int64     `json:"team_id"`
+	TeamName    string    `json:"team_name"`
+	RequestedAt time.Time `json:"requested_at"`
+}
+
+// listJoinRequests lists the caller's pending memberships for "Mis equipos"
+// (R24.5). requested_at is the row's created_at, so a member who left and
+// asked again shows the date the row was first made.
+func (h inviteHandlers) listJoinRequests(w http.ResponseWriter, r *http.Request) {
+	userID, _ := userIDFrom(r.Context())
+	ps, err := h.svc.JoinRequests(r.Context(), userID)
+	if err != nil {
+		inviteErrors.write(w, r, "join requests", err)
+		return
+	}
+	out := make([]joinRequestJSON, len(ps))
+	for i, p := range ps {
+		out[i] = joinRequestJSON{ID: p.ID, TeamID: p.TeamID, TeamName: p.TeamName, RequestedAt: apiTime(p.CreatedAt)}
+	}
+	writeJSON(w, http.StatusOK, map[string][]joinRequestJSON{"join_requests": out})
 }
 
 var inviteErrors = errorMap{
