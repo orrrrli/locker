@@ -203,6 +203,19 @@ func (r *Memberships) RejoinMembership(ctx context.Context, id int64) error {
 	return nil
 }
 
+// TeamForJoin returns the team's name and whether it is dissolved, or
+// domain.ErrNotFound. A join request calls it after LockTeamForAdminChange.
+func (r *Memberships) TeamForJoin(ctx context.Context, teamID int64) (string, bool, error) {
+	row, err := sqlcdb.New(Conn(ctx, r.pool)).GetTeamForJoin(ctx, teamID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", false, domain.ErrNotFound
+	}
+	if err != nil {
+		return "", false, fmt.Errorf("postgres: team for join: %w", err)
+	}
+	return row.Name, row.Dissolved, nil
+}
+
 // lockTimeout caps the wait for the team lock. An admin change holds it for
 // milliseconds, so waiting this long means a transaction is stuck; failing
 // with domain.ErrTeamBusy beats queueing every admin write of the team behind
