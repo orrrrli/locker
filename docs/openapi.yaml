@@ -249,7 +249,10 @@ paths:
         Deletes the account behind the session (never from a path or body id).
         Memberships become left "Ex-jugador #<id>" rows so team history stays.
         Refused with 409 `last_admin_of_teams` while the caller is the only
-        active admin (Capitán) of any team; the body lists those teams.
+        active admin (Capitán) of any team; the body lists those teams. In a
+        team where the caller is the only active member (`sole_member`), there
+        is no one to promote: the caller dissolves it with `DELETE /teams/{id}`
+        first (R6.8).
       security:
         - bearerAuth: []
       responses:
@@ -268,7 +271,7 @@ paths:
                       error:
                         const: not_found
         "409":
-          description: "`last_admin_of_teams`: promote another admin in each listed team first."
+          description: "`last_admin_of_teams`: promote another admin in each listed team, or dissolve it when `sole_member` is true."
           content:
             application/json:
               schema:
@@ -1042,7 +1045,17 @@ components:
           type: array
           description: Teams where the caller is the only active admin.
           items:
-            $ref: "#/components/schemas/Team"
+            allOf:
+              - $ref: "#/components/schemas/Team"
+              - type: object
+                required: [sole_member]
+                properties:
+                  sole_member:
+                    type: boolean
+                    description: |
+                      True when the caller is the team's only active member:
+                      offer "Disolver equipo" (`DELETE /teams/{id}`). False:
+                      offer promoting another member.
 
     RegisterRequest:
       type: object

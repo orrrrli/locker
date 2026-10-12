@@ -3,13 +3,42 @@ package http
 import (
 	"context"
 	"encoding/json"
+	"maps"
 	"net/http"
+	"net/http/httptest"
+	"slices"
 	"strconv"
 	"testing"
 	"time"
 
 	"github.com/orrrrli/locker/api/internal/application/token"
 )
+
+// decodeBlockedTeams reads the 409 last_admin_of_teams body, checking each
+// team's exact keys: a team's plus sole_member.
+func decodeBlockedTeams(t *testing.T, rec *httptest.ResponseRecorder) []blockedTeamJSON {
+	t.Helper()
+	var body struct {
+		Teams []json.RawMessage `json:"teams"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	out := make([]blockedTeamJSON, len(body.Teams))
+	for i, b := range body.Teams {
+		var raw map[string]json.RawMessage
+		if err := json.Unmarshal(b, &raw); err != nil {
+			t.Fatal(err)
+		}
+		if keys, want := slices.Sorted(maps.Keys(raw)), []string{"created_at", "id", "name", "sole_member", "timezone"}; !slices.Equal(keys, want) {
+			t.Fatalf("team keys = %v, want %v", keys, want)
+		}
+		if err := json.Unmarshal(b, &out[i]); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return out
+}
 
 // TestDeleteMe: DELETE /me deletes only the session's user, whose token stops
 // working; the only admin of a team gets 409 with the teams to fix (R5.4).
@@ -31,8 +60,12 @@ func TestDeleteMe(t *testing.T) {
 	if rec.Code != http.StatusConflict || errorCode(t, rec) != "last_admin_of_teams" {
 		t.Fatalf("last admin: status %d, body %s", rec.Code, rec.Body)
 	}
-	if teams := decodeTeamList(t, rec); len(teams) != 2 || teams[0].ID != team.ID || teams[0].Name != "Halcones" || teams[1].ID != other.ID {
-		t.Fatalf("teams = %+v, want Halcones then Pumas", teams)
+	// Halcones has a player to promote; in Pumas the admin is alone, so the
+	// client offers dissolving it (R6.8).
+	if teams := decodeBlockedTeams(t, rec); len(teams) != 2 ||
+		teams[0].ID != team.ID || teams[0].Name != "Halcones" || teams[0].SoleMember ||
+		teams[1].ID != other.ID || !teams[1].SoleMember {
+		t.Fatalf("teams = %+v, want Halcones (not sole member) then Pumas (sole member)", teams)
 	}
 	if rec := api.do(t, http.MethodGet, "/test/whoami", adminToken, nil); rec.Code != http.StatusOK {
 		t.Fatalf("rejected admin was logged out: status %d", rec.Code)
