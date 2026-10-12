@@ -188,8 +188,14 @@ func TestPendingSeesNothingUntilApproved(t *testing.T) {
 	}
 	ana := membershipID(t, api, team.ID, anaID)
 	bea := membershipID(t, api, team.ID, beaID)
+	// An active player keeps DELETE /teams/{id} a no-op for the admin below
+	// (409 team_has_members instead of dissolving the team).
+	playerID, _ := signUp(t, api, "player@example.com")
+	addMember(t, api, team.ID, playerID, "player", "active")
+	match := "/matches/" + strconv.FormatInt(createMatch(t, api, adminToken, team.ID, matchBody).ID, 10)
 
-	// Every team route that exists today. A new team route belongs here too.
+	// Every team route that exists today. A new team route belongs here too,
+	// with a state that keeps it a no-op for the admin's positive control.
 	routes := func(self int64) []struct{ method, path string } {
 		return []struct{ method, path string }{
 			{http.MethodGet, teamPath(team.ID)},
@@ -198,6 +204,14 @@ func TestPendingSeesNothingUntilApproved(t *testing.T) {
 			{http.MethodPost, teamPath(team.ID) + "/invites"},
 			{http.MethodDelete, teamPath(team.ID) + "/invites/" + strconv.FormatInt(inv.ID, 10)},
 			{http.MethodPatch, "/memberships/" + strconv.FormatInt(self, 10)},
+			{http.MethodDelete, teamPath(team.ID)},
+			{http.MethodDelete, "/memberships/" + strconv.FormatInt(self, 10)},
+			{http.MethodPost, teamPath(team.ID) + "/matches"},
+			{http.MethodGet, teamPath(team.ID) + "/matches"},
+			{http.MethodPatch, match},
+			{http.MethodPut, match + "/rsvp"},
+			{http.MethodPut, match + "/attendance"},
+			{http.MethodGet, match + "/attendance"},
 		}
 	}
 	// Positive control. The mux's own miss and authz's 404 look the same
@@ -211,6 +225,13 @@ func TestPendingSeesNothingUntilApproved(t *testing.T) {
 		if rec.Code == http.StatusNotFound || rec.Code == http.StatusMethodNotAllowed {
 			t.Errorf("admin %s %s: status %d, body %s; the route is not registered", r.method, r.path, rec.Code, rec.Body)
 		}
+	}
+	var dissolved bool
+	var matches int
+	if err := api.pool.QueryRow(context.Background(),
+		`SELECT dissolved_at IS NOT NULL, (SELECT count(*) FROM match WHERE team_id = $1) FROM team WHERE id = $1`,
+		team.ID).Scan(&dissolved, &matches); err != nil || dissolved || matches != 1 {
+		t.Fatalf("the positive control changed the team: dissolved %v, matches %d, err %v", dissolved, matches, err)
 	}
 	shutOut := func(t *testing.T, token string, self int64) {
 		t.Helper()
