@@ -471,7 +471,7 @@ paths:
         "404":
           $ref: "#/components/responses/NotFound"
         "409":
-          description: "`team_has_members`: the team has another active member; promote or remove them first (R6.9). Nothing changed."
+          description: "`team_has_members`: the team has another active member; remove the players, and any other admin must leave on their own (R6.9, R6.12). Nothing changed."
           content:
             application/json:
               schema:
@@ -747,7 +747,7 @@ paths:
       description: |
         Exactly one change per request (see the request body's `oneOf`):
 
-        - `role`: promote or demote. Admins only. Answers 200 with the Membership.
+        - `role`: promote or demote. Admins only, and an admin demotes only themselves (R6.12). Answers 200 with the Membership.
         - `decision: approve`: make a pending membership an active player. Admins only. Answers 200 with the Membership.
         - `decision: reject`: discard a pending membership. Admins only. Answers **204 with no body**.
         - `shirt_number` and/or `position`: edit the profile. Any active member
@@ -780,7 +780,9 @@ paths:
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
-          description: "`forbidden`: role, decision or another member's profile sent by a non-admin."
+          description: |
+            - `forbidden`: role, decision or another member's profile sent by a non-admin.
+            - `target_is_admin` (role): demoting another active admin. An admin stops being one only by demoting themselves or leaving. Nothing changes.
           content:
             application/json:
               schema:
@@ -788,7 +790,7 @@ paths:
                   - $ref: "#/components/schemas/Error"
                   - properties:
                       error:
-                        const: forbidden
+                        enum: [forbidden, target_is_admin]
         "404":
           $ref: "#/components/responses/NotFound"
         "409":
@@ -849,9 +851,10 @@ paths:
       summary: Leave the team, or remove a member
       description: |
         With the caller's own membership id, the caller leaves. With anyone
-        else's, it removes them, admins only. The row stays as `left` so team
-        history is kept. Only active memberships can leave or be removed; a
-        pending one is rejected with `PATCH` `decision: reject` instead.
+        else's, it removes them, admins only, and only a player. The row stays
+        as `left` so team history is kept. Only active memberships can leave or
+        be removed; a pending one is rejected with `PATCH` `decision: reject`
+        instead.
       security:
         - bearerAuth: []
       responses:
@@ -860,7 +863,9 @@ paths:
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
-          description: "`forbidden`: a non-admin removing someone else."
+          description: |
+            - `forbidden`: a non-admin removing someone else.
+            - `target_is_admin`: removing another active admin. Admins remove only players. Nothing changes.
           content:
             application/json:
               schema:
@@ -868,13 +873,13 @@ paths:
                   - $ref: "#/components/schemas/Error"
                   - properties:
                       error:
-                        const: forbidden
+                        enum: [forbidden, target_is_admin]
         "404":
           $ref: "#/components/responses/NotFound"
         "409":
           description: |
             - `not_active`: the target is pending or left.
-            - `last_admin`: the target is the team's only active admin. No extra fields.
+            - `last_admin`: the caller is leaving as the team's only active admin. No extra fields.
           content:
             application/json:
               schema:
@@ -1410,6 +1415,7 @@ components:
         - not_pending
         - last_admin
         - last_admin_of_teams
+        - target_is_admin
         - team_has_members
         - invalid_starts_at
         - invalid_rival_name
