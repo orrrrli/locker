@@ -41,10 +41,14 @@ func apiTime(t time.Time) time.Time {
 	return t.UTC().Truncate(time.Second)
 }
 
+// writeJSON writes v with the status. The status is already on the wire when
+// encoding fails, so the client sees an empty body; the log is the only trace.
 func writeJSON(w http.ResponseWriter, status int, v any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(v)
+	if err := json.NewEncoder(w).Encode(v); err != nil {
+		slog.Error("write json", "status", status, "err", err)
+	}
 }
 
 // errorMap maps use-case errors to a status and a stable error code. Each
