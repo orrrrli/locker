@@ -21,17 +21,17 @@ const (
 	RSVPNotGoing RSVPAnswer = "not_going"
 )
 
+// Valid reports whether a is going or not_going (R9.3); a CHECK constraint
+// backs it in the database.
+func (a RSVPAnswer) Valid() bool {
+	return a == RSVPGoing || a == RSVPNotGoing
+}
+
 // RSVP is an intention. Attendance, not RSVP, feeds attendance-based
-// features (R10.3).
+// features (R10.5).
 type RSVP struct {
 	MatchID      int64
 	MembershipID int64
 	Answer       RSVPAnswer
 	UpdatedAt    time.Time
-}
-
-// Attendance records that a membership really played a match (R10.2).
-type Attendance struct {
-	MatchID      int64
-	MembershipID int64
 }
