@@ -241,6 +241,41 @@ Last drills:
   no migrations applied, counts identical. Production had no rows yet (schema only), so this proved
   the pipeline, not row data. Repeat with a test account before onboarding.
 
+## Schema and API changes
+
+A merge to `main` is a production migration: the deploy below starts the new API, and the API runs goose
+up at startup. If a migration fails, the API does not start. The schema never rolls back (see Rollback),
+so the old image must keep working on the new schema.
+
+Migrations:
+
+- A new column is nullable, or `NOT NULL` with a `DEFAULT` (like `membership.push_muted`). `NOT NULL`
+  without a default fails on a table that has rows.
+- A `CHECK`, `NOT NULL` or `UNIQUE` added to an existing column checks every existing row. Tests run on an
+  empty database, so query production read-only **before merging** (example below).
+- Rename or drop in two releases: first the code stops using the column, then a later migration removes it.
+- Every migration has a `Down` that undoes exactly its `Up`. The rollback test cannot catch a `Down` that
+  does nothing yet (#365).
+- A closed set of values is a domain type with constants plus a `CHECK`, like `role`, `status` and
+  `position`; `TestDomainEnumsMatchCheckConstraints` keeps them in sync.
+- After changing `sql/queries`, regenerate sqlc. CI does not check that the generated code is current.
+
+API contract (`docs/openapi.yaml` is the source the iOS types come from):
+
+- A new response field is always present, `null` when empty, and timestamps go through `apiTime`.
+  Adding a response field breaks no client: Swift `Codable` ignores unknown keys.
+- The API answers 400 to an unknown request field, so deploy the API before the app version that sends
+  a new field.
+- Each error code has one body shape. A new situation gets a new code, not a reused one.
+- Update `docs/openapi.yaml` in the same PR.
+
+Read-only query in production, from `VPS_PATH` on the VPS:
+
+```bash
+docker compose exec -T postgres sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -At -q' \
+  <<< "set default_transaction_read_only = on; SELECT DISTINCT position FROM membership;"
+```
+
 ## Deploy
 
 Every push to `main` that touches `api/**`, `backup/**`, `docker-compose.yml` or the workflow runs test, build and deploy.
