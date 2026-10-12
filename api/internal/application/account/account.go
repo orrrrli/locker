@@ -11,10 +11,18 @@ import (
 )
 
 // LastAdminError rejects deleting an account that is the only active admin
-// of Teams, which need a new admin first (R5.4). errors.Is matches it to
+// of Teams, which need a new admin first, or, when the user is the team's
+// only active member, a dissolve (R5.4, R6.8). errors.Is matches it to
 // domain.ErrLastAdmin.
 type LastAdminError struct {
-	Teams []domain.Team
+	Teams []BlockedTeam
+}
+
+// BlockedTeam is a team that blocks the deletion. SoleMember tells the client
+// to offer dissolving it instead of promoting someone (R6.8).
+type BlockedTeam struct {
+	domain.Team
+	SoleMember bool
 }
 
 func (e *LastAdminError) Error() string {
@@ -28,6 +36,7 @@ type Teams interface {
 	// ListActiveForUser returns the user's teams with an active membership,
 	// ordered by id. checkLastAdmin locks them in that order.
 	ListActiveForUser(ctx context.Context, userID int64) ([]domain.Team, error)
+	CountActiveMembers(ctx context.Context, teamID int64) (int, error)
 }
 
 // Memberships is what the account use cases need from the membership table.
@@ -104,7 +113,8 @@ func (s *Service) Delete(ctx context.Context, userID int64) error {
 }
 
 // checkLastAdmin returns the ids of the teams it locked, or a *LastAdminError
-// listing every team where the user is the only active admin (R5.4). It must
+// listing every team where the user is the only active admin (R5.4), each
+// marked when the user is its only active member (R6.8). It must
 // run inside the deletion's
 // transaction: it locks each of the user's teams and keeps the locks, so no
 // admin leaves or is demoted before the deletion commits (R6.4).
@@ -119,7 +129,7 @@ func (s *Service) checkLastAdmin(ctx context.Context, userID int64) ([]int64, er
 		return nil, err
 	}
 	locked := make([]int64, 0, len(teams))
-	var blocked []domain.Team
+	var blocked []BlockedTeam
 	for _, t := range teams {
 		admins, err := s.memberships.LockTeamForAdminChange(ctx, t.ID)
 		if err != nil {
@@ -131,7 +141,11 @@ func (s *Service) checkLastAdmin(ctx context.Context, userID int64) ([]int64, er
 			return nil, err
 		}
 		if domain.CheckAdminLoss(m, admins) != nil {
-			blocked = append(blocked, t)
+			n, err := s.teams.CountActiveMembers(ctx, t.ID)
+			if err != nil {
+				return nil, err
+			}
+			blocked = append(blocked, BlockedTeam{Team: t, SoleMember: n == 1})
 		}
 	}
 	if len(blocked) > 0 {

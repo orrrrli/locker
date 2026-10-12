@@ -26,3 +26,10 @@ WHERE team_id = sqlc.arg(team_id) AND revoked_at IS NULL AND expires_at > sqlc.a
 
 -- name: DeleteExpiredInvites :execrows
 DELETE FROM invite WHERE expires_at <= $1;
+
+-- name: RevokeTeamInvites :exec
+-- Dissolving the team revokes every invite it still has (R6.8). Waits for an
+-- accept that holds FOR SHARE on one of them, like RevokeInvite.
+UPDATE invite
+SET revoked_at = now()
+WHERE team_id = $1 AND revoked_at IS NULL;

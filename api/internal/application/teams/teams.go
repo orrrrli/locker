@@ -15,17 +15,25 @@ var (
 	ErrInvalidName     = errors.New("team name must be 1 to 35 characters, with no invisible characters")
 	ErrInvalidTimezone = errors.New("timezone must be an IANA zone, like America/Tijuana")
 	ErrNothingToUpdate = errors.New("send a name, a timezone or both")
+	ErrTeamHasMembers  = errors.New("the team has other active members; promote or remove them first")
 )
 
 const maxNameLen = 35
 
-// Teams is what the team use cases need from the team table.
+// Teams is what the team use cases need from the team table and, for
+// Dissolve, the team's memberships and invites.
 type Teams interface {
 	CreateTeam(ctx context.Context, name, timezone string) (domain.Team, error)
 	ListActiveForUser(ctx context.Context, userID int64) ([]domain.Team, error)
 	// GetTeam and UpdateTeam return domain.ErrNotFound for an unknown id.
 	GetTeam(ctx context.Context, id int64) (domain.Team, error)
 	UpdateTeam(ctx context.Context, id int64, name, timezone *string) (domain.Team, error)
+	CountActiveMembers(ctx context.Context, teamID int64) (int, error)
+	// Dissolve revokes the team's invites, rejects its pending memberships,
+	// sets callerID left and marks the team dissolved (R6.8). It must run in
+	// the caller's transaction, after the team lock. domain.ErrNotFound when
+	// callerID is not active or the team is already dissolved.
+	Dissolve(ctx context.Context, teamID, callerID int64) error
 }
 
 // Memberships is what the team use cases need from the membership table.
@@ -122,6 +130,28 @@ func (s *Service) Update(ctx context.Context, teamID, callerID int64, name, time
 		return domain.Team{}, err
 	}
 	return team, nil
+}
+
+// Dissolve lets the admin callerID who is the team's only active member
+// dissolve it (R6.8): invites revoked, pending memberships rejected, the
+// caller's membership left and the team marked dissolved, in one
+// transaction. Any other active member rejects it with ErrTeamHasMembers
+// (R6.9). The team lock keeps the count true until commit: approving,
+// leaving and removing all take it.
+func (s *Service) Dissolve(ctx context.Context, teamID, callerID int64) error {
+	return s.tx.InTx(ctx, func(ctx context.Context) error {
+		if _, err := application.LockTeamAsAdmin(ctx, s.memberships, teamID, callerID); err != nil {
+			return err
+		}
+		n, err := s.teams.CountActiveMembers(ctx, teamID)
+		if err != nil {
+			return err
+		}
+		if n > 1 {
+			return ErrTeamHasMembers
+		}
+		return s.teams.Dissolve(ctx, teamID, callerID)
+	})
 }
 
 // checkName applies application.CleanText with the team name limit.

@@ -250,7 +250,10 @@ paths:
         Deletes the account behind the session (never from a path or body id).
         Memberships become left "Ex-jugador #<id>" rows so team history stays.
         Refused with 409 `last_admin_of_teams` while the caller is the only
-        active admin (Capitán) of any team; the body lists those teams.
+        active admin (Capitán) of any team; the body lists those teams. In a
+        team where the caller is the only active member (`sole_member`), there
+        is no one to promote: the caller dissolves it with `DELETE /teams/{id}`
+        first (R6.8).
       security:
         - bearerAuth: []
       responses:
@@ -269,7 +272,7 @@ paths:
                       error:
                         const: not_found
         "409":
-          description: "`last_admin_of_teams`: promote another admin in each listed team first."
+          description: "`last_admin_of_teams`: promote another admin in each listed team, or dissolve it when `sole_member` is true."
           content:
             application/json:
               schema:
@@ -412,6 +415,42 @@ paths:
                   - properties:
                       error:
                         enum: [nothing_to_update, invalid_name, invalid_timezone]
+        "500":
+          $ref: "#/components/responses/Internal"
+        "503":
+          $ref: "#/components/responses/TeamBusy"
+    delete:
+      tags: [teams]
+      operationId: dissolveTeam
+      summary: Dissolve a team
+      description: |
+        Admins only, and only when the caller is the team's only active member
+        (R6.8). In one transaction it revokes every invite, rejects every
+        pending member and sets the caller's membership left. Final: the team
+        disappears from `GET /teams` and every team route answers 404. Its
+        history (memberships, attendance, fees) is kept. The sole member of a
+        team dissolves it before `DELETE /me` (R5.4).
+      security:
+        - bearerAuth: []
+      responses:
+        "204":
+          description: The team is dissolved.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          description: "`team_has_members`: the team has another active member; promote or remove them first (R6.9). Nothing changed."
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Error"
+                  - properties:
+                      error:
+                        const: team_has_members
         "500":
           $ref: "#/components/responses/Internal"
         "503":
@@ -1281,6 +1320,7 @@ components:
         - not_pending
         - last_admin
         - last_admin_of_teams
+        - team_has_members
         - invalid_starts_at
         - invalid_rival_name
         - invalid_location
@@ -1311,7 +1351,17 @@ components:
           type: array
           description: Teams where the caller is the only active admin.
           items:
-            $ref: "#/components/schemas/Team"
+            allOf:
+              - $ref: "#/components/schemas/Team"
+              - type: object
+                required: [sole_member]
+                properties:
+                  sole_member:
+                    type: boolean
+                    description: |
+                      True when the caller is the team's only active member:
+                      offer "Disolver equipo" (`DELETE /teams/{id}`). False:
+                      offer promoting another member.
 
     RegisterRequest:
       type: object

@@ -64,6 +64,7 @@ func NewRouter(d Deps) http.Handler {
 	mux.Handle("GET /teams", a.requireAuth(http.HandlerFunc(t.list)))
 	mux.Handle("GET /teams/{id}", a.requireAuth(z.requireActiveMember(team, http.HandlerFunc(t.get))))
 	mux.Handle("PATCH /teams/{id}", a.requireAuth(z.requireRole(team, domain.RoleAdmin, http.HandlerFunc(t.update))))
+	mux.Handle("DELETE /teams/{id}", a.requireAuth(z.requireRole(team, domain.RoleAdmin, http.HandlerFunc(t.dissolve))))
 
 	inv := inviteHandlers{svc: d.Invites}
 	mux.Handle("POST /teams/{id}/invites", a.requireAuth(limitBy(d.Limits.InviteCreate, byUser,

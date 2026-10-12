@@ -118,3 +118,16 @@ func (q *Queries) RevokeInvite(ctx context.Context, arg RevokeInviteParams) (int
 	}
 	return result.RowsAffected(), nil
 }
+
+const revokeTeamInvites = `-- name: RevokeTeamInvites :exec
+UPDATE invite
+SET revoked_at = now()
+WHERE team_id = $1 AND revoked_at IS NULL
+`
+
+// Dissolving the team revokes every invite it still has (R6.8). Waits for an
+// accept that holds FOR SHARE on one of them, like RevokeInvite.
+func (q *Queries) RevokeTeamInvites(ctx context.Context, teamID int64) error {
+	_, err := q.db.Exec(ctx, revokeTeamInvites, teamID)
+	return err
+}
