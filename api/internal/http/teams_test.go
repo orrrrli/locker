@@ -3,6 +3,7 @@ package http
 import (
 	"context"
 	"encoding/json"
+	"maps"
 	"net/http"
 	"net/http/httptest"
 	"slices"
@@ -43,8 +44,17 @@ func addMember(t *testing.T, api apiTest, teamID, userID int64, role, status str
 	}
 }
 
+// decodeTeam also checks the exact key set: decoding into teamJSON ignores
+// extra keys, so a field leaking into the response would go unseen.
 func decodeTeam(t *testing.T, rec *httptest.ResponseRecorder) teamJSON {
 	t.Helper()
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(rec.Body.Bytes(), &raw); err != nil {
+		t.Fatal(err)
+	}
+	if keys := slices.Sorted(maps.Keys(raw)); !slices.Equal(keys, []string{"created_at", "id", "name", "timezone"}) {
+		t.Fatalf("team keys = %v, want [created_at id name timezone]", keys)
+	}
 	var team teamJSON
 	if err := json.Unmarshal(rec.Body.Bytes(), &team); err != nil {
 		t.Fatal(err)
@@ -93,7 +103,7 @@ func TestCreateTeamMakesCreatorAdmin(t *testing.T) {
 	_, token := signUp(t, api, "ana@example.com")
 
 	team := createTeam(t, api, token, "Los Avengers Legendarios", "America/Tijuana")
-	if team.Name != "Los Avengers Legendarios" || team.Timezone != "America/Tijuana" || team.CaptainMembershipID != nil {
+	if team.Name != "Los Avengers Legendarios" || team.Timezone != "America/Tijuana" {
 		t.Fatalf("team = %+v", team)
 	}
 	// The creator is an admin: PATCH, which requires the admin role, works.

@@ -916,7 +916,7 @@ components:
     Role:
       type: string
       enum: [admin, player]
-      description: Permission role. The app shows `admin` as "Capitán". The team's captain label (`captain_membership_id`) is separate and grants nothing.
+      description: Permission role. The app shows `admin` as "Capitán".
     MembershipStatus:
       type: string
       enum: [pending, active, left]
@@ -1050,7 +1050,7 @@ components:
 
     Team:
       type: object
-      required: [id, name, timezone, captain_membership_id, created_at]
+      required: [id, name, timezone, created_at]
       properties:
         id:
           type: integer
@@ -1060,10 +1060,6 @@ components:
         timezone:
           type: string
           description: IANA zone, e.g. `America/Tijuana`.
-        captain_membership_id:
-          type: [integer, "null"]
-          format: int64
-          description: Membership shown as captain; a label only, grants no permission. Always present, null when unset.
         created_at:
           $ref: "#/components/schemas/Timestamp"
     CreateTeamRequest:

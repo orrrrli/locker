@@ -48,9 +48,6 @@ func TestCreateMakesCreatorActiveAdmin(t *testing.T) {
 	if team.ID == 0 || team.Name != "Los Avengers Legendarios" || team.Timezone != "America/Tijuana" {
 		t.Fatalf("team = %+v", team)
 	}
-	if team.CaptainMembershipID != nil {
-		t.Fatalf("captain = %d, want none", *team.CaptainMembershipID)
-	}
 
 	m, err := postgres.NewMemberships(pool).MembershipByTeamAndUser(ctx, team.ID, userID)
 	if err != nil {

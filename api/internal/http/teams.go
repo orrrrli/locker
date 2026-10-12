@@ -22,22 +22,20 @@ type teamHandlers struct {
 }
 
 type teamJSON struct {
-	ID                  int64     `json:"id"`
-	Name                string    `json:"name"`
-	Timezone            string    `json:"timezone"`
-	CaptainMembershipID *int64    `json:"captain_membership_id"`
-	CreatedAt           time.Time `json:"created_at"`
+	ID        int64     `json:"id"`
+	Name      string    `json:"name"`
+	Timezone  string    `json:"timezone"`
+	CreatedAt time.Time `json:"created_at"`
 }
 
 // toTeamJSON writes created_at through apiTime: UTC whole seconds, whatever
 // the server's zone or the database's precision.
 func toTeamJSON(t domain.Team) teamJSON {
 	return teamJSON{
-		ID:                  t.ID,
-		Name:                t.Name,
-		Timezone:            t.Timezone,
-		CaptainMembershipID: t.CaptainMembershipID,
-		CreatedAt:           apiTime(t.CreatedAt),
+		ID:        t.ID,
+		Name:      t.Name,
+		Timezone:  t.Timezone,
+		CreatedAt: apiTime(t.CreatedAt),
 	}
 }
 

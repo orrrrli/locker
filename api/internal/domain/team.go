@@ -6,14 +6,13 @@ import (
 )
 
 type Team struct {
-	ID                  int64
-	Name                string
-	Timezone            string // IANA zone (R6.7)
-	CaptainMembershipID *int64 // a label only; grants no permission (R6.6)
-	CreatedAt           time.Time
+	ID        int64
+	Name      string
+	Timezone  string // IANA zone (R6.7)
+	CreatedAt time.Time
 }
 
-// Role grants permissions. The captain is not a role.
+// Role grants permissions.
 type Role string
 
 const (
