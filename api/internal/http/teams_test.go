@@ -44,22 +44,43 @@ func addMember(t *testing.T, api apiTest, teamID, userID int64, role, status str
 	}
 }
 
-// decodeTeam also checks the exact key set: decoding into teamJSON ignores
+// unmarshalTeam also checks the exact key set: decoding into teamJSON ignores
 // extra keys, so a field leaking into the response would go unseen.
-func decodeTeam(t *testing.T, rec *httptest.ResponseRecorder) teamJSON {
+func unmarshalTeam(t *testing.T, b []byte) teamJSON {
 	t.Helper()
 	var raw map[string]json.RawMessage
-	if err := json.Unmarshal(rec.Body.Bytes(), &raw); err != nil {
+	if err := json.Unmarshal(b, &raw); err != nil {
 		t.Fatal(err)
 	}
-	if keys := slices.Sorted(maps.Keys(raw)); !slices.Equal(keys, []string{"created_at", "id", "name", "timezone"}) {
-		t.Fatalf("team keys = %v, want [created_at id name timezone]", keys)
+	if keys, want := slices.Sorted(maps.Keys(raw)), []string{"created_at", "id", "name", "timezone"}; !slices.Equal(keys, want) {
+		t.Fatalf("team keys = %v, want %v", keys, want)
 	}
 	var team teamJSON
-	if err := json.Unmarshal(rec.Body.Bytes(), &team); err != nil {
+	if err := json.Unmarshal(b, &team); err != nil {
 		t.Fatal(err)
 	}
 	return team
+}
+
+func decodeTeam(t *testing.T, rec *httptest.ResponseRecorder) teamJSON {
+	t.Helper()
+	return unmarshalTeam(t, rec.Body.Bytes())
+}
+
+// decodeTeamList reads {"teams": [...]}, checking each team's keys.
+func decodeTeamList(t *testing.T, rec *httptest.ResponseRecorder) []teamJSON {
+	t.Helper()
+	var body struct {
+		Teams []json.RawMessage `json:"teams"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	teams := make([]teamJSON, len(body.Teams))
+	for i, b := range body.Teams {
+		teams[i] = unmarshalTeam(t, b)
+	}
+	return teams
 }
 
 func createTeam(t *testing.T, api apiTest, token, name, tz string) teamJSON {
@@ -87,12 +108,9 @@ func listTeamIDs(t *testing.T, api apiTest, token string) []int64 {
 	if len(raw.Teams) == 0 || raw.Teams[0] != '[' {
 		t.Fatalf("teams = %s, want a JSON array", raw.Teams)
 	}
-	var body struct{ Teams []teamJSON }
-	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
-		t.Fatal(err)
-	}
-	ids := make([]int64, len(body.Teams))
-	for i, team := range body.Teams {
+	teams := decodeTeamList(t, rec)
+	ids := make([]int64, len(teams))
+	for i, team := range teams {
 		ids[i] = team.ID
 	}
 	return ids

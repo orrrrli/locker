@@ -31,14 +31,8 @@ func TestDeleteMe(t *testing.T) {
 	if rec.Code != http.StatusConflict || errorCode(t, rec) != "last_admin_of_teams" {
 		t.Fatalf("last admin: status %d, body %s", rec.Code, rec.Body)
 	}
-	var body struct {
-		Teams []teamJSON `json:"teams"`
-	}
-	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
-		t.Fatal(err)
-	}
-	if len(body.Teams) != 2 || body.Teams[0].ID != team.ID || body.Teams[0].Name != "Halcones" || body.Teams[1].ID != other.ID {
-		t.Fatalf("teams = %+v, want Halcones then Pumas", body.Teams)
+	if teams := decodeTeamList(t, rec); len(teams) != 2 || teams[0].ID != team.ID || teams[0].Name != "Halcones" || teams[1].ID != other.ID {
+		t.Fatalf("teams = %+v, want Halcones then Pumas", teams)
 	}
 	if rec := api.do(t, http.MethodGet, "/test/whoami", adminToken, nil); rec.Code != http.StatusOK {
 		t.Fatalf("rejected admin was logged out: status %d", rec.Code)
