@@ -94,8 +94,8 @@ terminar. Cada test tiene su propia base vacía, así que los tests nunca compar
   del equipo y los marcadores siguen cuadrando.
 - **Un usuario, varias identidades.** Sign in with Apple y correo/contraseña apuntan al mismo usuario. Las cuentas
   se unen solas solo cuando los dos correos están verificados, para evitar que alguien se robe una cuenta.
-- **Permisos contra etiquetas.** Los roles (`admin`, `player`) dan permisos; "capitán" es una etiqueta deportiva
-  sin permisos. Un equipo nunca se puede quedar sin admin.
+- **Los roles dan permisos.** `admin` y `player`; la app muestra `admin` como "Capitán". Un equipo nunca se puede
+  quedar sin admin.
 - **Primero la librería estándar.** Routing con `net/http`, HTTP/2 de la librería estándar para APNs y una
   goroutine con ticker para las tareas programadas. Dependencias solo donde ahorran trabajo real.
 - **Solo iOS nativo, a propósito.** La API es independiente, así que se puede agregar un cliente de Android después.

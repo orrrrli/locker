@@ -3,6 +3,7 @@ package postgres
 import (
 	"context"
 	"errors"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -41,6 +42,26 @@ func TestSchemaHasEveryPhase1Table(t *testing.T) {
 		if !exists {
 			t.Errorf("table %q does not exist", table)
 		}
+	}
+}
+
+// TestTeamColumns pins team's exact columns, so an obsolete one cannot
+// survive a migration unnoticed (BE-TEAM-9).
+func TestTeamColumns(t *testing.T) {
+	pool, _ := testPool(t)
+	ctx := context.Background()
+	if err := Migrate(ctx, pool); err != nil {
+		t.Fatal(err)
+	}
+	var got []string
+	err := pool.QueryRow(ctx, `
+		SELECT array_agg(column_name::text ORDER BY column_name) FROM information_schema.columns
+		WHERE table_schema = 'public' AND table_name = 'team'`).Scan(&got)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := []string{"created_at", "id", "name", "timezone"}; !slices.Equal(got, want) {
+		t.Fatalf("team columns = %v, want %v", got, want)
 	}
 }
 
