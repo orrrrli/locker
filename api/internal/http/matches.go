@@ -115,10 +115,11 @@ type upcomingMatchJSON struct {
 }
 
 // upcoming lists the caller's upcoming matches across every team where they
-// are active (R14). Only upcoming=true is defined; anything else is a 422,
-// so a later meaning for a missing or false value breaks no client.
+// are active (R14). Only one upcoming=true is defined; anything else,
+// repeats included, is a 422, so a later meaning for a missing or false
+// value breaks no client.
 func (h matchHandlers) upcoming(w http.ResponseWriter, r *http.Request) {
-	if r.URL.Query().Get("upcoming") != "true" {
+	if v := r.URL.Query()["upcoming"]; len(v) != 1 || v[0] != "true" {
 		writeError(w, http.StatusUnprocessableEntity, "invalid_upcoming")
 		return
 	}
@@ -135,8 +136,8 @@ func (h matchHandlers) upcoming(w http.ResponseWriter, r *http.Request) {
 			TeamName:      m.TeamName,
 			Role:          m.Role,
 			Answer:        m.Answer,
-			GoingCount:    m.Going,
-			NotGoingCount: m.NotGoing,
+			GoingCount:    m.GoingCount,
+			NotGoingCount: m.NotGoingCount,
 		}
 	}
 	writeJSON(w, http.StatusOK, map[string][]upcomingMatchJSON{"matches": out})

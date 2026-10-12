@@ -105,7 +105,7 @@ func (q *Queries) ListMatches(ctx context.Context, teamID int64) ([]Match, error
 }
 
 const listUpcomingMatchesForUser = `-- name: ListUpcomingMatchesForUser :many
-SELECT m.id, m.team_id, m.starts_at, m.rival_name, m.location,
+SELECT m.id, m.team_id, m.starts_at, m.rival_name, m.location, m.reminder_sent_at, m.attendance_closed_at, m.created_by,
        t.name AS team_name, me.role, own.answer AS own_answer,
        count(*) FILTER (WHERE r.answer = 'going' AND rm.id IS NOT NULL) AS going,
        count(*) FILTER (WHERE r.answer = 'not_going' AND rm.id IS NOT NULL) AS not_going
@@ -127,11 +127,7 @@ type ListUpcomingMatchesForUserParams struct {
 }
 
 type ListUpcomingMatchesForUserRow struct {
-	ID        int64
-	TeamID    int64
-	StartsAt  pgtype.Timestamptz
-	RivalName string
-	Location  string
+	Match     Match
 	TeamName  string
 	Role      string
 	OwnAnswer pgtype.Text
@@ -153,11 +149,14 @@ func (q *Queries) ListUpcomingMatchesForUser(ctx context.Context, arg ListUpcomi
 	for rows.Next() {
 		var i ListUpcomingMatchesForUserRow
 		if err := rows.Scan(
-			&i.ID,
-			&i.TeamID,
-			&i.StartsAt,
-			&i.RivalName,
-			&i.Location,
+			&i.Match.ID,
+			&i.Match.TeamID,
+			&i.Match.StartsAt,
+			&i.Match.RivalName,
+			&i.Match.Location,
+			&i.Match.ReminderSentAt,
+			&i.Match.AttendanceClosedAt,
+			&i.Match.CreatedBy,
 			&i.TeamName,
 			&i.Role,
 			&i.OwnAnswer,

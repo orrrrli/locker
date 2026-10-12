@@ -35,7 +35,7 @@ FOR UPDATE;
 -- (R14.1, R14.3, R14.4), soonest first, with the user's role and own answer
 -- (R14.2). Counts only answers of members active in the team right now: an
 -- RSVP row outlives a member who left, as in CloseDueAttendance.
-SELECT m.id, m.team_id, m.starts_at, m.rival_name, m.location,
+SELECT sqlc.embed(m),
        t.name AS team_name, me.role, own.answer AS own_answer,
        count(*) FILTER (WHERE r.answer = 'going' AND rm.id IS NOT NULL) AS going,
        count(*) FILTER (WHERE r.answer = 'not_going' AND rm.id IS NOT NULL) AS not_going

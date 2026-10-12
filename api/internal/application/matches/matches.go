@@ -108,7 +108,8 @@ func (s *Service) List(ctx context.Context, teamID int64) ([]domain.Match, error
 // Upcoming returns the matches that start after now in every team where the
 // user is active, soonest first (R14). A match at its kickoff instant has
 // started, as the RSVP lock counts it (R9.5).
-// ponytail: no pagination; a user in a few teams has a few dozen rows at most.
+// ponytail: no pagination; a user in a few teams has a few dozen rows at
+// most. Add a limit or cursor when league fixtures (R16) land.
 func (s *Service) Upcoming(ctx context.Context, userID int64) ([]domain.UpcomingMatch, error) {
 	return s.matches.ListUpcomingForUser(ctx, userID, s.now())
 }

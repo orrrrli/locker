@@ -438,7 +438,7 @@ func TestUpcomingMatchesShapeAndQuery(t *testing.T) {
 		t.Fatalf("admin item = %s, want %s", got, want)
 	}
 
-	for _, q := range []string{"", "?upcoming=false", "?upcoming=TRUE", "?upcoming=1", "?upcoming="} {
+	for _, q := range []string{"", "?upcoming=false", "?upcoming=TRUE", "?upcoming=1", "?upcoming=", "?upcoming=true&upcoming=true", "?upcoming=true&upcoming=false"} {
 		rec := api.do(t, http.MethodGet, "/me/matches"+q, playerToken, nil)
 		if rec.Code != http.StatusUnprocessableEntity || errorCode(t, rec) != "invalid_upcoming" {
 			t.Fatalf("%q: status %d, body %s; want 422 invalid_upcoming", q, rec.Code, rec.Body)

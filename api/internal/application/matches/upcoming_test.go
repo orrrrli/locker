@@ -47,14 +47,6 @@ func insertMatch(t *testing.T, f fixture, team int64, startsAt time.Time, rival 
 	return id
 }
 
-func rsvp(t *testing.T, f fixture, matchID, membershipID int64, answer string) {
-	t.Helper()
-	if _, err := f.pool.Exec(context.Background(),
-		`INSERT INTO rsvp (match_id, membership_id, answer) VALUES ($1, $2, $3)`, matchID, membershipID, answer); err != nil {
-		t.Fatal(err)
-	}
-}
-
 // Matches from every active team come soonest first, each with team, role,
 // own answer and counts (R14.1, R14.2). Counts take only members active in
 // the team now: a member who left, or a pending one, keeps the RSVP row but
@@ -68,12 +60,12 @@ func TestUpcomingAcrossTeamsWithCountsRoleAndOwnAnswer(t *testing.T) {
 	later := insertMatch(t, f, f.team, kickoff.Add(time.Hour), "Halcones")
 	sooner := insertMatch(t, f, tigres, kickoff, "Águilas")
 
-	rsvp(t, f, later, f.admin, "going")
-	rsvp(t, f, later, addMember(t, f, "p1@example.com", "player", "active"), "going")
-	rsvp(t, f, later, addMember(t, f, "p2@example.com", "player", "active"), "not_going")
-	rsvp(t, f, later, addMember(t, f, "left@example.com", "player", "left"), "going")
-	rsvp(t, f, later, addMember(t, f, "left2@example.com", "player", "left"), "not_going")
-	rsvp(t, f, later, addMember(t, f, "pending@example.com", "player", "pending"), "going")
+	rsvpDirect(t, f, later, f.admin, "going")
+	rsvpDirect(t, f, later, addMember(t, f, "p1@example.com", "player", "active"), "going")
+	rsvpDirect(t, f, later, addMember(t, f, "p2@example.com", "player", "active"), "not_going")
+	rsvpDirect(t, f, later, addMember(t, f, "left@example.com", "player", "left"), "going")
+	rsvpDirect(t, f, later, addMember(t, f, "left2@example.com", "player", "left"), "not_going")
+	rsvpDirect(t, f, later, addMember(t, f, "pending@example.com", "player", "pending"), "going")
 
 	got, err := f.svc.Upcoming(ctx, user)
 	if err != nil {
@@ -86,12 +78,12 @@ func TestUpcomingAcrossTeamsWithCountsRoleAndOwnAnswer(t *testing.T) {
 	s := got[0]
 	if s.TeamID != tigres || s.TeamName != "Tigres" || s.Role != domain.RolePlayer || s.RivalName != "Águilas" ||
 		s.Location != "Cancha 3" || !s.StartsAt.Equal(kickoff) || s.StartsAt.Location() != time.UTC ||
-		s.Answer != nil || s.Going != 0 || s.NotGoing != 0 {
+		s.Answer != nil || s.GoingCount != 0 || s.NotGoingCount != 0 {
 		t.Fatalf("sooner = %+v", s)
 	}
 	l := got[1]
-	if l.TeamID != f.team || l.TeamName != "Pumas" || l.Role != domain.RoleAdmin ||
-		l.Answer == nil || *l.Answer != domain.RSVPGoing || l.Going != 2 || l.NotGoing != 1 {
+	if l.TeamID != f.team || l.CreatedBy == 0 || l.TeamName != "Pumas" || l.Role != domain.RoleAdmin ||
+		l.Answer == nil || *l.Answer != domain.RSVPGoing || l.GoingCount != 2 || l.NotGoingCount != 1 {
 		t.Fatalf("later = %+v (answer %v), want admin, own going, 2 going, 1 not going", l, l.Answer)
 	}
 }

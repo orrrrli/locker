@@ -63,17 +63,11 @@ func (r *Matches) ListUpcomingForUser(ctx context.Context, userID int64, now tim
 	out := make([]domain.UpcomingMatch, len(rows))
 	for i, row := range rows {
 		u := domain.UpcomingMatch{
-			Match: domain.Match{
-				ID:        row.ID,
-				TeamID:    row.TeamID,
-				StartsAt:  row.StartsAt.Time.UTC(),
-				RivalName: row.RivalName,
-				Location:  row.Location,
-			},
-			TeamName: row.TeamName,
-			Role:     domain.Role(row.Role),
-			Going:    int(row.Going),
-			NotGoing: int(row.NotGoing),
+			Match:         matchFromRow(row.Match),
+			TeamName:      row.TeamName,
+			Role:          domain.Role(row.Role),
+			GoingCount:    int(row.Going),
+			NotGoingCount: int(row.NotGoing),
 		}
 		if row.OwnAnswer.Valid {
 			a := domain.RSVPAnswer(row.OwnAnswer.String)
