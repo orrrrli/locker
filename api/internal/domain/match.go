@@ -35,3 +35,14 @@ type RSVP struct {
 	Answer       RSVPAnswer
 	UpdatedAt    time.Time
 }
+
+// UpcomingMatch is one row of the user's upcoming matches across teams
+// (R14.2). Going and NotGoing count only members active in the team now.
+type UpcomingMatch struct {
+	Match
+	TeamName string
+	Role     Role        // the user's role in the team
+	Answer   *RSVPAnswer // the user's own answer; nil when none
+	Going    int
+	NotGoing int
+}

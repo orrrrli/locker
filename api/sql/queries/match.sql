@@ -29,3 +29,23 @@ RETURNING *;
 SELECT * FROM match
 WHERE team_id = $1 AND id = $2
 FOR UPDATE;
+
+-- name: ListUpcomingMatchesForUser :many
+-- Matches that start after now in every team where the user is active
+-- (R14.1, R14.3, R14.4), soonest first, with the user's role and own answer
+-- (R14.2). Counts only answers of members active in the team right now: an
+-- RSVP row outlives a member who left, as in CloseDueAttendance.
+SELECT m.id, m.team_id, m.starts_at, m.rival_name, m.location,
+       t.name AS team_name, me.role, own.answer AS own_answer,
+       count(*) FILTER (WHERE r.answer = 'going' AND rm.id IS NOT NULL) AS going,
+       count(*) FILTER (WHERE r.answer = 'not_going' AND rm.id IS NOT NULL) AS not_going
+FROM membership me
+JOIN team t ON t.id = me.team_id
+JOIN match m ON m.team_id = me.team_id
+LEFT JOIN rsvp own ON own.match_id = m.id AND own.membership_id = me.id
+LEFT JOIN rsvp r ON r.match_id = m.id
+LEFT JOIN membership rm ON rm.id = r.membership_id AND rm.status = 'active'
+WHERE me.user_id = sqlc.arg(user_id) AND me.status = 'active'
+  AND m.starts_at > sqlc.arg(now)::timestamptz
+GROUP BY m.id, t.id, me.id, own.answer
+ORDER BY m.starts_at, m.id;

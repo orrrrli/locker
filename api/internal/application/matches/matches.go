@@ -31,6 +31,7 @@ const (
 type Matches interface {
 	CreateMatch(ctx context.Context, teamID int64, startsAt time.Time, rival, location string, createdBy int64) (domain.Match, error)
 	ListMatches(ctx context.Context, teamID int64) ([]domain.Match, error)
+	ListUpcomingForUser(ctx context.Context, userID int64, now time.Time) ([]domain.UpcomingMatch, error)
 	// UpdateMatch, MatchInTeam and LockMatchInTeam return domain.ErrNotFound
 	// when the team has no such match. LockMatchInTeam holds the row for the
 	// transaction, so the attendance auto-save skips it meanwhile.
@@ -102,6 +103,14 @@ func (s *Service) Create(ctx context.Context, teamID, callerID int64, startsAt t
 // the user is an active member.
 func (s *Service) List(ctx context.Context, teamID int64) ([]domain.Match, error) {
 	return s.matches.ListMatches(ctx, teamID)
+}
+
+// Upcoming returns the matches that start after now in every team where the
+// user is active, soonest first (R14). A match at its kickoff instant has
+// started, as the RSVP lock counts it (R9.5).
+// ponytail: no pagination; a user in a few teams has a few dozen rows at most.
+func (s *Service) Upcoming(ctx context.Context, userID int64) ([]domain.UpcomingMatch, error) {
+	return s.matches.ListUpcomingForUser(ctx, userID, s.now())
 }
 
 // Update lets the admin callerID change the time, the rival, the place or
