@@ -29,15 +29,15 @@ type teamJSON struct {
 	CreatedAt           time.Time `json:"created_at"`
 }
 
-// toTeamJSON writes created_at in UTC, so the output does not depend on the
-// server's zone.
+// toTeamJSON writes created_at through apiTime: UTC whole seconds, whatever
+// the server's zone or the database's precision.
 func toTeamJSON(t domain.Team) teamJSON {
 	return teamJSON{
 		ID:                  t.ID,
 		Name:                t.Name,
 		Timezone:            t.Timezone,
 		CaptainMembershipID: t.CaptainMembershipID,
-		CreatedAt:           t.CreatedAt.UTC(),
+		CreatedAt:           apiTime(t.CreatedAt),
 	}
 }
 

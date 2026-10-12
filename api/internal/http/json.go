@@ -6,6 +6,7 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
+	"time"
 )
 
 // maxBodyBytes caps every JSON body. Requests can wait for an argon2id slot
@@ -13,14 +14,31 @@ import (
 const maxBodyBytes = 16 << 10
 
 // decodeJSON reads a JSON body into dst, capped at maxBodyBytes. On failure it
-// writes 400 and returns false.
+// writes 413 for a body over the cap, 400 for anything else, and returns false.
+// An unknown field is a 400 too, so a misspelled field fails loudly instead of
+// reading as absent.
 func decodeJSON(w http.ResponseWriter, r *http.Request, dst any) bool {
 	r.Body = http.MaxBytesReader(w, r.Body, maxBodyBytes)
-	if err := json.NewDecoder(r.Body).Decode(dst); err != nil {
+	dec := json.NewDecoder(r.Body)
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(dst); err != nil {
+		var tooLarge *http.MaxBytesError
+		if errors.As(err, &tooLarge) {
+			writeError(w, http.StatusRequestEntityTooLarge, "body_too_large")
+			return false
+		}
 		writeError(w, http.StatusBadRequest, "invalid_request")
 		return false
 	}
 	return true
+}
+
+// apiTime is how every timestamp leaves the API: UTC, whole seconds. Go
+// writes time.Time as RFC 3339 with as many fractional digits as it has
+// (Postgres gives microseconds), and Swift's JSONDecoder .iso8601 rejects any
+// fraction. Without one, it encodes as "2026-10-11T23:53:00Z".
+func apiTime(t time.Time) time.Time {
+	return t.UTC().Truncate(time.Second)
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {
@@ -44,6 +62,11 @@ type errorMap []struct {
 func (m errorMap) write(w http.ResponseWriter, r *http.Request, tag string, err error) {
 	for _, e := range m {
 		if errors.Is(err, e.err) {
+			// A 503 here is a lock or a pool that stays busy only briefly;
+			// Retry-After tells the client when to try again, as 429 does.
+			if e.status == http.StatusServiceUnavailable {
+				w.Header().Set("Retry-After", "1")
+			}
 			writeError(w, e.status, e.code)
 			return
 		}

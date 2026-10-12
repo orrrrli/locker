@@ -28,7 +28,7 @@ func TestDeleteMe(t *testing.T) {
 
 	// The only admin of both teams is told which ones need a new admin.
 	rec := api.do(t, http.MethodDelete, "/me", adminToken, nil)
-	if rec.Code != http.StatusConflict || errorCode(t, rec) != "last_admin" {
+	if rec.Code != http.StatusConflict || errorCode(t, rec) != "last_admin_of_teams" {
 		t.Fatalf("last admin: status %d, body %s", rec.Code, rec.Body)
 	}
 	var body struct {
@@ -121,7 +121,7 @@ func TestDeleteMeAfterPromotingKeepsHistory(t *testing.T) {
 	}
 
 	// Blocked while the only admin.
-	if rec := api.do(t, http.MethodDelete, "/me", adminToken, nil); rec.Code != http.StatusConflict || errorCode(t, rec) != "last_admin" {
+	if rec := api.do(t, http.MethodDelete, "/me", adminToken, nil); rec.Code != http.StatusConflict || errorCode(t, rec) != "last_admin_of_teams" {
 		t.Fatalf("before promoting: status %d, body %s", rec.Code, rec.Body)
 	}
 	// Promote the player, then the deletion goes through.

@@ -75,10 +75,9 @@ type RegisterInput struct {
 	BirthDate time.Time // zero when missing
 }
 
-// Registered is the result of a successful registration: the new user,
-// already signed in.
 var earliestZone = time.FixedZone("UTC-12", -12*60*60)
 
+// Registered is a signed-in user: what Register and Login return.
 type Registered struct {
 	UserID int64
 	Token  string

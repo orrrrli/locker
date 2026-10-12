@@ -208,7 +208,7 @@ func TestAcceptAfterLeavingReusesMembership(t *testing.T) {
 	var oldID int64
 	if err := f.pool.QueryRow(ctx, `
 		INSERT INTO membership (team_id, user_id, role, status, shirt_number, position)
-		VALUES ($1, $2, 'admin', 'left', 10, 'delantero') RETURNING id`, f.teamID, user).Scan(&oldID); err != nil {
+		VALUES ($1, $2, 'admin', 'left', 10, 'forward') RETURNING id`, f.teamID, user).Scan(&oldID); err != nil {
 		t.Fatal(err)
 	}
 
@@ -220,7 +220,7 @@ func TestAcceptAfterLeavingReusesMembership(t *testing.T) {
 		t.Fatal(err)
 	}
 	if m.ID != oldID || m.Status != domain.MembershipPending || m.Role != domain.RolePlayer ||
-		m.ShirtNumber == nil || *m.ShirtNumber != 10 || m.Position == nil || *m.Position != "delantero" {
+		m.ShirtNumber == nil || *m.ShirtNumber != 10 || m.Position == nil || *m.Position != domain.PositionForward {
 		t.Fatalf("membership = %+v, want row %d back as pending player with number 10", m, oldID)
 	}
 }
@@ -250,8 +250,8 @@ func TestRevokeIsScopedToTheTeam(t *testing.T) {
 		{"invite of another team", otherTeam.ID, otherAdmin.ID, inv.ID},
 		{"unknown invite", f.teamID, f.adminID, inv.ID + 1000},
 	} {
-		if err := f.svc.Revoke(ctx, tc.teamID, tc.caller, tc.invite); !errors.Is(err, domain.ErrNotFound) {
-			t.Fatalf("%s: err = %v, want domain.ErrNotFound", tc.name, err)
+		if err := f.svc.Revoke(ctx, tc.teamID, tc.caller, tc.invite); !errors.Is(err, invites.ErrInviteNotFound) {
+			t.Fatalf("%s: err = %v, want ErrInviteNotFound", tc.name, err)
 		}
 	}
 	var revoked bool

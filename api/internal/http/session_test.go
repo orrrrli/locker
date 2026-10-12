@@ -98,7 +98,11 @@ func TestLoginIssuesOpaqueTokenAndStoresOnlyItsHash(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("login: %d %s", rec.Code, rec.Body)
 	}
-	var body struct{ Token string }
+	// Same shape as register: the client reads user_id from either.
+	var body struct {
+		UserID int64  `json:"user_id"`
+		Token  string `json:"token"`
+	}
 	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
 		t.Fatal(err)
 	}
@@ -107,14 +111,14 @@ func TestLoginIssuesOpaqueTokenAndStoresOnlyItsHash(t *testing.T) {
 		t.Fatalf("token %q is not 32 base64url bytes", body.Token)
 	}
 
-	var stored int
+	var owner int64
 	err = s.pool.QueryRow(context.Background(),
-		"SELECT count(*) FROM session WHERE token_hash = $1", hashOf(t, body.Token)).Scan(&stored)
+		"SELECT user_id FROM session WHERE token_hash = $1", hashOf(t, body.Token)).Scan(&owner)
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("no session row holds the SHA-256 of the token: %v", err)
 	}
-	if stored != 1 {
-		t.Fatal("no session row holds the SHA-256 of the token")
+	if body.UserID == 0 || body.UserID != owner {
+		t.Fatalf("user_id = %d, want the session's user %d", body.UserID, owner)
 	}
 	var plain int
 	err = s.pool.QueryRow(context.Background(),
@@ -140,6 +144,9 @@ func TestLoginFailuresLookTheSame(t *testing.T) {
 	for name, rec := range map[string]*httptest.ResponseRecorder{"wrong password": wrongPassword, "unknown email": unknownEmail} {
 		if rec.Code != http.StatusUnauthorized || errorCode(t, rec) != "invalid_credentials" {
 			t.Errorf("%s: %d %s, want 401 invalid_credentials", name, rec.Code, rec.Body)
+		}
+		if got := rec.Header().Get("WWW-Authenticate"); got != "Bearer" {
+			t.Errorf("%s: WWW-Authenticate = %q, want Bearer (RFC 9110, every 401)", name, got)
 		}
 	}
 	if wrongPassword.Body.String() != unknownEmail.Body.String() {

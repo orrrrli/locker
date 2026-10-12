@@ -26,7 +26,8 @@ const (
 var (
 	// ErrTooManyInvites rejects a new invite while the team has MaxLive.
 	ErrTooManyInvites = errors.New("too many live invites; revoke one or wait for one to expire")
-	// ErrInviteNotFound covers a malformed or unknown token.
+	// ErrInviteNotFound covers a malformed or unknown token, and an invite id
+	// the team does not have.
 	ErrInviteNotFound = errors.New("invite not found")
 	ErrInviteExpired  = errors.New("invite expired")
 	ErrInviteRevoked  = errors.New("invite revoked")
@@ -138,14 +139,18 @@ func (s *Service) Create(ctx context.Context, teamID, createdBy int64) (Created,
 
 // Revoke lets the admin callerID stop one of the team's invites from being
 // accepted (R7.5). callerID is checked by requireRole and again under the
-// team lock. An invite of another team is domain.ErrNotFound, so a check on
+// team lock. An invite of another team is ErrInviteNotFound, so a check on
 // the wrong team fails closed.
 func (s *Service) Revoke(ctx context.Context, teamID, callerID, inviteID int64) error {
 	return s.tx.InTx(ctx, func(ctx context.Context) error {
 		if _, err := application.LockTeamAsAdmin(ctx, s.memberships, teamID, callerID); err != nil {
 			return err
 		}
-		return s.invites.RevokeInvite(ctx, teamID, inviteID, s.now())
+		err := s.invites.RevokeInvite(ctx, teamID, inviteID, s.now())
+		if errors.Is(err, domain.ErrNotFound) {
+			return ErrInviteNotFound
+		}
+		return err
 	})
 }
 

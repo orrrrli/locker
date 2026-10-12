@@ -103,12 +103,22 @@ func TestCreateTeamMakesCreatorAdmin(t *testing.T) {
 	}
 }
 
-// created_at goes out in UTC whatever zone the database driver used.
-func TestTeamJSONWritesUTC(t *testing.T) {
+// created_at goes out in UTC whole seconds whatever zone and precision the
+// database driver used: Swift's .iso8601 decoder rejects fractional seconds.
+func TestTeamJSONWritesUTCWholeSeconds(t *testing.T) {
 	tijuana := time.FixedZone("PDT", -7*60*60)
-	got := toTeamJSON(domain.Team{CreatedAt: time.Date(2026, 10, 9, 10, 0, 0, 0, tijuana)})
-	if got.CreatedAt.Location() != time.UTC || got.CreatedAt.Hour() != 17 {
-		t.Fatalf("created_at = %v, want 17:00 UTC", got.CreatedAt)
+	b, err := json.Marshal(toTeamJSON(domain.Team{CreatedAt: time.Date(2026, 10, 11, 16, 53, 0, 123456000, tijuana)}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got struct {
+		CreatedAt string `json:"created_at"`
+	}
+	if err := json.Unmarshal(b, &got); err != nil {
+		t.Fatal(err)
+	}
+	if got.CreatedAt != "2026-10-11T23:53:00Z" {
+		t.Fatalf("created_at = %s, want 2026-10-11T23:53:00Z", got.CreatedAt)
 	}
 }
 

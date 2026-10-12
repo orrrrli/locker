@@ -128,7 +128,7 @@ func TestRegisterAgeGate(t *testing.T) {
 		{"one day short of 15 (R1.2)", "2011-10-07", http.StatusUnprocessableEntity, "underage"},
 		{"exactly 15 today (R1.2)", "2011-10-06", http.StatusCreated, ""},
 		{"16 is treated as an adult (R1.3)", "2010-03-01", http.StatusCreated, ""},
-		{"birth date in the future", "2027-01-01", http.StatusUnprocessableEntity, "invalid_birth_date"},
+		{"birth date in the future", "2027-01-01", http.StatusUnprocessableEntity, "birth_date_in_future"},
 		{"malformed birth date", "06/10/2011", http.StatusUnprocessableEntity, "invalid_birth_date"},
 	}
 	for i, tt := range tests {

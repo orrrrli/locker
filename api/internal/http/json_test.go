@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
@@ -41,6 +42,46 @@ func TestErrorMapLogsOnlyRealFailures(t *testing.T) {
 		}
 		if !bytes.Contains(logs.Bytes(), []byte(tc.level)) || !bytes.Contains(logs.Bytes(), []byte("path=/x")) {
 			t.Fatalf("%s: log %q, want %s with the path", tc.name, logs.String(), tc.level)
+		}
+	}
+}
+
+// Every mapped 503 carries Retry-After, so the client knows to try again soon;
+// other statuses do not.
+func TestErrorMapSetsRetryAfterOn503(t *testing.T) {
+	busy, other := errors.New("busy"), errors.New("other")
+	m := errorMap{
+		{busy, http.StatusServiceUnavailable, "team_busy"},
+		{other, http.StatusNotFound, "not_found"},
+	}
+	for _, tc := range []struct {
+		err  error
+		want string
+	}{{busy, "1"}, {other, ""}} {
+		rec := httptest.NewRecorder()
+		m.write(rec, httptest.NewRequest(http.MethodGet, "/x", nil), "test", tc.err)
+		if got := rec.Header().Get("Retry-After"); got != tc.want {
+			t.Fatalf("%v: status %d, Retry-After %q, want %q", tc.err, rec.Code, got, tc.want)
+		}
+	}
+}
+
+// A body over maxBodyBytes is 413 body_too_large; malformed JSON and an
+// unknown field are 400 invalid_request.
+func TestDecodeJSONErrors(t *testing.T) {
+	for _, tc := range []struct {
+		name, body, code string
+		status           int
+	}{
+		{"too large", `{"name":"` + strings.Repeat("a", maxBodyBytes) + `"}`, "body_too_large", http.StatusRequestEntityTooLarge},
+		{"malformed", `{"name":`, "invalid_request", http.StatusBadRequest},
+		{"unknown field", `{"name":"a","nmae":"b"}`, "invalid_request", http.StatusBadRequest},
+	} {
+		rec := httptest.NewRecorder()
+		var dst struct{ Name string }
+		ok := decodeJSON(rec, httptest.NewRequest(http.MethodPost, "/x", strings.NewReader(tc.body)), &dst)
+		if ok || rec.Code != tc.status || !strings.Contains(rec.Body.String(), `"error":"`+tc.code+`"`) {
+			t.Fatalf("%s: ok %v, status %d, body %s; want %d %s", tc.name, ok, rec.Code, rec.Body, tc.status, tc.code)
 		}
 	}
 }
