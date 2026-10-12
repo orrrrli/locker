@@ -90,7 +90,7 @@ it ends. Each test gets its own empty database, so tests never share state. Run 
   Deleting an account removes personal data and anonymizes memberships, so team history and scores stay consistent.
 - **One user, many identities.** Sign in with Apple and email/password map to the same user. Accounts merge
   automatically only when both emails are verified, to prevent account takeover.
-- **Permissions vs. labels.** Roles (`admin`, `player`) grant permissions; "captain" is a sports label with none.
+- **Roles grant permissions.** `admin` and `player`; the app shows `admin` as "Capitán".
   A team can never be left without an admin.
 - **Standard library first.** `net/http` routing, stdlib HTTP/2 for APNs, a ticker goroutine for scheduled jobs.
   Dependencies only where they save real work.

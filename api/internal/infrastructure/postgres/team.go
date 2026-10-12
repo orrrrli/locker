@@ -27,7 +27,7 @@ func (r *Teams) CreateTeam(ctx context.Context, name, timezone string) (domain.T
 	if err != nil {
 		return domain.Team{}, fmt.Errorf("postgres: create team: %w", err)
 	}
-	return teamFromRow(sqlcdb.GetTeamRow(row)), nil
+	return teamFromRow(row), nil
 }
 
 // ListActiveForUser returns the teams where the user has an active
@@ -39,7 +39,7 @@ func (r *Teams) ListActiveForUser(ctx context.Context, userID int64) ([]domain.T
 	}
 	out := make([]domain.Team, len(rows))
 	for i, row := range rows {
-		out[i] = teamFromRow(sqlcdb.GetTeamRow(row))
+		out[i] = teamFromRow(row)
 	}
 	return out, nil
 }
@@ -70,7 +70,7 @@ func (r *Teams) UpdateTeam(ctx context.Context, id int64, name, timezone *string
 	if err != nil {
 		return domain.Team{}, fmt.Errorf("postgres: update team: %w", err)
 	}
-	return teamFromRow(sqlcdb.GetTeamRow(row)), nil
+	return teamFromRow(row), nil
 }
 
 func optText(s *string) pgtype.Text {
@@ -80,9 +80,7 @@ func optText(s *string) pgtype.Text {
 	return pgtype.Text{String: *s, Valid: true}
 }
 
-// teamFromRow takes GetTeamRow; the other team queries return the same
-// columns, so their rows convert to it.
-func teamFromRow(row sqlcdb.GetTeamRow) domain.Team {
+func teamFromRow(row sqlcdb.Team) domain.Team {
 	return domain.Team{
 		ID:        row.ID,
 		Name:      row.Name,

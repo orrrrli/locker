@@ -22,16 +22,9 @@ type CreateTeamParams struct {
 	Timezone string
 }
 
-type CreateTeamRow struct {
-	ID        int64
-	Name      string
-	Timezone  string
-	CreatedAt pgtype.Timestamptz
-}
-
-func (q *Queries) CreateTeam(ctx context.Context, arg CreateTeamParams) (CreateTeamRow, error) {
+func (q *Queries) CreateTeam(ctx context.Context, arg CreateTeamParams) (Team, error) {
 	row := q.db.QueryRow(ctx, createTeam, arg.Name, arg.Timezone)
-	var i CreateTeamRow
+	var i Team
 	err := row.Scan(
 		&i.ID,
 		&i.Name,
@@ -46,16 +39,9 @@ SELECT id, name, timezone, created_at FROM team
 WHERE id = $1
 `
 
-type GetTeamRow struct {
-	ID        int64
-	Name      string
-	Timezone  string
-	CreatedAt pgtype.Timestamptz
-}
-
-func (q *Queries) GetTeam(ctx context.Context, id int64) (GetTeamRow, error) {
+func (q *Queries) GetTeam(ctx context.Context, id int64) (Team, error) {
 	row := q.db.QueryRow(ctx, getTeam, id)
-	var i GetTeamRow
+	var i Team
 	err := row.Scan(
 		&i.ID,
 		&i.Name,
@@ -72,22 +58,15 @@ WHERE m.user_id = $1 AND m.status = 'active'
 ORDER BY t.id
 `
 
-type ListActiveTeamsForUserRow struct {
-	ID        int64
-	Name      string
-	Timezone  string
-	CreatedAt pgtype.Timestamptz
-}
-
-func (q *Queries) ListActiveTeamsForUser(ctx context.Context, userID pgtype.Int8) ([]ListActiveTeamsForUserRow, error) {
+func (q *Queries) ListActiveTeamsForUser(ctx context.Context, userID pgtype.Int8) ([]Team, error) {
 	rows, err := q.db.Query(ctx, listActiveTeamsForUser, userID)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var items []ListActiveTeamsForUserRow
+	var items []Team
 	for rows.Next() {
-		var i ListActiveTeamsForUserRow
+		var i Team
 		if err := rows.Scan(
 			&i.ID,
 			&i.Name,
@@ -135,17 +114,10 @@ type UpdateTeamParams struct {
 	ID       int64
 }
 
-type UpdateTeamRow struct {
-	ID        int64
-	Name      string
-	Timezone  string
-	CreatedAt pgtype.Timestamptz
-}
-
 // A NULL argument keeps the current value (partial PATCH).
-func (q *Queries) UpdateTeam(ctx context.Context, arg UpdateTeamParams) (UpdateTeamRow, error) {
+func (q *Queries) UpdateTeam(ctx context.Context, arg UpdateTeamParams) (Team, error) {
 	row := q.db.QueryRow(ctx, updateTeam, arg.Name, arg.Timezone, arg.ID)
-	var i UpdateTeamRow
+	var i Team
 	err := row.Scan(
 		&i.ID,
 		&i.Name,
