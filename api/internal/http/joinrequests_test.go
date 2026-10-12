@@ -1,10 +1,15 @@
 package http
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
+	"net/http/httptest"
 	"testing"
 	"time"
+
+	"github.com/orrrrli/locker/api/internal/application/invites"
+	"github.com/orrrrli/locker/api/internal/domain"
 )
 
 func joinPath(teamID int64) string { return teamPath(teamID) + "/join-requests" }
@@ -59,5 +64,61 @@ func TestRequestToJoinDissolvedTeamIsNotFound(t *testing.T) {
 	}
 	if rec := api.do(t, http.MethodPost, joinPath(team.ID), playerToken, nil); rec.Code != http.StatusNotFound || errorCode(t, rec) != "not_found" {
 		t.Fatalf("status %d, body %s; want 404 not_found", rec.Code, rec.Body)
+	}
+}
+
+// fakeJoins answers every join request with created and err.
+type fakeJoins struct {
+	fakeInvites
+	created bool
+	err     error
+}
+
+func (f *fakeJoins) RequestToJoin(context.Context, int64, int64) (invites.Accepted, bool, error) {
+	return invites.Accepted{Status: domain.MembershipPending}, f.created, f.err
+}
+
+// Only a request that leaves a new pending membership counts against the
+// daily limit (NFR 10); asking again while pending, an active member and a
+// dissolved team are free.
+func TestJoinRequestsAreLimitedPerUser(t *testing.T) {
+	clk := &clock{t: today}
+	svc := &fakeJoins{}
+	h := NewRouter(Deps{Auth: &fakeAuth{user: userID}, Invites: svc, Limits: NewLimits(clk.now)})
+	join := func() int {
+		req := httptest.NewRequest(http.MethodPost, joinPath(teamID), nil)
+		req.Header.Set("Authorization", "Bearer x")
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+		return rec.Code
+	}
+	for _, free := range []struct {
+		name string
+		err  error
+		want int
+	}{
+		{"already pending", nil, http.StatusOK},
+		{"active member", &invites.AlreadyMemberError{Status: domain.MembershipActive}, http.StatusConflict},
+		{"dissolved team", domain.ErrNotFound, http.StatusNotFound},
+	} {
+		svc.created, svc.err = false, free.err
+		for i := 0; i < 2*joinRequestMaxPerUser; i++ {
+			if code := join(); code != free.want {
+				t.Fatalf("%s call %d = %d, want %d", free.name, i+1, code, free.want)
+			}
+		}
+	}
+	svc.created, svc.err = true, nil
+	for i := 0; i < joinRequestMaxPerUser; i++ {
+		if code := join(); code != http.StatusCreated {
+			t.Fatalf("new request %d = %d, want 201", i+1, code)
+		}
+	}
+	if code := join(); code != http.StatusTooManyRequests {
+		t.Fatalf("request past the limit = %d, want 429", code)
+	}
+	clk.advance(joinRequestWindow)
+	if code := join(); code != http.StatusCreated {
+		t.Fatalf("after the window = %d, want 201", code)
 	}
 }

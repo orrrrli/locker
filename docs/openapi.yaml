@@ -622,6 +622,11 @@ paths:
         `PATCH /memberships/{id}`. A user who left the team gets their old row
         back as pending. Asking again while pending changes nothing and
         answers 200. No request body.
+
+        Rate limited to 10 new requests per user per 24 hours (NFR 10). Only a
+        201 counts: a 200, 404 or 409 is free. At the limit every call answers
+        429, even one that would be free. The count lives in memory and resets
+        when the API restarts.
       security:
         - bearerAuth: []
       responses:
@@ -655,6 +660,8 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/AlreadyMemberError"
+        "429":
+          $ref: "#/components/responses/TooManyAttempts"
         "500":
           $ref: "#/components/responses/Internal"
         "503":

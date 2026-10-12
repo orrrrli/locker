@@ -19,7 +19,8 @@ type inviteService interface {
 }
 
 type inviteHandlers struct {
-	svc inviteService
+	svc   inviteService
+	joins *RateLimiter // new join requests, per user
 }
 
 // create runs behind requireRole(admin): the membership in the context is
@@ -89,14 +90,32 @@ func (h inviteHandlers) accept(w http.ResponseWriter, r *http.Request) {
 // left one back to pending, is a 201; a pending one already there is a 200
 // with the same body (R13.3). An active member gets the 409 an invite accept
 // gives. An unknown or dissolved team is a 404 (R6.10).
+//
+// Only a new request counts against the daily limit (NFR 10). Like register,
+// it reserves a slot up front, so parallel requests cannot all pass, and
+// returns it unless a membership became pending: asking again while pending,
+// an active member or a dissolved team cost nothing. A user at the limit gets
+// 429 even for a request that would cost nothing.
 func (h inviteHandlers) requestToJoin(w http.ResponseWriter, r *http.Request) {
 	teamID, err := idFromPath(r, "id")
 	if err != nil {
 		writeError(w, http.StatusNotFound, "not_found")
 		return
 	}
+	key, ok := byUser(r)
+	if !ok {
+		writeError(w, http.StatusBadRequest, "invalid_request")
+		return
+	}
+	if wait, ok := h.joins.take(key); !ok {
+		tooManyAttempts(w, wait)
+		return
+	}
 	userID, _ := userIDFrom(r.Context())
 	acc, created, err := h.svc.RequestToJoin(r.Context(), teamID, userID)
+	if !created {
+		h.joins.undo(key)
+	}
 	var already *invites.AlreadyMemberError
 	if errors.As(err, &already) {
 		writeJSON(w, http.StatusConflict, map[string]string{"error": "already_member", "status": string(already.Status)})
