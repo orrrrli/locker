@@ -185,6 +185,7 @@ var membershipErrors = errorMap{
 	{memberships.ErrNotActive, http.StatusConflict, "not_active"},
 	{memberships.ErrNotPending, http.StatusConflict, "not_pending"},
 	{application.ErrNotAdmin, http.StatusForbidden, "forbidden"},
+	{memberships.ErrTargetIsAdmin, http.StatusForbidden, "target_is_admin"},
 	{domain.ErrTeamBusy, http.StatusServiceUnavailable, "team_busy"},
 	{domain.ErrLastAdmin, http.StatusConflict, "last_admin"},
 	{domain.ErrNotFound, http.StatusNotFound, "not_found"},

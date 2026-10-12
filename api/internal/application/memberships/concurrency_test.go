@@ -62,25 +62,35 @@ func (f *fixture) activeAdmins(t *testing.T, team int64) int {
 	return n
 }
 
-// TestConcurrentDemotesKeepAnAdmin: two admins demote at the same time and
-// exactly one wins (R6.4). When they demote each other, the loser is no
-// longer an admin once it gets the lock (ErrNotAdmin). When each demotes
-// themselves, the loser is the last admin (ErrLastAdmin). Both runs must end
-// with one active admin.
-func TestConcurrentDemotesKeepAnAdmin(t *testing.T) {
+// TestConcurrentStepDownsKeepAnAdmin: the team's two admins each demote
+// themselves or leave at the same time, and exactly one wins (R6.4). The loser
+// is the last admin once it gets the lock (ErrLastAdmin). Every run must end
+// with one active admin. Only self changes can race: an admin cannot demote
+// or remove another admin (R6.12).
+func TestConcurrentStepDownsKeepAnAdmin(t *testing.T) {
+	demote := func(svc *memberships.Service, team, id int64) error {
+		_, err := svc.ChangeRole(context.Background(), team, id, id, domain.RolePlayer)
+		return err
+	}
+	leave := func(svc *memberships.Service, team, id int64) error {
+		return svc.Leave(context.Background(), team, id, id)
+	}
+	type op func(svc *memberships.Service, team, id int64) error
 	for _, tc := range []struct {
-		name     string
-		eachSelf bool
-		loser    error
+		name string
+		ops  [2]op
 	}{
-		{"each other", false, application.ErrNotAdmin},
-		{"each themselves", true, domain.ErrLastAdmin},
+		{"each demotes themselves", [2]op{demote, demote}},
+		{"each leaves", [2]op{leave, leave}},
+		{"one demotes, one leaves", [2]op{demote, leave}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			f := newFixture(t)
 			team := f.team(t)
-			a := f.member(t, team, domain.RoleAdmin, domain.MembershipActive)
-			b := f.member(t, team, domain.RoleAdmin, domain.MembershipActive)
+			admins := [2]int64{
+				f.member(t, team, domain.RoleAdmin, domain.MembershipActive),
+				f.member(t, team, domain.RoleAdmin, domain.MembershipActive),
+			}
 
 			svc := memberships.NewService(memberships.Deps{
 				Tx: postgres.NewTxRunner(f.pool),
@@ -90,18 +100,13 @@ func TestConcurrentDemotesKeepAnAdmin(t *testing.T) {
 				},
 			})
 
-			// {caller, target}
-			calls := [][2]int64{{a, b}, {b, a}}
-			if tc.eachSelf {
-				calls = [][2]int64{{a, a}, {b, b}}
-			}
 			errs := make([]error, 2)
 			var wg sync.WaitGroup
-			for i, c := range calls {
+			for i, id := range admins {
 				wg.Add(1)
 				go func() {
 					defer wg.Done()
-					_, errs[i] = svc.ChangeRole(context.Background(), team, c[0], c[1], domain.RolePlayer)
+					errs[i] = tc.ops[i](svc, team, id)
 				}()
 			}
 			wg.Wait()
@@ -114,14 +119,14 @@ func TestConcurrentDemotesKeepAnAdmin(t *testing.T) {
 				switch {
 				case err == nil:
 					ok++
-				case errors.Is(err, tc.loser):
+				case errors.Is(err, domain.ErrLastAdmin):
 					lost++
 				default:
 					t.Fatalf("unexpected error: %v", err)
 				}
 			}
 			if ok != 1 || lost != 1 {
-				t.Fatalf("errs = %v, want one success and one %v", errs, tc.loser)
+				t.Fatalf("errs = %v, want one success and one ErrLastAdmin", errs)
 			}
 		})
 	}
@@ -141,8 +146,9 @@ func (r gatedRepo) LockTeamForAdminChange(ctx context.Context, teamID int64) (in
 }
 
 // TestDemotedCallerCannotFinishInFlightChange: Beto's request passed
-// requireRole while he was still an admin. Ana demotes him before his request
-// takes the team lock. His request must fail, not promote Carlos or bring
+// requireRole while he was still an admin. He steps down in another request
+// before the first one takes the team lock (Ana stays admin, so R6.4 allows
+// it). His request must fail, not promote Carlos or bring
 // Beto back as admin.
 func TestDemotedCallerCannotFinishInFlightChange(t *testing.T) {
 	for _, tc := range []struct {
@@ -156,7 +162,7 @@ func TestDemotedCallerCannotFinishInFlightChange(t *testing.T) {
 			f := newFixture(t)
 			ctx := context.Background()
 			team := f.team(t)
-			ana := f.member(t, team, domain.RoleAdmin, domain.MembershipActive)
+			f.member(t, team, domain.RoleAdmin, domain.MembershipActive) // Ana
 			beto := f.member(t, team, domain.RoleAdmin, domain.MembershipActive)
 			carlos := f.member(t, team, domain.RolePlayer, domain.MembershipActive)
 			target := tc.target(beto, carlos)
@@ -176,8 +182,8 @@ func TestDemotedCallerCannotFinishInFlightChange(t *testing.T) {
 				done <- err
 			}()
 
-			// Ana demotes Beto while his request waits before the lock.
-			if _, err := f.svc.ChangeRole(ctx, team, ana, beto, domain.RolePlayer); err != nil {
+			// Beto demotes himself while his first request waits before the lock.
+			if _, err := f.svc.ChangeRole(ctx, team, beto, beto, domain.RolePlayer); err != nil {
 				t.Fatal(err)
 			}
 			release()
@@ -190,71 +196,6 @@ func TestDemotedCallerCannotFinishInFlightChange(t *testing.T) {
 			}
 			if got := f.role(t, carlos); got != domain.RolePlayer {
 				t.Fatalf("carlos role = %s, want player", got)
-			}
-		})
-	}
-}
-
-// TestConcurrentLeavesKeepAnAdmin: two admins leave at the same time, or
-// remove each other, and exactly one wins (R6.4). When each leaves, the loser
-// is the last admin (ErrLastAdmin). When they remove each other, the loser
-// has already left once it gets the lock, so it is no longer an active member
-// (domain.ErrNotFound). Both runs must end with one active admin.
-func TestConcurrentLeavesKeepAnAdmin(t *testing.T) {
-	for _, tc := range []struct {
-		name     string
-		eachSelf bool
-		loser    error
-	}{
-		{"each leaves", true, domain.ErrLastAdmin},
-		{"remove each other", false, domain.ErrNotFound},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			f := newFixture(t)
-			team := f.team(t)
-			a := f.member(t, team, domain.RoleAdmin, domain.MembershipActive)
-			b := f.member(t, team, domain.RoleAdmin, domain.MembershipActive)
-
-			svc := memberships.NewService(memberships.Deps{
-				Tx: postgres.NewTxRunner(f.pool),
-				Memberships: pausedRepo{
-					Memberships: postgres.NewMemberships(f.pool),
-					b:           &barrier{all: make(chan struct{}), wait: 300 * time.Millisecond},
-				},
-			})
-
-			// {caller, target}
-			calls := [][2]int64{{a, b}, {b, a}}
-			if tc.eachSelf {
-				calls = [][2]int64{{a, a}, {b, b}}
-			}
-			errs := make([]error, 2)
-			var wg sync.WaitGroup
-			for i, c := range calls {
-				wg.Add(1)
-				go func() {
-					defer wg.Done()
-					errs[i] = svc.Leave(context.Background(), team, c[0], c[1])
-				}()
-			}
-			wg.Wait()
-
-			if n := f.activeAdmins(t, team); n != 1 {
-				t.Fatalf("active admins = %d, want 1 (errs: %v)", n, errs)
-			}
-			ok, lost := 0, 0
-			for _, err := range errs {
-				switch {
-				case err == nil:
-					ok++
-				case errors.Is(err, tc.loser):
-					lost++
-				default:
-					t.Fatalf("unexpected error: %v", err)
-				}
-			}
-			if ok != 1 || lost != 1 {
-				t.Fatalf("errs = %v, want one success and one %v", errs, tc.loser)
 			}
 		})
 	}

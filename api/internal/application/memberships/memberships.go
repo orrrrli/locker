@@ -23,6 +23,9 @@ var (
 	// outside what the app shows (R8.2).
 	ErrInvalidShirtNumber = errors.New("shirt number must be 0 to 99")
 	ErrInvalidPosition    = errors.New("position must be goalkeeper, defender, midfielder or forward")
+	// ErrTargetIsAdmin rejects demoting or removing another active admin: an
+	// admin stops being one only by stepping down or leaving (R6.12).
+	ErrTargetIsAdmin = errors.New("an admin cannot demote or remove another admin")
 )
 
 const maxShirtNumber = 99
@@ -57,8 +60,8 @@ func NewService(d Deps) *Service {
 }
 
 // ChangeRole lets the admin callerID promote or demote a membership of the
-// team (R6.2, R6.3). It rejects a demotion that would leave the team with no
-// active admin, checked under the team lock in the same transaction as the
+// team (R6.2, R6.3), but never demotes another admin (R6.12). It rejects a
+// demotion that would leave the team with no active admin, checked under the team lock in the same transaction as the
 // write (R6.4). callerID is the caller's active membership, from
 // requireActiveMember; LockTeamAsAdmin checks it is an admin.
 func (s *Service) ChangeRole(ctx context.Context, teamID, callerID, membershipID int64, role domain.Role) (domain.Membership, error) {
@@ -85,6 +88,9 @@ func (s *Service) ChangeRole(ctx context.Context, teamID, callerID, membershipID
 			return nil
 		}
 		if role == domain.RolePlayer {
+			if err := checkNotOtherAdmin(m, callerID); err != nil {
+				return err
+			}
 			if err := domain.CheckAdminLoss(m, admins); err != nil {
 				return err
 			}
@@ -170,11 +176,24 @@ func (s *Service) Leave(ctx context.Context, teamID, callerID, membershipID int6
 		if m.Status != domain.MembershipActive {
 			return ErrNotActive
 		}
+		if err := checkNotOtherAdmin(m, callerID); err != nil {
+			return err
+		}
 		if err := domain.CheckAdminLoss(m, admins); err != nil {
 			return err
 		}
 		return s.memberships.SetLeft(ctx, m.ID)
 	})
+}
+
+// checkNotOtherAdmin rejects acting on m when it is an admin other than the
+// caller (R6.12). Callers check m is active first, so a pending or left row
+// still gets ErrNotActive.
+func checkNotOtherAdmin(m domain.Membership, callerID int64) error {
+	if m.ID != callerID && m.Role == domain.RoleAdmin {
+		return ErrTargetIsAdmin
+	}
+	return nil
 }
 
 // Roster lists the team of caller, an active member: its active members
