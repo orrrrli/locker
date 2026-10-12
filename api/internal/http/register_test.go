@@ -75,6 +75,7 @@ func newAPI(t *testing.T, now func() time.Time) apiTest {
 		Tx:          postgres.NewTxRunner(pool),
 		Matches:     matchRepo,
 		Memberships: memberships,
+		Now:         now,
 	})
 	// Limits high enough that no test of a feature trips them; the limits
 	// have their own tests in ratelimit_test.go.

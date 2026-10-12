@@ -57,6 +57,32 @@ func (r *Matches) MatchByID(ctx context.Context, id int64) (domain.Match, error)
 	return matchOrNotFound(row, err, "match by id")
 }
 
+// MatchInTeam returns the team's match with that id, or domain.ErrNotFound
+// when the id belongs to another team or to none.
+func (r *Matches) MatchInTeam(ctx context.Context, teamID, id int64) (domain.Match, error) {
+	row, err := sqlcdb.New(Conn(ctx, r.pool)).GetMatchInTeam(ctx, sqlcdb.GetMatchInTeamParams{TeamID: teamID, ID: id})
+	return matchOrNotFound(row, err, "match in team")
+}
+
+// UpsertRSVP stores the member's answer for the match, replacing any
+// earlier one, and returns the row.
+func (r *Matches) UpsertRSVP(ctx context.Context, matchID, membershipID int64, answer domain.RSVPAnswer) (domain.RSVP, error) {
+	row, err := sqlcdb.New(Conn(ctx, r.pool)).UpsertRSVP(ctx, sqlcdb.UpsertRSVPParams{
+		MatchID:      matchID,
+		MembershipID: membershipID,
+		Answer:       string(answer),
+	})
+	if err != nil {
+		return domain.RSVP{}, fmt.Errorf("postgres: upsert rsvp: %w", err)
+	}
+	return domain.RSVP{
+		MatchID:      row.MatchID,
+		MembershipID: row.MembershipID,
+		Answer:       domain.RSVPAnswer(row.Answer),
+		UpdatedAt:    row.UpdatedAt.Time.UTC(),
+	}, nil
+}
+
 // UpdateMatch sets the fields that are not nil on the team's match and
 // returns it, or domain.ErrNotFound when the team has no such match.
 func (r *Matches) UpdateMatch(ctx context.Context, teamID, id int64, startsAt *time.Time, rival, location *string) (domain.Match, error) {

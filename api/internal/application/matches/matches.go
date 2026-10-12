@@ -31,27 +31,34 @@ const (
 type Matches interface {
 	CreateMatch(ctx context.Context, teamID int64, startsAt time.Time, rival, location string, createdBy int64) (domain.Match, error)
 	ListMatches(ctx context.Context, teamID int64) ([]domain.Match, error)
-	// UpdateMatch and LockMatchInTeam return domain.ErrNotFound when the
-	// team has no such match. LockMatchInTeam holds the row for the
+	// UpdateMatch, MatchInTeam and LockMatchInTeam return domain.ErrNotFound
+	// when the team has no such match. LockMatchInTeam holds the row for the
 	// transaction, so the attendance auto-save skips it meanwhile.
 	UpdateMatch(ctx context.Context, teamID, id int64, startsAt *time.Time, rival, location *string) (domain.Match, error)
+	MatchInTeam(ctx context.Context, teamID, id int64) (domain.Match, error)
 	LockMatchInTeam(ctx context.Context, teamID, id int64) (domain.Match, error)
+	UpsertRSVP(ctx context.Context, matchID, membershipID int64, answer domain.RSVPAnswer) (domain.RSVP, error)
 }
 
 type Deps struct {
 	Tx          application.TxRunner
 	Matches     Matches
 	Memberships application.AdminLocker
+	Now         func() time.Time // nil means time.Now
 }
 
 type Service struct {
 	tx          application.TxRunner
 	matches     Matches
 	memberships application.AdminLocker
+	now         func() time.Time
 }
 
 func NewService(d Deps) *Service {
-	return &Service{tx: d.Tx, matches: d.Matches, memberships: d.Memberships}
+	if d.Now == nil {
+		d.Now = time.Now
+	}
+	return &Service{tx: d.Tx, matches: d.Matches, memberships: d.Memberships, now: d.Now}
 }
 
 // Create schedules a match for the team (R9.1). startsAt is stored in UTC.

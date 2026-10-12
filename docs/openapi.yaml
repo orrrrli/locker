@@ -902,6 +902,63 @@ paths:
         "503":
           $ref: "#/components/responses/TeamBusy"
 
+  /matches/{id}/rsvp:
+    parameters:
+      - $ref: "#/components/parameters/MatchID"
+    put:
+      tags: [matches]
+      operationId: answerRSVP
+      summary: Answer going or not going to a match
+      description: |
+        Any active member of the match's team, for themselves. A new answer
+        replaces the old one until kickoff; from `starts_at` on the answer is
+        locked (R9.3-R9.5).
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RSVPRequest"
+      responses:
+        "200":
+          description: The stored answer.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RSVP"
+        "400":
+          $ref: "#/components/responses/InvalidRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          description: "`match_started`: `starts_at` is now or in the past; the answer did not change."
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Error"
+                  - properties:
+                      error:
+                        const: match_started
+        "413":
+          $ref: "#/components/responses/BodyTooLarge"
+        "422":
+          description: "`invalid_answer`: not `going` or `not_going`."
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Error"
+                  - properties:
+                      error:
+                        const: invalid_answer
+        "500":
+          $ref: "#/components/responses/Internal"
+
 components:
   securitySchemes:
     bearerAuth:
@@ -1141,6 +1198,8 @@ components:
         - invalid_rival_name
         - invalid_location
         - attendance_closed
+        - invalid_answer
+        - match_started
     AlreadyMemberError:
       type: object
       required: [error, status]
@@ -1283,6 +1342,31 @@ components:
           type: [string, "null"]
         location:
           type: [string, "null"]
+    RSVPAnswer:
+      type: string
+      enum: [going, not_going]
+    RSVPRequest:
+      type: object
+      additionalProperties: false
+      required: [answer]
+      properties:
+        answer:
+          $ref: "#/components/schemas/RSVPAnswer"
+    RSVP:
+      type: object
+      required: [match_id, membership_id, answer, updated_at]
+      properties:
+        match_id:
+          type: integer
+          format: int64
+        membership_id:
+          type: integer
+          format: int64
+          description: The caller's membership.
+        answer:
+          $ref: "#/components/schemas/RSVPAnswer"
+        updated_at:
+          $ref: "#/components/schemas/Timestamp"
 
     InviteCreated:
       type: object
