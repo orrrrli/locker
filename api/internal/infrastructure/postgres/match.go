@@ -68,6 +68,13 @@ func (r *Matches) UpdateMatch(ctx context.Context, teamID, id int64, startsAt *t
 	return matchOrNotFound(row, err, "update match")
 }
 
+// LockMatchInTeam returns the team's match with that id, holding the row
+// until the transaction ends, or domain.ErrNotFound.
+func (r *Matches) LockMatchInTeam(ctx context.Context, teamID, id int64) (domain.Match, error) {
+	row, err := sqlcdb.New(Conn(ctx, r.pool)).LockMatchInTeam(ctx, sqlcdb.LockMatchInTeamParams{TeamID: teamID, ID: id})
+	return matchOrNotFound(row, err, "lock match in team")
+}
+
 func matchOrNotFound(row sqlcdb.Match, err error, op string) (domain.Match, error) {
 	if errors.Is(err, pgx.ErrNoRows) {
 		return domain.Match{}, domain.ErrNotFound

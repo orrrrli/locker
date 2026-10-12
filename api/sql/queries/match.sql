@@ -22,3 +22,10 @@ SET starts_at  = coalesce(sqlc.narg(starts_at), starts_at),
     location   = coalesce(sqlc.narg(location), location)
 WHERE id = sqlc.arg(id) AND team_id = sqlc.arg(team_id)
 RETURNING *;
+
+-- name: LockMatchInTeam :one
+-- GetMatch scoped to the team, holding the row until the transaction ends:
+-- the attendance auto-save skips a match an admin is changing right now.
+SELECT * FROM match
+WHERE team_id = $1 AND id = $2
+FOR UPDATE;

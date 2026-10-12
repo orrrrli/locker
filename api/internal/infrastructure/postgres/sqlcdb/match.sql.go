@@ -104,6 +104,35 @@ func (q *Queries) ListMatches(ctx context.Context, teamID int64) ([]Match, error
 	return items, nil
 }
 
+const lockMatchInTeam = `-- name: LockMatchInTeam :one
+SELECT id, team_id, starts_at, rival_name, location, reminder_sent_at, attendance_closed_at, created_by FROM match
+WHERE team_id = $1 AND id = $2
+FOR UPDATE
+`
+
+type LockMatchInTeamParams struct {
+	TeamID int64
+	ID     int64
+}
+
+// GetMatch scoped to the team, holding the row until the transaction ends:
+// the attendance auto-save skips a match an admin is changing right now.
+func (q *Queries) LockMatchInTeam(ctx context.Context, arg LockMatchInTeamParams) (Match, error) {
+	row := q.db.QueryRow(ctx, lockMatchInTeam, arg.TeamID, arg.ID)
+	var i Match
+	err := row.Scan(
+		&i.ID,
+		&i.TeamID,
+		&i.StartsAt,
+		&i.RivalName,
+		&i.Location,
+		&i.ReminderSentAt,
+		&i.AttendanceClosedAt,
+		&i.CreatedBy,
+	)
+	return i, err
+}
+
 const updateMatch = `-- name: UpdateMatch :one
 UPDATE match
 SET starts_at  = coalesce($1, starts_at),

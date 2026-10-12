@@ -106,9 +106,13 @@ func TestCreateRejectsInvalidInput(t *testing.T) {
 		want            error
 	}{
 		{"zero time", time.Time{}, "Halcones", "Cancha 3", matches.ErrInvalidStartsAt},
+		{"year 10000 in UTC", mustParse("9999-12-31T23:30:00-23:59"), "Halcones", "Cancha 3", matches.ErrInvalidStartsAt},
+		{"year 0 in UTC", mustParse("0000-01-01T00:00:00+23:59"), "Halcones", "Cancha 3", matches.ErrInvalidStartsAt},
 		{"empty rival", kickoff, "   ", "Cancha 3", matches.ErrInvalidRivalName},
 		{"rival of 61", kickoff, strings.Repeat("ñ", 61), "Cancha 3", matches.ErrInvalidRivalName},
 		{"NUL in rival", kickoff, "Hal\x00cones", "Cancha 3", matches.ErrInvalidRivalName},
+		{"bidi override in rival", kickoff, "\u202eselacnaH", "Cancha 3", matches.ErrInvalidRivalName},
+		{"zero-width space in location", kickoff, "Halcones", "Cancha\u200b 3", matches.ErrInvalidLocation},
 		{"empty location", kickoff, "Halcones", "", matches.ErrInvalidLocation},
 		{"location of 121", kickoff, "Halcones", strings.Repeat("a", 121), matches.ErrInvalidLocation},
 	} {
@@ -118,9 +122,50 @@ func TestCreateRejectsInvalidInput(t *testing.T) {
 			}
 		})
 	}
-	// The limits count characters, not bytes.
+	// The limits count characters, not bytes, and a compound emoji keeps
+	// its zero-width joiner.
 	if _, err := f.svc.Create(ctx, f.team, f.admin, kickoff, strings.Repeat("ñ", 60), strings.Repeat("é", 120)); err != nil {
 		t.Fatalf("60 and 120 characters: %v", err)
+	}
+	if _, err := f.svc.Create(ctx, f.team, f.admin, kickoff, "Familia \U0001F468\u200d\U0001F469", "Cancha 3"); err != nil {
+		t.Fatalf("compound emoji: %v", err)
+	}
+}
+
+func mustParse(s string) time.Time {
+	t, err := time.Parse(time.RFC3339, s)
+	if err != nil {
+		panic(err)
+	}
+	return t
+}
+
+// Once attendance is saved the match cannot move to another time: the saved
+// list belongs to the date it was played. Rival and place still change, and
+// sending the same time again is not a move.
+func TestUpdateRejectsNewTimeOnceAttendanceClosed(t *testing.T) {
+	f := newFixture(t)
+	ctx := context.Background()
+	m, err := f.svc.Create(ctx, f.team, f.admin, kickoff, "Halcones", "Cancha 3")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.pool.Exec(ctx, `UPDATE match SET attendance_closed_at = now() WHERE id = $1`, m.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	later := kickoff.Add(24 * time.Hour)
+	if _, err := f.svc.Update(ctx, f.team, f.admin, m.ID, &later, nil, nil); !errors.Is(err, matches.ErrAttendanceClosed) {
+		t.Fatalf("move: err = %v, want ErrAttendanceClosed", err)
+	}
+	same := kickoff
+	rival := "Tigres"
+	got, err := f.svc.Update(ctx, f.team, f.admin, m.ID, &same, &rival, nil)
+	if err != nil {
+		t.Fatalf("same time and rival: %v", err)
+	}
+	if got.RivalName != "Tigres" || !got.StartsAt.Equal(kickoff) {
+		t.Fatalf("match = %+v, want the rival changed and the time kept", got)
 	}
 }
 
