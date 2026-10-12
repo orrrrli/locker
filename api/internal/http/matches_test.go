@@ -166,6 +166,78 @@ func TestCreateMatchRejectsInvalidInput(t *testing.T) {
 	}
 }
 
+// Active members answer for themselves until kickoff; from then on 409
+// match_started and the stored answer stays (R9.3-R9.5).
+func TestRSVP(t *testing.T) {
+	now := today
+	api := newAPI(t, func() time.Time { return now })
+	_, adminToken := signUp(t, api, "admin@example.com")
+	playerID, playerToken := signUp(t, api, "player@example.com")
+	pendingID, pendingToken := signUp(t, api, "pending@example.com")
+	_, strangerToken := signUp(t, api, "stranger@example.com")
+	team := createTeam(t, api, adminToken, "Pumas", "America/Tijuana")
+	addMember(t, api, team.ID, playerID, "player", "active")
+	addMember(t, api, team.ID, pendingID, "player", "pending")
+	m := createMatch(t, api, adminToken, team.ID, matchBody)
+	path := "/matches/" + strconv.FormatInt(m.ID, 10) + "/rsvp"
+
+	rec := api.do(t, http.MethodPut, path, playerToken, map[string]string{"answer": "going"})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("PUT going: status %d, body %s", rec.Code, rec.Body)
+	}
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(rec.Body.Bytes(), &raw); err != nil {
+		t.Fatal(err)
+	}
+	if keys, want := slices.Sorted(maps.Keys(raw)), []string{"answer", "match_id", "membership_id", "updated_at"}; !slices.Equal(keys, want) {
+		t.Fatalf("rsvp keys = %v, want %v", keys, want)
+	}
+	var got rsvpJSON
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatal(err)
+	}
+	if got.MatchID != m.ID || got.Answer != "going" {
+		t.Fatalf("rsvp = %+v", got)
+	}
+	if rec := api.do(t, http.MethodPut, path, playerToken, map[string]string{"answer": "not_going"}); rec.Code != http.StatusOK {
+		t.Fatalf("PUT not_going: status %d, body %s", rec.Code, rec.Body)
+	}
+
+	for _, tc := range []struct {
+		name, token, answer string
+		status              int
+		code                string
+	}{
+		{"pending", pendingToken, "going", http.StatusNotFound, "not_found"},
+		{"stranger", strangerToken, "going", http.StatusNotFound, "not_found"},
+		{"invalid answer", playerToken, "maybe", http.StatusUnprocessableEntity, "invalid_answer"},
+		{"no token", "", "going", http.StatusUnauthorized, "unauthorized"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			rec := api.do(t, http.MethodPut, path, tc.token, map[string]string{"answer": tc.answer})
+			if rec.Code != tc.status || errorCode(t, rec) != tc.code {
+				t.Fatalf("status %d, body %s; want %d %s", rec.Code, rec.Body, tc.status, tc.code)
+			}
+		})
+	}
+
+	// Kickoff: locked for everyone, answered or not.
+	now = m.StartsAt
+	for _, token := range []string{playerToken, adminToken} {
+		rec := api.do(t, http.MethodPut, path, token, map[string]string{"answer": "going"})
+		if rec.Code != http.StatusConflict || errorCode(t, rec) != "match_started" {
+			t.Fatalf("at kickoff: status %d, body %s; want 409 match_started", rec.Code, rec.Body)
+		}
+	}
+	var answer string
+	if err := api.pool.QueryRow(context.Background(), "SELECT answer FROM rsvp WHERE match_id = $1", m.ID).Scan(&answer); err != nil {
+		t.Fatal(err)
+	}
+	if answer != "not_going" {
+		t.Fatalf("stored answer = %s, want not_going", answer)
+	}
+}
+
 func TestUpdateMatch(t *testing.T) {
 	api := newAPI(t, func() time.Time { return today })
 	_, adminToken := signUp(t, api, "admin@example.com")

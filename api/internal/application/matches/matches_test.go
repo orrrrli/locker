@@ -25,10 +25,12 @@ type fixture struct {
 	pool  *pgxpool.Pool
 	team  int64
 	admin int64 // the creator's membership
+	// now is the service's clock; tests move it.
+	now *time.Time
 }
 
 // newFixture wires the service on a fresh database with one team and its
-// admin.
+// admin. The clock starts a day before kickoff.
 func newFixture(t *testing.T) fixture {
 	t.Helper()
 	pool := testdb.New(t)
@@ -44,8 +46,12 @@ func newFixture(t *testing.T) fixture {
 	if err != nil {
 		t.Fatal(err)
 	}
-	svc := matches.NewService(matches.Deps{Tx: postgres.NewTxRunner(pool), Matches: postgres.NewMatches(pool), Memberships: members})
-	return fixture{svc: svc, pool: pool, team: team.ID, admin: admin.ID}
+	now := kickoff.Add(-24 * time.Hour)
+	svc := matches.NewService(matches.Deps{
+		Tx: postgres.NewTxRunner(pool), Matches: postgres.NewMatches(pool), Memberships: members,
+		Now: func() time.Time { return now },
+	})
+	return fixture{svc: svc, pool: pool, team: team.ID, admin: admin.ID, now: &now}
 }
 
 func newUser(t *testing.T, pool *pgxpool.Pool, email string) int64 {
