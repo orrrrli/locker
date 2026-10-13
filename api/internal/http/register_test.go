@@ -83,7 +83,7 @@ func newAPI(t *testing.T, now func() time.Time) apiTest {
 	mux.Handle("/", NewRouter(Deps{
 		Auth: svc, Teams: teamSvc, Invites: inviteSvc, Members: memberSvc, Account: accountSvc,
 		Matches: matchSvc, MatchFinder: matchRepo,
-		Memberships: memberships, Limits: limits,
+		Memberships: memberships, Users: postgres.NewUsers(pool), Limits: limits,
 	}))
 	mux.Handle("GET /test/whoami", authHandlers{svc: svc}.requireAuth(http.HandlerFunc(
 		func(w http.ResponseWriter, r *http.Request) {

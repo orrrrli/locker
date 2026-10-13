@@ -133,4 +133,5 @@ type User struct {
 	PhotoUrl        pgtype.Text
 	DeletedAt       pgtype.Timestamptz
 	CreatedAt       pgtype.Timestamptz
+	IsOperator      bool
 }

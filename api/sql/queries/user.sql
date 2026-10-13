@@ -19,3 +19,7 @@ UPDATE "user"
 SET name = NULL, email = NULL, email_verified_at = NULL, birth_date = NULL,
     photo_url = NULL, deleted_at = now()
 WHERE id = $1 AND deleted_at IS NULL;
+
+-- name: IsOperator :one
+-- The flag is set by hand in the database; no query writes it (rule 12).
+SELECT is_operator FROM "user" WHERE id = $1;
