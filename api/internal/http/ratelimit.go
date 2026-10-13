@@ -266,6 +266,12 @@ const (
 	inviteCreateWindow     = time.Hour
 	inviteAcceptMaxPerUser = 20
 	inviteAcceptWindow     = 15 * time.Minute
+	// NFR 10. A fixed window that starts at the user's first new request, not
+	// at midnight, so there is no timezone to pick. Fixed, not sliding: up to
+	// 10 at the end of one window and 10 at the start of the next can land
+	// within a few minutes, so any 24 hours can hold up to 20.
+	joinRequestMaxPerUser = 10
+	joinRequestWindow     = 24 * time.Hour
 )
 
 // RateLimiter allows max requests per key in a window. Counters live in
@@ -298,6 +304,13 @@ type Limits struct {
 	Register     *RateLimiter // per client IP
 	InviteCreate *RateLimiter // per user
 	InviteAccept *RateLimiter // per user
+	// JoinRequest counts new join requests per user (NFR 10).
+	//
+	// ponytail: in memory like the rest, so a deploy or restart resets every
+	// user's day, and it holds only while one API instance runs. Move it to a
+	// table (count of the user's requests in the last 24h) if the API ever
+	// runs more than one instance.
+	JoinRequest *RateLimiter
 }
 
 // NewLimits returns the production limits; now nil means the real clock.
@@ -306,6 +319,7 @@ func NewLimits(now func() time.Time) Limits {
 		Register:     NewRateLimiter(registerMaxPerIP, registerWindow, now),
 		InviteCreate: NewRateLimiter(inviteCreateMaxPerUser, inviteCreateWindow, now),
 		InviteAccept: NewRateLimiter(inviteAcceptMaxPerUser, inviteAcceptWindow, now),
+		JoinRequest:  NewRateLimiter(joinRequestMaxPerUser, joinRequestWindow, now),
 	}
 }
 
@@ -314,6 +328,7 @@ func (l Limits) Prune() {
 	l.Register.Prune()
 	l.InviteCreate.Prune()
 	l.InviteAccept.Prune()
+	l.JoinRequest.Prune()
 }
 
 // limitBy lets a request through while its key has requests left, and

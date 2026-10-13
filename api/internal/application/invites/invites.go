@@ -1,4 +1,5 @@
-// Package invites holds the invite link use cases: create, list, revoke, accept.
+// Package invites holds the invite link use cases (create, list, revoke,
+// accept) and join requests, the other way to a pending membership (R13).
 package invites
 
 import (
@@ -69,6 +70,11 @@ type Memberships interface {
 	// RejoinMembership turns a `left` row into a pending player; it returns
 	// domain.ErrNotFound when the row is no longer `left`.
 	RejoinMembership(ctx context.Context, id int64) error
+	// TeamForJoin returns the team's name and whether it is dissolved, or
+	// domain.ErrNotFound for an unknown team.
+	TeamForJoin(ctx context.Context, teamID int64) (name string, dissolved bool, err error)
+	// PendingOfUser lists the user's pending memberships, newest first.
+	PendingOfUser(ctx context.Context, userID int64) ([]domain.PendingMembership, error)
 }
 
 type Deps struct {
@@ -196,26 +202,7 @@ func (s *Service) Accept(ctx context.Context, userID int64, rawToken string) (Ac
 			return ErrInviteExpired
 		}
 
-		m, err := s.memberships.MembershipByTeamAndUser(ctx, inv.TeamID, userID)
-		switch {
-		case errors.Is(err, domain.ErrNotFound):
-			_, err = s.memberships.CreateMembership(ctx, inv.TeamID, userID, domain.RolePlayer, domain.MembershipPending)
-			if errors.Is(err, domain.ErrAlreadyExists) {
-				// A concurrent accept by the same user won the insert.
-				return &AlreadyMemberError{Status: domain.MembershipPending}
-			}
-		case err != nil:
-			return err
-		case m.Status == domain.MembershipLeft:
-			err = s.memberships.RejoinMembership(ctx, m.ID)
-			if errors.Is(err, domain.ErrNotFound) {
-				// The row changed after the read: report what it is now.
-				return s.alreadyMember(ctx, inv.TeamID, userID)
-			}
-		default:
-			return &AlreadyMemberError{Status: m.Status}
-		}
-		if err != nil {
+		if err := s.joinAsPending(ctx, inv.TeamID, userID); err != nil {
 			return err
 		}
 		out = Accepted{TeamID: inv.TeamID, TeamName: teamName, Status: domain.MembershipPending}
@@ -225,6 +212,34 @@ func (s *Service) Accept(ctx context.Context, userID int64, rawToken string) (Ac
 		return Accepted{}, err
 	}
 	return out, nil
+}
+
+// joinAsPending gives the user a pending player membership in the team: a
+// new row, or their `left` row back, keeping its history (R8.4). An active
+// or pending row is an AlreadyMemberError. Invite accept and join requests
+// both go through it (R7.2, R13.1). It must run in the caller's transaction.
+func (s *Service) joinAsPending(ctx context.Context, teamID, userID int64) error {
+	m, err := s.memberships.MembershipByTeamAndUser(ctx, teamID, userID)
+	switch {
+	case errors.Is(err, domain.ErrNotFound):
+		_, err = s.memberships.CreateMembership(ctx, teamID, userID, domain.RolePlayer, domain.MembershipPending)
+		if errors.Is(err, domain.ErrAlreadyExists) {
+			// A concurrent accept or join request by the same user won the insert.
+			return &AlreadyMemberError{Status: domain.MembershipPending}
+		}
+		return err
+	case err != nil:
+		return err
+	case m.Status == domain.MembershipLeft:
+		err = s.memberships.RejoinMembership(ctx, m.ID)
+		if errors.Is(err, domain.ErrNotFound) {
+			// The row changed after the read: report what it is now.
+			return s.alreadyMember(ctx, teamID, userID)
+		}
+		return err
+	default:
+		return &AlreadyMemberError{Status: m.Status}
+	}
 }
 
 // DeleteExpired removes invites expired for more than 30 days, so rows of

@@ -39,3 +39,9 @@ WHERE team_id = $1 AND status = 'active';
 UPDATE team
 SET dissolved_at = now()
 WHERE id = $1 AND dissolved_at IS NULL;
+
+-- name: GetTeamForJoin :one
+-- A join request reads this after the team lock, so it sees a dissolve that
+-- committed while it waited (R6.10).
+SELECT name, (dissolved_at IS NOT NULL)::boolean AS dissolved FROM team
+WHERE id = $1;

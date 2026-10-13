@@ -50,6 +50,34 @@ func (r *Matches) ListMatches(ctx context.Context, teamID int64) ([]domain.Match
 	return out, nil
 }
 
+// ListUpcomingForUser returns the matches that start after now in every
+// team where the user is active, soonest first (R14).
+func (r *Matches) ListUpcomingForUser(ctx context.Context, userID int64, now time.Time) ([]domain.UpcomingMatch, error) {
+	rows, err := sqlcdb.New(Conn(ctx, r.pool)).ListUpcomingMatchesForUser(ctx, sqlcdb.ListUpcomingMatchesForUserParams{
+		UserID: pgtype.Int8{Int64: userID, Valid: true},
+		Now:    timestamptz(now),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("postgres: list upcoming matches for user: %w", err)
+	}
+	out := make([]domain.UpcomingMatch, len(rows))
+	for i, row := range rows {
+		u := domain.UpcomingMatch{
+			Match:         matchFromRow(row.Match),
+			TeamName:      row.TeamName,
+			Role:          domain.Role(row.Role),
+			GoingCount:    int(row.Going),
+			NotGoingCount: int(row.NotGoing),
+		}
+		if row.OwnAnswer.Valid {
+			a := domain.RSVPAnswer(row.OwnAnswer.String)
+			u.Answer = &a
+		}
+		out[i] = u
+	}
+	return out, nil
+}
+
 // MatchByID returns the match in any team, or domain.ErrNotFound. Routes on
 // /matches/{id} use it to find the team.
 func (r *Matches) MatchByID(ctx context.Context, id int64) (domain.Match, error) {

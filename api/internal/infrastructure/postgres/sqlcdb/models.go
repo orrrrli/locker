@@ -81,6 +81,7 @@ type Membership struct {
 	PushMuted           bool
 	CreatedAt           pgtype.Timestamptz
 	JoinedAt            pgtype.Timestamptz
+	PendingSince        pgtype.Timestamptz
 }
 
 type Notification struct {

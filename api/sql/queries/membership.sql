@@ -4,18 +4,18 @@ WHERE team_id = $1 AND user_id = $2;
 
 -- name: CreateMembership :one
 -- A membership created active (the team's creator) joins now; a pending one
--- joins when it is approved.
-INSERT INTO membership (team_id, user_id, role, status, joined_at)
-VALUES ($1, $2, $3, $4, CASE WHEN $4 = 'active' THEN now() END)
+-- joins when it is approved, and is pending since now.
+INSERT INTO membership (team_id, user_id, role, status, joined_at, pending_since)
+VALUES ($1, $2, $3, $4, CASE WHEN $4 = 'active' THEN now() END, CASE WHEN $4 = 'pending' THEN now() END)
 RETURNING id;
 
 -- name: RejoinMembership :execrows
 -- A member who left comes back through an invite: the same row, keeping its
 -- history, number and position (R8.4), as a pending player waiting for an
 -- admin (R7.2). Only a row that is still `left` changes, so a stale read can
--- never demote an active member.
+-- never demote an active member. pending_since restarts: this is a new request.
 UPDATE membership
-SET role = 'player', status = 'pending'
+SET role = 'player', status = 'pending', pending_since = now()
 WHERE id = $1 AND status = 'left';
 
 -- name: CountActiveAdmins :one
@@ -119,3 +119,14 @@ WHERE team_id = $1 AND status = 'pending' AND joined_at IS NULL;
 UPDATE membership
 SET status = 'left'
 WHERE team_id = $1 AND status = 'pending' AND joined_at IS NOT NULL;
+
+-- name: ListPendingMembershipsOfUser :many
+-- The user's pending memberships, from a join request or an invite, for the
+-- pending section of "Mis equipos" (R24.5), newest request first. A pending
+-- row an older image wrote has no pending_since; created_at stands in.
+SELECT m.id, m.team_id, t.name AS team_name,
+       coalesce(m.pending_since, m.created_at)::timestamptz AS pending_since
+FROM membership m
+JOIN team t ON t.id = m.team_id
+WHERE m.user_id = $1 AND m.status = 'pending'
+ORDER BY coalesce(m.pending_since, m.created_at) DESC, m.id DESC;

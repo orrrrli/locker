@@ -390,3 +390,80 @@ func TestUpdateMatch(t *testing.T) {
 		t.Fatalf("PATCH starts_at after close: status %d, body %s; want 409 attendance_closed", rec.Code, rec.Body)
 	}
 }
+
+// GET /me/matches?upcoming=true returns the match fields plus team name, the
+// caller's role and answer (null when none) and the counts (R14.2). Only
+// upcoming=true is defined; the route needs a session.
+func TestUpcomingMatchesShapeAndQuery(t *testing.T) {
+	api := newAPI(t, func() time.Time { return today })
+	_, adminToken := signUp(t, api, "admin@example.com")
+	playerID, playerToken := signUp(t, api, "player@example.com")
+	team := createTeam(t, api, adminToken, "Pumas", "America/Tijuana")
+	addMember(t, api, team.ID, playerID, "player", "active")
+	m := createMatch(t, api, adminToken, team.ID, matchBody)
+	if rec := api.do(t, http.MethodPut, "/matches/"+strconv.FormatInt(m.ID, 10)+"/rsvp", playerToken, map[string]string{"answer": "going"}); rec.Code != http.StatusOK {
+		t.Fatalf("rsvp: status %d, body %s", rec.Code, rec.Body)
+	}
+
+	upcoming := func(token string) map[string]json.RawMessage {
+		t.Helper()
+		rec := api.do(t, http.MethodGet, "/me/matches?upcoming=true", token, nil)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("GET: status %d, body %s", rec.Code, rec.Body)
+		}
+		var body struct{ Matches []map[string]json.RawMessage }
+		if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+			t.Fatal(err)
+		}
+		if len(body.Matches) != 1 {
+			t.Fatalf("matches = %s, want one", rec.Body)
+		}
+		got := body.Matches[0]
+		want := []string{"answer", "going_count", "id", "location", "not_going_count", "rival_name", "role", "starts_at", "team_id", "team_name"}
+		if keys := slices.Sorted(maps.Keys(got)); !slices.Equal(keys, want) {
+			t.Fatalf("keys = %v, want %v", keys, want)
+		}
+		return got
+	}
+	str := func(m map[string]json.RawMessage) string {
+		return string(m["id"]) + " " + string(m["team_id"]) + " " + string(m["team_name"]) + " " + string(m["starts_at"]) + " " +
+			string(m["rival_name"]) + " " + string(m["location"]) + " " + string(m["role"]) + " " + string(m["answer"]) + " " +
+			string(m["going_count"]) + " " + string(m["not_going_count"])
+	}
+	base := strconv.FormatInt(m.ID, 10) + " " + strconv.FormatInt(team.ID, 10) + ` "Pumas" "2026-10-21T02:00:00Z" "Halcones" "Cancha 3" `
+	if got, want := str(upcoming(playerToken)), base+`"player" "going" 1 0`; got != want {
+		t.Fatalf("player item = %s, want %s", got, want)
+	}
+	if got, want := str(upcoming(adminToken)), base+`"admin" null 1 0`; got != want {
+		t.Fatalf("admin item = %s, want %s", got, want)
+	}
+
+	for _, q := range []string{"", "?upcoming=false", "?upcoming=TRUE", "?upcoming=1", "?upcoming=", "?upcoming=true&upcoming=true", "?upcoming=true&upcoming=false"} {
+		rec := api.do(t, http.MethodGet, "/me/matches"+q, playerToken, nil)
+		if rec.Code != http.StatusUnprocessableEntity || errorCode(t, rec) != "invalid_upcoming" {
+			t.Fatalf("%q: status %d, body %s; want 422 invalid_upcoming", q, rec.Code, rec.Body)
+		}
+	}
+	if rec := api.do(t, http.MethodGet, "/me/matches?upcoming=true", "", nil); rec.Code != http.StatusUnauthorized {
+		t.Fatalf("no token: status %d, want 401", rec.Code)
+	}
+}
+
+// A user with no active membership, in no team or only pending in one, gets
+// 200 with [] (R14.5), never null or an error.
+func TestUpcomingMatchesEmptyWithoutActiveTeam(t *testing.T) {
+	api := newAPI(t, func() time.Time { return today })
+	_, adminToken := signUp(t, api, "admin@example.com")
+	pendingID, pendingToken := signUp(t, api, "pending@example.com")
+	_, loneToken := signUp(t, api, "lone@example.com")
+	team := createTeam(t, api, adminToken, "Pumas", "America/Tijuana")
+	addMember(t, api, team.ID, pendingID, "player", "pending")
+	createMatch(t, api, adminToken, team.ID, matchBody)
+
+	for name, token := range map[string]string{"pending": pendingToken, "no team": loneToken} {
+		rec := api.do(t, http.MethodGet, "/me/matches?upcoming=true", token, nil)
+		if rec.Code != http.StatusOK || rec.Body.String() != `{"matches":[]}`+"\n" {
+			t.Fatalf("%s: status %d, body %q; want 200 {\"matches\":[]}", name, rec.Code, rec.Body)
+		}
+	}
+}

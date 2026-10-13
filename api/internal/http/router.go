@@ -27,7 +27,7 @@ type Deps struct {
 	// LoginLimiter throttles failed logins; nil gets a fresh one on the
 	// real clock.
 	LoginLimiter *LoginLimiter
-	// Limits throttles register and invites; nil fields get NewLimits(nil).
+	// Limits throttles register, invites and join requests; nil fields get NewLimits(nil).
 	Limits Limits
 }
 
@@ -51,6 +51,9 @@ func NewRouter(d Deps) http.Handler {
 	if d.Limits.InviteAccept == nil {
 		d.Limits.InviteAccept = defaults.InviteAccept
 	}
+	if d.Limits.JoinRequest == nil {
+		d.Limits.JoinRequest = defaults.JoinRequest
+	}
 	a := authHandlers{svc: d.Auth, limits: d.LoginLimiter, registers: d.Limits.Register}
 	mux.HandleFunc("POST /auth/register", a.register)
 	mux.HandleFunc("POST /auth/login", a.login)
@@ -66,12 +69,14 @@ func NewRouter(d Deps) http.Handler {
 	mux.Handle("PATCH /teams/{id}", a.requireAuth(z.requireRole(team, domain.RoleAdmin, http.HandlerFunc(t.update))))
 	mux.Handle("DELETE /teams/{id}", a.requireAuth(z.requireRole(team, domain.RoleAdmin, http.HandlerFunc(t.dissolve))))
 
-	inv := inviteHandlers{svc: d.Invites}
+	inv := inviteHandlers{svc: d.Invites, joins: d.Limits.JoinRequest}
 	mux.Handle("POST /teams/{id}/invites", a.requireAuth(limitBy(d.Limits.InviteCreate, byUser,
 		z.requireRole(team, domain.RoleAdmin, http.HandlerFunc(inv.create)))))
 	mux.Handle("GET /teams/{id}/invites", a.requireAuth(z.requireRole(team, domain.RoleAdmin, http.HandlerFunc(inv.list))))
 	mux.Handle("DELETE /teams/{id}/invites/{inviteId}", a.requireAuth(z.requireRole(team, domain.RoleAdmin, http.HandlerFunc(inv.revoke))))
 	mux.Handle("POST /invites/accept", a.requireAuth(limitBy(d.Limits.InviteAccept, byUser, http.HandlerFunc(inv.accept))))
+	mux.Handle("POST /teams/{id}/join-requests", a.requireAuth(http.HandlerFunc(inv.requestToJoin)))
+	mux.Handle("GET /me/join-requests", a.requireAuth(http.HandlerFunc(inv.listJoinRequests)))
 
 	mem := membershipHandlers{svc: d.Members}
 	mux.Handle("GET /teams/{id}/members", a.requireAuth(z.requireActiveMember(team, http.HandlerFunc(mem.list))))
@@ -81,6 +86,7 @@ func NewRouter(d Deps) http.Handler {
 	mt := matchHandlers{svc: d.Matches}
 	mux.Handle("POST /teams/{id}/matches", a.requireAuth(z.requireRole(team, domain.RoleAdmin, http.HandlerFunc(mt.create))))
 	mux.Handle("GET /teams/{id}/matches", a.requireAuth(z.requireActiveMember(team, http.HandlerFunc(mt.list))))
+	mux.Handle("GET /me/matches", a.requireAuth(http.HandlerFunc(mt.upcoming)))
 	match := teamFromMatch("id", d.MatchFinder)
 	mux.Handle("PATCH /matches/{id}", a.requireAuth(z.requireRole(match, domain.RoleAdmin, http.HandlerFunc(mt.update))))
 	mux.Handle("PUT /matches/{id}/rsvp", a.requireAuth(z.requireActiveMember(match, http.HandlerFunc(mt.rsvp))))

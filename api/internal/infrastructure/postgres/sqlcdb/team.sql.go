@@ -77,6 +77,25 @@ func (q *Queries) GetTeam(ctx context.Context, id int64) (GetTeamRow, error) {
 	return i, err
 }
 
+const getTeamForJoin = `-- name: GetTeamForJoin :one
+SELECT name, (dissolved_at IS NOT NULL)::boolean AS dissolved FROM team
+WHERE id = $1
+`
+
+type GetTeamForJoinRow struct {
+	Name      string
+	Dissolved bool
+}
+
+// A join request reads this after the team lock, so it sees a dissolve that
+// committed while it waited (R6.10).
+func (q *Queries) GetTeamForJoin(ctx context.Context, id int64) (GetTeamForJoinRow, error) {
+	row := q.db.QueryRow(ctx, getTeamForJoin, id)
+	var i GetTeamForJoinRow
+	err := row.Scan(&i.Name, &i.Dissolved)
+	return i, err
+}
+
 const listActiveTeamsForUser = `-- name: ListActiveTeamsForUser :many
 SELECT t.id, t.name, t.timezone, t.created_at FROM team t
 JOIN membership m ON m.team_id = t.id
