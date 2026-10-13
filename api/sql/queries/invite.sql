@@ -33,3 +33,10 @@ DELETE FROM invite WHERE expires_at <= $1;
 UPDATE invite
 SET revoked_at = now()
 WHERE team_id = $1 AND revoked_at IS NULL;
+
+-- name: ListUnexpiredInvites :many
+-- The team's invites not expired at now, revoked ones included so an admin
+-- sees a revoke worked (#184). Newest first. Never the token hash.
+SELECT id, team_id, created_by, expires_at, revoked_at FROM invite
+WHERE team_id = sqlc.arg(team_id) AND expires_at > sqlc.arg(now)
+ORDER BY id DESC;

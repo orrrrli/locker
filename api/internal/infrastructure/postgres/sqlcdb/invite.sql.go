@@ -97,6 +97,53 @@ func (q *Queries) GetInviteByTokenHash(ctx context.Context, tokenHash []byte) (G
 	return i, err
 }
 
+const listUnexpiredInvites = `-- name: ListUnexpiredInvites :many
+SELECT id, team_id, created_by, expires_at, revoked_at FROM invite
+WHERE team_id = $1 AND expires_at > $2
+ORDER BY id DESC
+`
+
+type ListUnexpiredInvitesParams struct {
+	TeamID int64
+	Now    pgtype.Timestamptz
+}
+
+type ListUnexpiredInvitesRow struct {
+	ID        int64
+	TeamID    int64
+	CreatedBy int64
+	ExpiresAt pgtype.Timestamptz
+	RevokedAt pgtype.Timestamptz
+}
+
+// The team's invites not expired at now, revoked ones included so an admin
+// sees a revoke worked (#184). Newest first. Never the token hash.
+func (q *Queries) ListUnexpiredInvites(ctx context.Context, arg ListUnexpiredInvitesParams) ([]ListUnexpiredInvitesRow, error) {
+	rows, err := q.db.Query(ctx, listUnexpiredInvites, arg.TeamID, arg.Now)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListUnexpiredInvitesRow
+	for rows.Next() {
+		var i ListUnexpiredInvitesRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.TeamID,
+			&i.CreatedBy,
+			&i.ExpiresAt,
+			&i.RevokedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const revokeInvite = `-- name: RevokeInvite :execrows
 UPDATE invite
 SET revoked_at = coalesce(revoked_at, $1)
