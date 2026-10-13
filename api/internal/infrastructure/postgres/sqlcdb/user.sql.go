@@ -73,3 +73,15 @@ func (q *Queries) DeleteSessionsOfUser(ctx context.Context, userID int64) error 
 	_, err := q.db.Exec(ctx, deleteSessionsOfUser, userID)
 	return err
 }
+
+const isOperator = `-- name: IsOperator :one
+SELECT is_operator FROM "user" WHERE id = $1
+`
+
+// The flag is set by hand in the database; no query writes it (rule 12).
+func (q *Queries) IsOperator(ctx context.Context, id int64) (bool, error) {
+	row := q.db.QueryRow(ctx, isOperator, id)
+	var is_operator bool
+	err := row.Scan(&is_operator)
+	return is_operator, err
+}

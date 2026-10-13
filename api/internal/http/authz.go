@@ -82,10 +82,45 @@ func idFromPath(r *http.Request, name string) (int64, error) {
 	return id, nil
 }
 
+// operatorFinder reads user.is_operator. It returns domain.ErrNotFound for an
+// unknown user.
+type operatorFinder interface {
+	IsOperator(ctx context.Context, userID int64) (bool, error)
+}
+
 // authz holds the single authorization helpers every team endpoint goes
 // through (NFR 2).
 type authz struct {
 	memberships membershipFinder
+	users       operatorFinder
+}
+
+// requireOperator lets the request through only if the caller is the
+// operator (rule 12). Membership roles never count: an admin of every team
+// still gets 403. The flag is read on every request, so setting or clearing
+// it by hand takes effect on the next one.
+func (a authz) requireOperator(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		userID, ok := userIDFrom(r.Context())
+		if !ok {
+			unauthorized(w)
+			return
+		}
+		isOperator, err := a.users.IsOperator(r.Context(), userID)
+		if errors.Is(err, domain.ErrNotFound) {
+			writeError(w, http.StatusForbidden, "forbidden")
+			return
+		}
+		if err != nil {
+			errorMap{}.write(w, r, "authz: operator lookup", err)
+			return
+		}
+		if !isOperator {
+			writeError(w, http.StatusForbidden, "forbidden")
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
 }
 
 // requireActiveMember lets the request through only if the caller has an

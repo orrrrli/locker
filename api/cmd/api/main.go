@@ -103,6 +103,7 @@ func start() error {
 		AppleAppID:   cfg.AppleAppID,
 		DownloadURL:  cfg.DownloadURL,
 		Memberships:  memberships,
+		Users:        postgres.NewUsers(pool),
 		LoginLimiter: loginLimiter,
 		Limits:       limits,
 	})

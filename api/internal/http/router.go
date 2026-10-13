@@ -2,6 +2,7 @@ package http
 
 import (
 	"net/http"
+	"strings"
 
 	"github.com/orrrrli/locker/api/internal/domain"
 )
@@ -24,6 +25,8 @@ type Deps struct {
 	DownloadURL string
 	// Memberships backs requireActiveMember and requireRole.
 	Memberships membershipFinder
+	// Users backs requireOperator.
+	Users operatorFinder
 	// LoginLimiter throttles failed logins; nil gets a fresh one on the
 	// real clock.
 	LoginLimiter *LoginLimiter
@@ -60,7 +63,7 @@ func NewRouter(d Deps) http.Handler {
 	mux.Handle("POST /auth/logout", a.requireAuth(http.HandlerFunc(a.logout)))
 	mux.Handle("DELETE /me", a.requireAuth(http.HandlerFunc(accountHandlers{svc: d.Account}.deleteMe)))
 
-	z := authz{memberships: d.Memberships}
+	z := authz{memberships: d.Memberships, users: d.Users}
 	t := teamHandlers{svc: d.Teams}
 	team := teamFromPath("id")
 	mux.Handle("POST /teams", a.requireAuth(http.HandlerFunc(t.create)))
@@ -92,7 +95,26 @@ func NewRouter(d Deps) http.Handler {
 	mux.Handle("PUT /matches/{id}/rsvp", a.requireAuth(z.requireActiveMember(match, http.HandlerFunc(mt.rsvp))))
 	mux.Handle("PUT /matches/{id}/attendance", a.requireAuth(z.requireRole(match, domain.RoleAdmin, http.HandlerFunc(mt.saveAttendance))))
 	mux.Handle("GET /matches/{id}/attendance", a.requireAuth(z.requireActiveMember(match, http.HandlerFunc(mt.getAttendance))))
-	return jsonMisses(mux)
+
+	// Every operator route registers on op. Paths under /operator are sent to
+	// the gate before mux sees them, because mux prefers any more specific
+	// pattern over a "/operator/" prefix: a route registered on mux by mistake
+	// is never reached instead of skipping the gate (rule 12). A non-operator
+	// gets 403 even on an unknown path; the operator gets the usual JSON 404.
+	op := http.NewServeMux()
+	return operatorFirst(a.requireAuth(z.requireOperator(jsonMisses(op))), jsonMisses(mux))
+}
+
+// operatorFirst sends /operator and everything under it to gated, and every
+// other path to rest.
+func operatorFirst(gated, rest http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/operator" || strings.HasPrefix(r.URL.Path, "/operator/") {
+			gated.ServeHTTP(w, r)
+			return
+		}
+		rest.ServeHTTP(w, r)
+	})
 }
 
 // jsonMisses makes the mux's own 404 and 405 answer JSON like every other
