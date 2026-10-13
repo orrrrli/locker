@@ -65,6 +65,33 @@ func TestTeamColumns(t *testing.T) {
 	}
 }
 
+// TestUserIsOperatorDefaultsFalse checks a user created without naming
+// is_operator, as every insert does, is not the operator, and that the
+// column never holds NULL (rule 12).
+func TestUserIsOperatorDefaultsFalse(t *testing.T) {
+	pool, _ := testPool(t)
+	ctx := context.Background()
+	if err := Migrate(ctx, pool); err != nil {
+		t.Fatal(err)
+	}
+	var id int64
+	var isOperator bool
+	err := pool.QueryRow(ctx, `
+		INSERT INTO "user" (name, birth_date) VALUES ('Ana', '1990-01-01')
+		RETURNING id, is_operator`).Scan(&id, &isOperator)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if isOperator {
+		t.Fatal("a new user is the operator, want is_operator = false")
+	}
+	_, err = pool.Exec(ctx, `UPDATE "user" SET is_operator = NULL WHERE id = $1`, id)
+	var pgErr *pgconn.PgError
+	if !errors.As(err, &pgErr) || pgErr.Code != "23502" {
+		t.Fatalf("is_operator = NULL: err = %v, want not_null_violation", err)
+	}
+}
+
 // TestDomainEnumsMatchCheckConstraints keeps the domain constants and the
 // CHECK constraints from drifting apart.
 func TestDomainEnumsMatchCheckConstraints(t *testing.T) {
