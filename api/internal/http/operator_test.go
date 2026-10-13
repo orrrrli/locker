@@ -134,3 +134,31 @@ func TestOperatorFirst(t *testing.T) {
 		}
 	}
 }
+
+// TestTeamAdminIsNotTheOperator: an admin of every team in the database still
+// gets 403 on /operator/* (R15.5, rule 12). Team roles never count.
+func TestTeamAdminIsNotTheOperator(t *testing.T) {
+	api := newAPI(t, func() time.Time { return today })
+	_, token := signUp(t, api, "capitan@example.com")
+	for _, name := range []string{"Rayos", "Truenos"} {
+		team := createTeam(t, api, token, name, "America/Tijuana")
+		path := teamPath(team.ID)
+		if rec := api.do(t, http.MethodPatch, path, token, map[string]string{"name": name + " FC"}); rec.Code != http.StatusOK {
+			t.Fatalf("PATCH %s as its admin = %d %s, want 200", path, rec.Code, rec.Body)
+		}
+	}
+	// The PATCHes prove admin of both teams; this proves there are no others.
+	var teams int
+	if err := api.pool.QueryRow(context.Background(), `SELECT count(*) FROM team`).Scan(&teams); err != nil {
+		t.Fatal(err)
+	}
+	if teams != 2 {
+		t.Fatalf("%d teams in the database, want only the caller's 2", teams)
+	}
+	for _, method := range []string{http.MethodGet, http.MethodPost, http.MethodPatch, http.MethodDelete} {
+		rec := api.do(t, method, "/operator/venues", token, nil)
+		if rec.Code != http.StatusForbidden || errorCode(t, rec) != "forbidden" {
+			t.Errorf("%s /operator/venues as admin of every team = %d %s, want 403 forbidden", method, rec.Code, rec.Body)
+		}
+	}
+}
