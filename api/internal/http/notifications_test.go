@@ -311,7 +311,10 @@ func TestMarkReadOutsideMyInboxIsNotFound(t *testing.T) {
 	}
 }
 
-const deviceToken = "a1b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8f90"
+// deviceToken is a fake APNs token: 64 hex characters with letters, so the
+// uppercase tests reach strings.ToLower. A repeated pattern, not a random-looking
+// literal, so secret scanners do not read it as a key.
+var deviceToken = strings.Repeat("ab12", 16)
 
 func registerDevice(t *testing.T, api apiTest, token, deviceTok string) *httptest.ResponseRecorder {
 	t.Helper()
