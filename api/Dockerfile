@@ -1,5 +1,6 @@
 # Build context: api/
-FROM public.ecr.aws/docker/library/golang:1.27-alpine AS build
+# mirror.gcr.io: anonymous ECR Public pulls hit a per-IP data limit on shared CI runners (OPS-CI-1).
+FROM mirror.gcr.io/library/golang:1.27-alpine AS build
 WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download

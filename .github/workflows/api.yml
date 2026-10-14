@@ -19,7 +19,9 @@ jobs:
     runs-on: ubuntu-latest
     services:
       postgres:
-        image: public.ecr.aws/docker/library/postgres:17-alpine # same image as docker-compose.yml
+        # Same tag as docker-compose.yml, from mirror.gcr.io: anonymous ECR Public pulls hit a
+        # per-IP data limit on shared runners (OPS-CI-1).
+        image: mirror.gcr.io/library/postgres:17-alpine
         env:
           POSTGRES_PASSWORD: test
           POSTGRES_DB: locker_test
