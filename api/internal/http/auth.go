@@ -161,7 +161,7 @@ func (h authHandlers) login(w http.ResponseWriter, r *http.Request) {
 
 // logout deletes the caller's session. It runs behind requireAuth.
 func (h authHandlers) logout(w http.ResponseWriter, r *http.Request) {
-	sessionID, _ := r.Context().Value(sessionIDKey).(int64)
+	sessionID, _ := sessionIDFrom(r.Context())
 	if err := h.svc.Logout(r.Context(), sessionID); err != nil {
 		authErrors.write(w, r, "auth", err)
 		return

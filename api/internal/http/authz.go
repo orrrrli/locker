@@ -28,6 +28,12 @@ func userIDFrom(ctx context.Context) (int64, bool) {
 	return id, ok
 }
 
+// sessionIDFrom returns the session requireAuth validated.
+func sessionIDFrom(ctx context.Context) (int64, bool) {
+	id, ok := ctx.Value(sessionIDKey).(int64)
+	return id, ok
+}
+
 // membershipFrom returns the caller's active membership in the team, set by
 // requireActiveMember or requireRole.
 func membershipFrom(ctx context.Context) (domain.Membership, bool) {

@@ -31,7 +31,7 @@ type Deps struct {
 	// LoginLimiter throttles failed logins; nil gets a fresh one on the
 	// real clock.
 	LoginLimiter *LoginLimiter
-	// Limits throttles register, invites and join requests; nil fields get NewLimits(nil).
+	// Limits throttles register, invites, join requests and device tokens; nil fields get NewLimits(nil).
 	Limits Limits
 }
 
@@ -57,6 +57,9 @@ func NewRouter(d Deps) http.Handler {
 	}
 	if d.Limits.JoinRequest == nil {
 		d.Limits.JoinRequest = defaults.JoinRequest
+	}
+	if d.Limits.DeviceToken == nil {
+		d.Limits.DeviceToken = defaults.DeviceToken
 	}
 	a := authHandlers{svc: d.Auth, limits: d.LoginLimiter, registers: d.Limits.Register}
 	mux.HandleFunc("POST /auth/register", a.register)
@@ -100,6 +103,7 @@ func NewRouter(d Deps) http.Handler {
 	nt := notificationHandlers{svc: d.Notifications}
 	mux.Handle("GET /me/notifications", a.requireAuth(http.HandlerFunc(nt.inbox)))
 	mux.Handle("POST /notifications/{id}/read", a.requireAuth(http.HandlerFunc(nt.markRead)))
+	mux.Handle("POST /me/device-tokens", a.requireAuth(limitBy(d.Limits.DeviceToken, byUser, http.HandlerFunc(nt.registerDevice))))
 
 	// Every operator route registers on op. Paths under /operator are sent to
 	// the gate before mux sees them, because mux prefers any more specific
