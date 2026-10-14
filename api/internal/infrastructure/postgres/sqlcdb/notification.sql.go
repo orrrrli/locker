@@ -68,6 +68,64 @@ func (q *Queries) InsertNotificationRecipients(ctx context.Context, arg InsertNo
 	return err
 }
 
+const listInboxForUser = `-- name: ListInboxForUser :many
+SELECT n.id, n.team_id, n.kind, n.title, n.body, n.match_id, n.sent_by, n.created_at, t.name AS team_name, r.read_at
+FROM notification_recipient r
+JOIN membership m ON m.id = r.membership_id
+JOIN notification n ON n.id = r.notification_id
+JOIN team t ON t.id = n.team_id
+WHERE m.user_id = $1 AND m.status = 'active'
+  AND ($2::bigint IS NULL OR n.id < $2::bigint)
+ORDER BY n.id DESC
+LIMIT $3
+`
+
+type ListInboxForUserParams struct {
+	UserID   pgtype.Int8
+	Before   pgtype.Int8
+	RowLimit int32
+}
+
+type ListInboxForUserRow struct {
+	Notification Notification
+	TeamName     string
+	ReadAt       pgtype.Timestamptz
+}
+
+// The user's notices from every team where they are active now (R24.6),
+// newest first. Keyset page: before is the last id the client has, null for
+// the first page.
+func (q *Queries) ListInboxForUser(ctx context.Context, arg ListInboxForUserParams) ([]ListInboxForUserRow, error) {
+	rows, err := q.db.Query(ctx, listInboxForUser, arg.UserID, arg.Before, arg.RowLimit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListInboxForUserRow
+	for rows.Next() {
+		var i ListInboxForUserRow
+		if err := rows.Scan(
+			&i.Notification.ID,
+			&i.Notification.TeamID,
+			&i.Notification.Kind,
+			&i.Notification.Title,
+			&i.Notification.Body,
+			&i.Notification.MatchID,
+			&i.Notification.SentBy,
+			&i.Notification.CreatedAt,
+			&i.TeamName,
+			&i.ReadAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listNotificationPushTokens = `-- name: ListNotificationPushTokens :many
 SELECT d.token
 FROM notification_recipient r

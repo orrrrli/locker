@@ -41,16 +41,29 @@ func (r *Notifications) InsertNotification(ctx context.Context, n domain.Notific
 	}); err != nil {
 		return domain.Notification{}, fmt.Errorf("postgres: insert notification recipients: %w", err)
 	}
-	return domain.Notification{
-		ID:        row.ID,
-		TeamID:    row.TeamID,
-		Kind:      domain.NotificationKind(row.Kind),
-		Title:     row.Title,
-		Body:      row.Body,
-		MatchID:   int64Ptr(row.MatchID),
-		SentBy:    int64Ptr(row.SentBy),
-		CreatedAt: row.CreatedAt.Time.UTC(),
-	}, nil
+	return notificationFromRow(row), nil
+}
+
+// Inbox returns up to limit of the user's notices from teams where they are
+// active, newest first, older than before when it is set.
+func (r *Notifications) Inbox(ctx context.Context, userID int64, before *int64, limit int) ([]domain.InboxItem, error) {
+	rows, err := sqlcdb.New(Conn(ctx, r.pool)).ListInboxForUser(ctx, sqlcdb.ListInboxForUserParams{
+		UserID:   pgtype.Int8{Int64: userID, Valid: true},
+		Before:   optInt8(before),
+		RowLimit: int32(limit),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("postgres: list inbox: %w", err)
+	}
+	out := make([]domain.InboxItem, len(rows))
+	for i, row := range rows {
+		out[i] = domain.InboxItem{
+			Notification: notificationFromRow(row.Notification),
+			TeamName:     row.TeamName,
+			ReadAt:       utcPtr(row.ReadAt),
+		}
+	}
+	return out, nil
 }
 
 // PushTokens returns the device tokens of the notice's recipients who have
@@ -61,6 +74,19 @@ func (r *Notifications) PushTokens(ctx context.Context, notificationID int64) ([
 		return nil, fmt.Errorf("postgres: list notification push tokens: %w", err)
 	}
 	return tokens, nil
+}
+
+func notificationFromRow(row sqlcdb.Notification) domain.Notification {
+	return domain.Notification{
+		ID:        row.ID,
+		TeamID:    row.TeamID,
+		Kind:      domain.NotificationKind(row.Kind),
+		Title:     row.Title,
+		Body:      row.Body,
+		MatchID:   int64Ptr(row.MatchID),
+		SentBy:    int64Ptr(row.SentBy),
+		CreatedAt: row.CreatedAt.Time.UTC(),
+	}
 }
 
 func optInt8(v *int64) pgtype.Int8 {

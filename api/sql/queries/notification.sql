@@ -19,3 +19,17 @@ JOIN membership m ON m.id = r.membership_id
 JOIN device_token d ON d.user_id = m.user_id
 WHERE r.notification_id = $1 AND NOT m.push_muted
 ORDER BY d.id;
+
+-- name: ListInboxForUser :many
+-- The user's notices from every team where they are active now (R24.6),
+-- newest first. Keyset page: before is the last id the client has, null for
+-- the first page.
+SELECT sqlc.embed(n), t.name AS team_name, r.read_at
+FROM notification_recipient r
+JOIN membership m ON m.id = r.membership_id
+JOIN notification n ON n.id = r.notification_id
+JOIN team t ON t.id = n.team_id
+WHERE m.user_id = sqlc.arg(user_id) AND m.status = 'active'
+  AND (sqlc.narg(before)::bigint IS NULL OR n.id < sqlc.narg(before)::bigint)
+ORDER BY n.id DESC
+LIMIT sqlc.arg(row_limit);

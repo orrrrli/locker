@@ -18,6 +18,7 @@ import (
 	"github.com/orrrrli/locker/api/internal/application/invites"
 	"github.com/orrrrli/locker/api/internal/application/matches"
 	applicationmemberships "github.com/orrrrli/locker/api/internal/application/memberships"
+	"github.com/orrrrli/locker/api/internal/application/notifications"
 	"github.com/orrrrli/locker/api/internal/application/teams"
 	apihttp "github.com/orrrrli/locker/api/internal/http"
 	"github.com/orrrrli/locker/api/internal/infrastructure/password"
@@ -92,20 +93,26 @@ func start() error {
 		Matches:     matchRepo,
 		Memberships: memberships,
 	})
+	// Push stays nil (inbox only) until the APNs sender, BE-NOTIF-2.
+	notificationSvc := notifications.NewService(notifications.Deps{
+		Tx:            postgres.NewTxRunner(pool),
+		Notifications: postgres.NewNotifications(pool),
+	})
 	router := apihttp.NewRouter(apihttp.Deps{
-		Auth:         authSvc,
-		Teams:        teamSvc,
-		Invites:      inviteSvc,
-		Members:      memberSvc,
-		Account:      accountSvc,
-		Matches:      matchSvc,
-		MatchFinder:  matchRepo,
-		AppleAppID:   cfg.AppleAppID,
-		DownloadURL:  cfg.DownloadURL,
-		Memberships:  memberships,
-		Users:        postgres.NewUsers(pool),
-		LoginLimiter: loginLimiter,
-		Limits:       limits,
+		Auth:          authSvc,
+		Teams:         teamSvc,
+		Invites:       inviteSvc,
+		Members:       memberSvc,
+		Account:       accountSvc,
+		Matches:       matchSvc,
+		Notifications: notificationSvc,
+		MatchFinder:   matchRepo,
+		AppleAppID:    cfg.AppleAppID,
+		DownloadURL:   cfg.DownloadURL,
+		Memberships:   memberships,
+		Users:         postgres.NewUsers(pool),
+		LoginLimiter:  loginLimiter,
+		Limits:        limits,
 	})
 
 	go tick(ctx, tickEvery, func(ctx context.Context) {

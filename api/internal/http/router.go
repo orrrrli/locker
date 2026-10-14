@@ -9,12 +9,13 @@ import (
 
 // Deps are the use cases the handlers call.
 type Deps struct {
-	Auth    authService
-	Teams   teamService
-	Invites inviteService
-	Members membershipService
-	Account accountService
-	Matches matchService
+	Auth          authService
+	Teams         teamService
+	Invites       inviteService
+	Members       membershipService
+	Account       accountService
+	Matches       matchService
+	Notifications notificationService
 	// MatchFinder resolves the team of routes on /matches/{id}.
 	MatchFinder matchFinder
 	// AppleAppID ("<team id>.<bundle id>") is the app invite links open;
@@ -95,6 +96,9 @@ func NewRouter(d Deps) http.Handler {
 	mux.Handle("PUT /matches/{id}/rsvp", a.requireAuth(z.requireActiveMember(match, http.HandlerFunc(mt.rsvp))))
 	mux.Handle("PUT /matches/{id}/attendance", a.requireAuth(z.requireRole(match, domain.RoleAdmin, http.HandlerFunc(mt.saveAttendance))))
 	mux.Handle("GET /matches/{id}/attendance", a.requireAuth(z.requireActiveMember(match, http.HandlerFunc(mt.getAttendance))))
+
+	nt := notificationHandlers{svc: d.Notifications}
+	mux.Handle("GET /me/notifications", a.requireAuth(http.HandlerFunc(nt.inbox)))
 
 	// Every operator route registers on op. Paths under /operator are sent to
 	// the gate before mux sees them, because mux prefers any more specific

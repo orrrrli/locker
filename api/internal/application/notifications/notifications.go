@@ -17,7 +17,13 @@ type Notifications interface {
 	// PushTokens returns the device tokens of the recipients who have not
 	// muted the team.
 	PushTokens(ctx context.Context, notificationID int64) ([]string, error)
+	// Inbox returns up to limit of the user's notices from teams where they
+	// are active, newest first, with ids below before when it is set.
+	Inbox(ctx context.Context, userID int64, before *int64, limit int) ([]domain.InboxItem, error)
 }
+
+// PageSize is how many notices one inbox page holds.
+const PageSize = 50
 
 // Pusher delivers a stored notice to devices. It returns nothing: the notice
 // is already in the inbox, so a failed push is the pusher's to log, never a
@@ -73,4 +79,20 @@ func (s *Service) Send(ctx context.Context, n domain.Notification) (domain.Notif
 		s.push.Push(ctx, out, tokens)
 	}
 	return out, nil
+}
+
+// Inbox returns one page of the user's notices from every team where they are
+// active (R24.6), newest first. before is the next value from the previous
+// page, nil for the first. next is nil on the last page.
+func (s *Service) Inbox(ctx context.Context, userID int64, before *int64) (items []domain.InboxItem, next *int64, err error) {
+	// One extra row tells whether another page exists, without a count.
+	items, err = s.notifications.Inbox(ctx, userID, before, PageSize+1)
+	if err != nil {
+		return nil, nil, err
+	}
+	if len(items) > PageSize {
+		items = items[:PageSize]
+		next = &items[PageSize-1].ID
+	}
+	return items, next, nil
 }

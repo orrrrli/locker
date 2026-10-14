@@ -31,3 +31,10 @@ type NotificationRecipient struct {
 	MembershipID   int64
 	ReadAt         *time.Time
 }
+
+// InboxItem is a notice as one member sees it in the inbox (R24.6).
+type InboxItem struct {
+	Notification
+	TeamName string
+	ReadAt   *time.Time // nil until the member opens it
+}
