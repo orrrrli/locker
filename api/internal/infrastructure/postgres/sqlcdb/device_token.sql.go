@@ -11,6 +11,21 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const deleteDeviceToken = `-- name: DeleteDeviceToken :exec
+DELETE FROM device_token WHERE user_id = $1 AND token = $2
+`
+
+type DeleteDeviceTokenParams struct {
+	UserID int64
+	Token  string
+}
+
+// Removes the user's own token only; a token of another user is untouched.
+func (q *Queries) DeleteDeviceToken(ctx context.Context, arg DeleteDeviceTokenParams) error {
+	_, err := q.db.Exec(ctx, deleteDeviceToken, arg.UserID, arg.Token)
+	return err
+}
+
 const deleteOtherSessionTokens = `-- name: DeleteOtherSessionTokens :exec
 DELETE FROM device_token WHERE session_id = $1 AND token <> $2
 `

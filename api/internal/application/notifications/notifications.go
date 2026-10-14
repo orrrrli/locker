@@ -27,6 +27,8 @@ type Notifications interface {
 	// registered it, replacing that session's previous token; a token already
 	// stored moves to them. A session already ended is domain.ErrNotFound.
 	RegisterDevice(ctx context.Context, userID, sessionID int64, token string) error
+	// UnregisterDevice deletes the user's own token, if they have it.
+	UnregisterDevice(ctx context.Context, userID int64, token string) error
 	// TrimDevices deletes the user's tokens beyond the keep most recently seen.
 	TrimDevices(ctx context.Context, userID int64, keep int) error
 }
@@ -138,4 +140,11 @@ func (s *Service) RegisterDevice(ctx context.Context, userID, sessionID int64, t
 		}
 		return s.notifications.TrimDevices(ctx, userID, MaxDevicesPerUser)
 	})
+}
+
+// UnregisterDevice stops pushes to one of the user's devices without ending
+// its session. Only the user's own token goes; an unknown token or another
+// user's is a no-op, so a retry is safe and nothing is revealed.
+func (s *Service) UnregisterDevice(ctx context.Context, userID int64, token string) error {
+	return s.notifications.UnregisterDevice(ctx, userID, token)
 }

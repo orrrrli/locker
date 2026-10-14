@@ -21,3 +21,7 @@ WHERE d.user_id = sqlc.arg(user_id) AND d.id NOT IN (
     ORDER BY k.last_seen_at DESC, k.id DESC
     LIMIT sqlc.arg(keep)
 );
+
+-- name: DeleteDeviceToken :exec
+-- Removes the user's own token only; a token of another user is untouched.
+DELETE FROM device_token WHERE user_id = $1 AND token = $2;

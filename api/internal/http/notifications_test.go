@@ -558,3 +558,46 @@ func TestRegisterDeviceIsRateLimited(t *testing.T) {
 		t.Fatalf("another user: %d, want 204", rec.Code)
 	}
 }
+
+func unregisterDevice(t *testing.T, api apiTest, token, deviceTok string) *httptest.ResponseRecorder {
+	t.Helper()
+	return api.do(t, http.MethodDelete, "/me/device-tokens/"+deviceTok, token, nil)
+}
+
+func TestUnregisterDeviceRemovesOnlyMyToken(t *testing.T) {
+	api := newAPI(t, func() time.Time { return today })
+	_, ana := signUp(t, api, "ana@example.com")
+	beaID, bea := signUp(t, api, "bea@example.com")
+	mustRegisterDevice(t, api, ana, deviceToken)
+	mustRegisterDevice(t, api, bea, devTok(2))
+
+	// Uppercase reaches the same row, like POST.
+	if rec := unregisterDevice(t, api, ana, strings.ToUpper(deviceToken)); rec.Code != http.StatusNoContent {
+		t.Fatalf("delete mine: %d %s", rec.Code, rec.Body)
+	}
+	// Bea's token, then a repeat and an unknown one: 204, nothing removed.
+	for _, tok := range []string{devTok(2), deviceToken, devTok(3)} {
+		if rec := unregisterDevice(t, api, ana, tok); rec.Code != http.StatusNoContent {
+			t.Fatalf("delete %s: %d %s; want 204", tok, rec.Code, rec.Body)
+		}
+	}
+	got := deviceRows(t, api)
+	if len(got) != 1 || got[devTok(2)].userID != beaID {
+		t.Fatalf("rows %v, want only bea's token", got)
+	}
+}
+
+func TestUnregisterDeviceRejectsBadTokens(t *testing.T) {
+	api := newAPI(t, func() time.Time { return today })
+	_, ana := signUp(t, api, "ana@example.com")
+
+	for _, bad := range []string{"xyz", "a1b2-c3", strings.Repeat("a", maxDeviceTokenLen+1)} {
+		rec := unregisterDevice(t, api, ana, bad)
+		if rec.Code != http.StatusUnprocessableEntity || errorCode(t, rec) != "invalid_device_token" {
+			t.Fatalf("%q: status %d, body %s; want 422 invalid_device_token", bad, rec.Code, rec.Body)
+		}
+	}
+	if rec := unregisterDevice(t, api, "", deviceToken); rec.Code != http.StatusUnauthorized {
+		t.Fatalf("no session: status %d, want 401", rec.Code)
+	}
+}

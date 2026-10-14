@@ -98,6 +98,15 @@ func (r *Notifications) RegisterDevice(ctx context.Context, userID, sessionID in
 	return nil
 }
 
+// UnregisterDevice deletes the user's own token; any other token is untouched.
+func (r *Notifications) UnregisterDevice(ctx context.Context, userID int64, token string) error {
+	err := sqlcdb.New(Conn(ctx, r.pool)).DeleteDeviceToken(ctx, sqlcdb.DeleteDeviceTokenParams{UserID: userID, Token: token})
+	if err != nil {
+		return fmt.Errorf("postgres: delete device token: %w", err)
+	}
+	return nil
+}
+
 // TrimDevices deletes the user's tokens beyond the keep newest by last_seen_at.
 func (r *Notifications) TrimDevices(ctx context.Context, userID int64, keep int) error {
 	err := sqlcdb.New(Conn(ctx, r.pool)).TrimDeviceTokens(ctx, sqlcdb.TrimDeviceTokensParams{UserID: userID, Keep: int32(keep)})

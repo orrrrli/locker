@@ -15,6 +15,7 @@ type notificationService interface {
 	Inbox(ctx context.Context, userID int64, before *int64) ([]domain.InboxItem, *int64, error)
 	MarkRead(ctx context.Context, userID, notificationID int64) error
 	RegisterDevice(ctx context.Context, userID, sessionID int64, token string) error
+	UnregisterDevice(ctx context.Context, userID int64, token string) error
 }
 
 // maxDeviceTokenLen caps the APNs token. Apple says not to rely on its length
@@ -119,6 +120,24 @@ func (h notificationHandlers) registerDevice(w http.ResponseWriter, r *http.Requ
 		return
 	}
 	if err != nil {
+		notificationErrors.write(w, r, "notifications", err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// unregisterDevice stops pushes to one of the caller's devices without
+// logging out (logging out removes it anyway). Only the caller's own token
+// goes. 204 also when the token is unknown or another user's: a retry is
+// safe and the answer reveals nothing. A malformed token is a 422.
+func (h notificationHandlers) unregisterDevice(w http.ResponseWriter, r *http.Request) {
+	token := strings.ToLower(r.PathValue("token"))
+	if !isDeviceToken(token) {
+		writeError(w, http.StatusUnprocessableEntity, "invalid_device_token")
+		return
+	}
+	userID, _ := userIDFrom(r.Context())
+	if err := h.svc.UnregisterDevice(r.Context(), userID, token); err != nil {
 		notificationErrors.write(w, r, "notifications", err)
 		return
 	}

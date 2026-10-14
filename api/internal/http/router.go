@@ -104,6 +104,7 @@ func NewRouter(d Deps) http.Handler {
 	mux.Handle("GET /me/notifications", a.requireAuth(http.HandlerFunc(nt.inbox)))
 	mux.Handle("POST /notifications/{id}/read", a.requireAuth(http.HandlerFunc(nt.markRead)))
 	mux.Handle("POST /me/device-tokens", a.requireAuth(limitBy(d.Limits.DeviceToken, byUser, http.HandlerFunc(nt.registerDevice))))
+	mux.Handle("DELETE /me/device-tokens/{token}", a.requireAuth(http.HandlerFunc(nt.unregisterDevice)))
 
 	// Every operator route registers on op. Paths under /operator are sent to
 	// the gate before mux sees them, because mux prefers any more specific

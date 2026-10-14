@@ -487,6 +487,48 @@ paths:
         "500":
           $ref: "#/components/responses/Internal"
 
+  /me/device-tokens/{token}:
+    delete:
+      tags: [notifications]
+      operationId: deleteDeviceToken
+      summary: Stop pushes to one of the caller's devices
+      description: |
+        Removes the caller's own token without ending the session. Logging
+        out removes it anyway. To keep push off on this device, the app must
+        also stop calling POST /me/device-tokens at launch, which would put
+        the token back. Only the caller's token goes: an unknown token, or
+        one stored for another user, also answers 204 and removes nothing,
+        so a retry is safe and the answer reveals nothing. The token is hex
+        in either letter case, like the POST.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: token
+          in: path
+          required: true
+          schema:
+            type: string
+            pattern: "^[0-9a-fA-F]+$"
+            minLength: 1
+            maxLength: 200
+      responses:
+        "204":
+          description: Removed, or the caller had no such token.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "422":
+          description: "`invalid_device_token`: not hex, or over 200 characters."
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Error"
+                  - properties:
+                      error:
+                        const: invalid_device_token
+        "500":
+          $ref: "#/components/responses/Internal"
+
   /me/join-requests:
     get:
       tags: [memberships]
