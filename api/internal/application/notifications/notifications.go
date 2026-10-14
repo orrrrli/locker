@@ -20,6 +20,9 @@ type Notifications interface {
 	// Inbox returns up to limit of the user's notices from teams where they
 	// are active, newest first, with ids below before when it is set.
 	Inbox(ctx context.Context, userID int64, before *int64, limit int) ([]domain.InboxItem, error)
+	// MarkRead returns domain.ErrNotFound when the notice is not in the
+	// user's inbox.
+	MarkRead(ctx context.Context, userID, notificationID int64) error
 }
 
 // PageSize is how many notices one inbox page holds.
@@ -95,4 +98,11 @@ func (s *Service) Inbox(ctx context.Context, userID int64, before *int64) (items
 		next = &items[PageSize-1].ID
 	}
 	return items, next, nil
+}
+
+// MarkRead records that the user opened the notice, from the inbox or the
+// push (R11.8, R11.9). Only the first open counts. A notice outside the
+// user's inbox is domain.ErrNotFound.
+func (s *Service) MarkRead(ctx context.Context, userID, notificationID int64) error {
+	return s.notifications.MarkRead(ctx, userID, notificationID)
 }

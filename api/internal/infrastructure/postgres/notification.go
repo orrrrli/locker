@@ -102,3 +102,20 @@ func int64Ptr(v pgtype.Int8) *int64 {
 	}
 	return &v.Int64
 }
+
+// MarkRead sets read_at on the user's copy of the notice, keeping the first
+// read. It returns domain.ErrNotFound when the notice is not in the user's
+// inbox: unknown, another team's, or a team they are no longer active in.
+func (r *Notifications) MarkRead(ctx context.Context, userID, notificationID int64) error {
+	n, err := sqlcdb.New(Conn(ctx, r.pool)).MarkNotificationRead(ctx, sqlcdb.MarkNotificationReadParams{
+		NotificationID: notificationID,
+		UserID:         pgtype.Int8{Int64: userID, Valid: true},
+	})
+	if err != nil {
+		return fmt.Errorf("postgres: mark notification read: %w", err)
+	}
+	if n == 0 {
+		return domain.ErrNotFound
+	}
+	return nil
+}

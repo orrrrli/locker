@@ -155,3 +155,27 @@ func (q *Queries) ListNotificationPushTokens(ctx context.Context, notificationID
 	}
 	return items, nil
 }
+
+const markNotificationRead = `-- name: MarkNotificationRead :execrows
+UPDATE notification_recipient r
+SET read_at = COALESCE(r.read_at, now())
+FROM membership m
+WHERE r.notification_id = $1 AND m.id = r.membership_id
+  AND m.user_id = $2 AND m.status = 'active'
+`
+
+type MarkNotificationReadParams struct {
+	NotificationID int64
+	UserID         pgtype.Int8
+}
+
+// Marks the notice read for the user's active membership that received it
+// (R11.8). The first read is kept, so "Visto por" never moves. Zero rows
+// means it is not in the user's inbox.
+func (q *Queries) MarkNotificationRead(ctx context.Context, arg MarkNotificationReadParams) (int64, error) {
+	result, err := q.db.Exec(ctx, markNotificationRead, arg.NotificationID, arg.UserID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}

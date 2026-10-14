@@ -11,6 +11,11 @@ import (
 
 type notificationService interface {
 	Inbox(ctx context.Context, userID int64, before *int64) ([]domain.InboxItem, *int64, error)
+	MarkRead(ctx context.Context, userID, notificationID int64) error
+}
+
+var notificationErrors = errorMap{
+	{domain.ErrNotFound, http.StatusNotFound, "not_found"},
 }
 
 type notificationHandlers struct {
@@ -56,7 +61,7 @@ func (h notificationHandlers) inbox(w http.ResponseWriter, r *http.Request) {
 	userID, _ := userIDFrom(r.Context())
 	items, next, err := h.svc.Inbox(r.Context(), userID, before)
 	if err != nil {
-		errorMap{}.write(w, r, "notifications", err)
+		notificationErrors.write(w, r, "notifications", err)
 		return
 	}
 	out := inboxJSON{Notifications: make([]inboxItemJSON, len(items)), NextBefore: next}
@@ -77,4 +82,21 @@ func (h notificationHandlers) inbox(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	writeJSON(w, http.StatusOK, out)
+}
+
+// markRead records that the caller opened the notice (R11.8). A notice that
+// is not in their inbox is a 404, the same as an unknown id, so ids from
+// other teams reveal nothing. Repeating it keeps the first read: 204 either way.
+func (h notificationHandlers) markRead(w http.ResponseWriter, r *http.Request) {
+	id, err := idFromPath(r, "id")
+	if err != nil {
+		writeError(w, http.StatusNotFound, "not_found")
+		return
+	}
+	userID, _ := userIDFrom(r.Context())
+	if err := h.svc.MarkRead(r.Context(), userID, id); err != nil {
+		notificationErrors.write(w, r, "notifications", err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }

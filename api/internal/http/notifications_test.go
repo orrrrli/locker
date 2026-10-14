@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"maps"
 	"net/http"
+	"net/http/httptest"
 	"slices"
 	"strconv"
 	"testing"
@@ -206,6 +207,104 @@ func TestInboxEmptyAndInvalid(t *testing.T) {
 		}
 	}
 	if rec := api.do(t, http.MethodGet, "/me/notifications", "", nil); rec.Code != http.StatusUnauthorized {
+		t.Fatalf("no token: status %d, want 401", rec.Code)
+	}
+}
+
+func markRead(t *testing.T, api apiTest, token string, id int64) *httptest.ResponseRecorder {
+	t.Helper()
+	return api.do(t, http.MethodPost, "/notifications/"+strconv.FormatInt(id, 10)+"/read", token, nil)
+}
+
+// Opening a notice sets read_at on the caller's copy only (R11.8, R11.9).
+// Opening it again answers 204 and keeps the first read.
+func TestMarkReadSetsOnlyMyCopyOnce(t *testing.T) {
+	api := newAPI(t, func() time.Time { return today })
+	_, adminToken := signUp(t, api, "admin@example.com")
+	anaID, anaToken := signUp(t, api, "ana@example.com")
+	team := createTeam(t, api, adminToken, "Pumas", "America/Tijuana")
+	addMember(t, api, team.ID, anaID, "player", "active")
+	id := notify(t, api, team.ID, "Aviso")
+
+	if rec := markRead(t, api, anaToken, id); rec.Code != http.StatusNoContent || rec.Body.Len() != 0 {
+		t.Fatalf("read: status %d, body %q; want 204 empty", rec.Code, rec.Body)
+	}
+	first := getInbox(t, api, anaToken, "").Notifications[0]["read_at"]
+	assertAPITime(t, "read_at", first)
+	if got := getInbox(t, api, adminToken, "").Notifications[0]["read_at"]; string(got) != "null" {
+		t.Fatalf("admin read_at = %s, want null", got)
+	}
+
+	// Push the stored read into the past, so a second read that overwrote it
+	// would show a different time.
+	if _, err := api.pool.Exec(context.Background(),
+		`UPDATE notification_recipient SET read_at = read_at - interval '1 hour' WHERE notification_id = $1 AND read_at IS NOT NULL`, id); err != nil {
+		t.Fatal(err)
+	}
+	before := getInbox(t, api, anaToken, "").Notifications[0]["read_at"]
+	if rec := markRead(t, api, anaToken, id); rec.Code != http.StatusNoContent {
+		t.Fatalf("second read: status %d, want 204", rec.Code)
+	}
+	if after := getInbox(t, api, anaToken, "").Notifications[0]["read_at"]; string(after) != string(before) {
+		t.Fatalf("read_at moved from %s to %s on a second read", before, after)
+	}
+
+	// Manual notices are tracked the same way (R11.9).
+	var adminMembership int64
+	if err := api.pool.QueryRow(context.Background(),
+		`SELECT id FROM membership WHERE team_id = $1 AND role = 'admin'`, team.ID).Scan(&adminMembership); err != nil {
+		t.Fatal(err)
+	}
+	manual := send(t, api, domain.Notification{
+		TeamID: team.ID, Kind: domain.NotificationManual, Title: "Cancha 3", Body: "Hoy cambiamos de cancha", SentBy: &adminMembership,
+	})
+	if rec := markRead(t, api, anaToken, manual); rec.Code != http.StatusNoContent {
+		t.Fatalf("manual read: status %d, want 204", rec.Code)
+	}
+	assertAPITime(t, "manual read_at", getInbox(t, api, anaToken, "").Notifications[0]["read_at"])
+}
+
+// Only a notice in the caller's inbox can be marked. Everything else is the
+// same 404, so ids of other teams reveal nothing.
+func TestMarkReadOutsideMyInboxIsNotFound(t *testing.T) {
+	api := newAPI(t, func() time.Time { return today })
+	_, adminToken := signUp(t, api, "admin@example.com")
+	anaID, anaToken := signUp(t, api, "ana@example.com")
+	stranger := createTeam(t, api, adminToken, "Halcones", "America/Tijuana")
+	left := createTeam(t, api, adminToken, "Left FC", "America/Tijuana")
+	late := createTeam(t, api, adminToken, "Late FC", "America/Tijuana")
+
+	otherTeam := notify(t, api, stranger.ID, "Not for Ana")
+	addMember(t, api, left.ID, anaID, "player", "active")
+	leftNotice := notify(t, api, left.ID, "Before Ana left")
+	if _, err := api.pool.Exec(context.Background(),
+		`UPDATE membership SET status = 'left' WHERE team_id = $1 AND user_id = $2`, left.ID, anaID); err != nil {
+		t.Fatal(err)
+	}
+	beforeJoin := notify(t, api, late.ID, "Before Ana joined")
+	addMember(t, api, late.ID, anaID, "player", "active")
+
+	for name, path := range map[string]string{
+		"another team":        "/notifications/" + strconv.FormatInt(otherTeam, 10) + "/read",
+		"team she left":       "/notifications/" + strconv.FormatInt(leftNotice, 10) + "/read",
+		"sent before joining": "/notifications/" + strconv.FormatInt(beforeJoin, 10) + "/read",
+		"unknown id":          "/notifications/999999/read",
+		"zero":                "/notifications/0/read",
+		"not a number":        "/notifications/abc/read",
+	} {
+		rec := api.do(t, http.MethodPost, path, anaToken, nil)
+		if rec.Code != http.StatusNotFound || errorCode(t, rec) != "not_found" {
+			t.Fatalf("%s: status %d, body %s; want 404 not_found", name, rec.Code, rec.Body)
+		}
+	}
+	var read int
+	if err := api.pool.QueryRow(context.Background(), `SELECT count(*) FROM notification_recipient WHERE read_at IS NOT NULL`).Scan(&read); err != nil {
+		t.Fatal(err)
+	}
+	if read != 0 {
+		t.Fatalf("%d recipients marked read, want 0", read)
+	}
+	if rec := markRead(t, api, "", otherTeam); rec.Code != http.StatusUnauthorized {
 		t.Fatalf("no token: status %d, want 401", rec.Code)
 	}
 }

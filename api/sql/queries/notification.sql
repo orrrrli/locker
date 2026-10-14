@@ -33,3 +33,13 @@ WHERE m.user_id = sqlc.arg(user_id) AND m.status = 'active'
   AND (sqlc.narg(before)::bigint IS NULL OR n.id < sqlc.narg(before)::bigint)
 ORDER BY n.id DESC
 LIMIT sqlc.arg(row_limit);
+
+-- name: MarkNotificationRead :execrows
+-- Marks the notice read for the user's active membership that received it
+-- (R11.8). The first read is kept, so "Visto por" never moves. Zero rows
+-- means it is not in the user's inbox.
+UPDATE notification_recipient r
+SET read_at = COALESCE(r.read_at, now())
+FROM membership m
+WHERE r.notification_id = sqlc.arg(notification_id) AND m.id = r.membership_id
+  AND m.user_id = sqlc.arg(user_id) AND m.status = 'active';

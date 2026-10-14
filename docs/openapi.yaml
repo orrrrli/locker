@@ -387,6 +387,46 @@ paths:
         "500":
           $ref: "#/components/responses/Internal"
 
+  /notifications/{id}/read:
+    post:
+      tags: [notifications]
+      operationId: markNotificationRead
+      summary: Mark a notice as opened by the caller
+      description: |
+        Called when the caller opens the notice in the inbox or taps its push
+        (R11.8). Only the first open is kept, so repeating it answers 204
+        again without moving `read_at`. The UI says "opened the notice" (R11.11).
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+            minimum: 1
+      responses:
+        "204":
+          description: Marked as read (or already was).
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          description: |
+            `not_found`: the notice is not in the caller's inbox: unknown, of
+            another team, of a team they are no longer active in, sent before
+            they joined, or an id that is not a positive integer.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Error"
+                  - properties:
+                      error:
+                        const: not_found
+        "500":
+          $ref: "#/components/responses/Internal"
+
   /me/join-requests:
     get:
       tags: [memberships]
