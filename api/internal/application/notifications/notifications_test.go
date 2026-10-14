@@ -79,10 +79,12 @@ func addToken(t *testing.T, f fixture, user int64, token string) {
 	}
 }
 
-func recipients(t *testing.T, f fixture, notificationID int64) []int64 {
+// recipients returns the membership ids with a copy of the notice, read or
+// not as asked.
+func recipients(t *testing.T, f fixture, notificationID int64, read bool) []int64 {
 	t.Helper()
 	rows, err := f.pool.Query(context.Background(),
-		`SELECT membership_id FROM notification_recipient WHERE notification_id = $1 AND read_at IS NULL ORDER BY membership_id`, notificationID)
+		`SELECT membership_id FROM notification_recipient WHERE notification_id = $1 AND (read_at IS NOT NULL) = $2 ORDER BY membership_id`, notificationID, read)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -123,8 +125,8 @@ func manual(f fixture) domain.Notification {
 	return domain.Notification{TeamID: f.team, Kind: domain.NotificationManual, Title: "Cancha 3", Body: "Hoy cambiamos de cancha", SentBy: &f.admin}
 }
 
-// Every active member gets an unread copy; pending and left members get
-// nothing (R11.1, R11.2).
+// Every active member gets an unread copy, except the sender, whose copy
+// starts read; pending and left members get nothing (R11.1, R11.2).
 func TestSendStoresOneRecipientPerActiveMember(t *testing.T) {
 	f := newFixture(t)
 	beto, _ := addMember(t, f, "beto@example.com", "active")
@@ -138,17 +140,23 @@ func TestSendStoresOneRecipientPerActiveMember(t *testing.T) {
 	if n.ID == 0 || n.TeamID != f.team || n.Kind != domain.NotificationManual || n.SentBy == nil || *n.SentBy != f.admin || n.CreatedAt.IsZero() {
 		t.Fatalf("notification = %+v", n)
 	}
-	if got, want := recipients(t, f, n.ID), []int64{f.admin, beto}; !slices.Equal(got, want) {
-		t.Fatalf("recipients = %v, want %v", got, want)
+	if got, want := recipients(t, f, n.ID, false), []int64{beto}; !slices.Equal(got, want) {
+		t.Fatalf("unread recipients = %v, want %v", got, want)
+	}
+	if got, want := recipients(t, f, n.ID, true), []int64{f.admin}; !slices.Equal(got, want) {
+		t.Fatalf("read recipients = %v, want the sender %v", got, want)
 	}
 }
 
-// After commit (checked by the pusher from outside the transaction), push goes to every device of the recipients who have not
-// muted the team, and to nobody else.
+// After commit (checked by the pusher from outside the transaction), push goes
+// to every device of the recipients who have not muted the team, and to
+// nobody else: not the sender, not a muted or pending member.
 func TestSendPushesToUnmutedRecipients(t *testing.T) {
 	f := newFixture(t)
-	addToken(t, f, f.user, "ana-iphone")
-	addToken(t, f, f.user, "ana-ipad")
+	addToken(t, f, f.user, "ana-iphone") // the sender
+	_, eva := addMember(t, f, "eva@example.com", "active")
+	addToken(t, f, eva, "eva-iphone")
+	addToken(t, f, eva, "eva-ipad")
 	muted, mutedUser := addMember(t, f, "beto@example.com", "active")
 	addToken(t, f, mutedUser, "beto-iphone")
 	if _, err := f.pool.Exec(context.Background(), `UPDATE membership SET push_muted = true WHERE id = $1`, muted); err != nil {
@@ -171,11 +179,11 @@ func TestSendPushesToUnmutedRecipients(t *testing.T) {
 	if push.calls != 1 || push.n.ID != n.ID {
 		t.Fatalf("push calls = %d with %+v, want 1 with notification %d", push.calls, push.n, n.ID)
 	}
-	if want := []string{"ana-iphone", "ana-ipad"}; !slices.Equal(push.tokens, want) {
+	if want := []string{"eva-iphone", "eva-ipad"}; !slices.Equal(push.tokens, want) {
 		t.Fatalf("tokens = %v, want %v", push.tokens, want)
 	}
 	// Muting stops push only; the muted member still has it in the inbox (R11.6).
-	if got := recipients(t, f, n.ID); !slices.Contains(got, muted) {
+	if got := recipients(t, f, n.ID, false); !slices.Contains(got, muted) {
 		t.Fatalf("recipients = %v, want muted member %d included", got, muted)
 	}
 }
@@ -226,7 +234,9 @@ func TestSendRollsBackOnFailure(t *testing.T) {
 	}
 }
 
-// An automatic notice has no sender and can point at its match.
+// An automatic notice has no sender and can point at its match. With no
+// sender, every active member gets an unread copy and the push: the sender
+// filter must treat a null sent_by as "nobody to leave out".
 func TestSendAutomaticNotice(t *testing.T) {
 	f := newFixture(t)
 	var match int64
@@ -234,7 +244,9 @@ func TestSendAutomaticNotice(t *testing.T) {
 		VALUES ($1, now(), 'Halcones', 'Cancha 3', $2) RETURNING id`, f.team, f.admin).Scan(&match); err != nil {
 		t.Fatal(err)
 	}
-	n, err := f.service(nil).Send(context.Background(), domain.Notification{
+	addToken(t, f, f.user, "ana-iphone")
+	push := &fakePusher{}
+	n, err := f.service(push).Send(context.Background(), domain.Notification{
 		TeamID: f.team, Kind: domain.NotificationMatchCreated, Title: "Nuevo partido", Body: "vs Halcones", MatchID: &match,
 	})
 	if err != nil {
@@ -243,7 +255,10 @@ func TestSendAutomaticNotice(t *testing.T) {
 	if n.SentBy != nil || n.MatchID == nil || *n.MatchID != match || n.Kind != domain.NotificationMatchCreated {
 		t.Fatalf("notification = %+v", n)
 	}
-	if got := recipients(t, f, n.ID); !slices.Equal(got, []int64{f.admin}) {
+	if got := recipients(t, f, n.ID, false); !slices.Equal(got, []int64{f.admin}) {
 		t.Fatalf("recipients = %v, want [%d]", got, f.admin)
+	}
+	if want := []string{"ana-iphone"}; !slices.Equal(push.tokens, want) {
+		t.Fatalf("tokens = %v, want %v", push.tokens, want)
 	}
 }

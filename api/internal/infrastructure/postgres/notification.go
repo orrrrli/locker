@@ -21,7 +21,8 @@ func NewNotifications(pool *pgxpool.Pool) *Notifications {
 }
 
 // InsertNotification stores the notice and one recipient per active
-// membership of its team. Call it inside a transaction so both land together.
+// membership of its team, the sender's copy already read. Call it inside a
+// transaction so both land together.
 func (r *Notifications) InsertNotification(ctx context.Context, n domain.Notification) (domain.Notification, error) {
 	q := sqlcdb.New(Conn(ctx, r.pool))
 	row, err := q.InsertNotification(ctx, sqlcdb.InsertNotificationParams{
@@ -35,10 +36,7 @@ func (r *Notifications) InsertNotification(ctx context.Context, n domain.Notific
 	if err != nil {
 		return domain.Notification{}, fmt.Errorf("postgres: insert notification: %w", err)
 	}
-	if err := q.InsertNotificationRecipients(ctx, sqlcdb.InsertNotificationRecipientsParams{
-		NotificationID: row.ID,
-		TeamID:         row.TeamID,
-	}); err != nil {
+	if err := q.InsertNotificationRecipients(ctx, row.ID); err != nil {
 		return domain.Notification{}, fmt.Errorf("postgres: insert notification recipients: %w", err)
 	}
 	return notificationFromRow(row), nil
@@ -67,7 +65,7 @@ func (r *Notifications) Inbox(ctx context.Context, userID int64, before *int64, 
 }
 
 // PushTokens returns the device tokens of the notice's recipients who have
-// not muted its team (R11.6).
+// not muted its team (R11.6), leaving out its sender.
 func (r *Notifications) PushTokens(ctx context.Context, notificationID int64) ([]string, error) {
 	tokens, err := sqlcdb.New(Conn(ctx, r.pool)).ListNotificationPushTokens(ctx, notificationID)
 	if err != nil {

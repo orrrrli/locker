@@ -1782,7 +1782,7 @@ components:
           format: date-time
           description: UTC, whole seconds.
         read_at:
-          description: When the caller opened the notice (UI "opened the notice", R11.11); null until then. UTC, whole seconds.
+          description: When the caller opened the notice (UI "opened the notice", R11.11); null until then. On a notice the caller sent, it is the send time. UTC, whole seconds.
           type: [string, "null"]
           format: date-time
     CreateMatchRequest:

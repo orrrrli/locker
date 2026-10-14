@@ -5,19 +5,24 @@ RETURNING *;
 
 -- name: InsertNotificationRecipients :exec
 -- One recipient per active membership of the team (R11.2); pending and left
--- members get nothing.
-INSERT INTO notification_recipient (notification_id, membership_id)
-SELECT sqlc.arg(notification_id), m.id
-FROM membership m
-WHERE m.team_id = sqlc.arg(team_id) AND m.status = 'active';
+-- members get nothing. The sender's own copy starts read: it shows in their
+-- inbox but never as new.
+INSERT INTO notification_recipient (notification_id, membership_id, read_at)
+SELECT n.id, m.id, CASE WHEN m.id = n.sent_by THEN now() END
+FROM notification n
+JOIN membership m ON m.team_id = n.team_id AND m.status = 'active'
+WHERE n.id = sqlc.arg(notification_id);
 
 -- name: ListNotificationPushTokens :many
--- Device tokens of the recipients who have not muted the team (R11.6).
+-- Device tokens of the recipients who have not muted the team (R11.6),
+-- leaving out the sender: nobody gets a push of their own notice.
 SELECT d.token
 FROM notification_recipient r
+JOIN notification n ON n.id = r.notification_id
 JOIN membership m ON m.id = r.membership_id
 JOIN device_token d ON d.user_id = m.user_id
 WHERE r.notification_id = $1 AND NOT m.push_muted
+  AND m.id IS DISTINCT FROM n.sent_by
 ORDER BY d.id;
 
 -- name: ListInboxForUser :many

@@ -12,10 +12,10 @@ import (
 // Notifications is what the notice use cases need from storage.
 type Notifications interface {
 	// InsertNotification stores the notice plus one recipient per active
-	// membership of its team.
+	// membership of its team; the sender's copy starts read.
 	InsertNotification(ctx context.Context, n domain.Notification) (domain.Notification, error)
 	// PushTokens returns the device tokens of the recipients who have not
-	// muted the team.
+	// muted the team, leaving out the sender.
 	PushTokens(ctx context.Context, notificationID int64) ([]string, error)
 	// Inbox returns up to limit of the user's notices from teams where they
 	// are active, newest first, with ids below before when it is set.
@@ -53,8 +53,10 @@ func NewService(d Deps) *Service {
 
 // Send stores the notice for every active member of n.TeamID in one
 // transaction (R11.1, R11.2), then, after commit, pushes it to the members
-// who have not muted the team (R11.6). Callers validate the text and check
-// who may send. A manual notice needs SentBy; an automatic one must not have it.
+// who have not muted the team (R11.6). The sender keeps a copy in their
+// inbox, already read, and gets no push of their own notice. Callers validate
+// the text and check who may send. A manual notice needs SentBy; an automatic
+// one must not have it.
 //
 // Never call Send inside another InTx: it would join that transaction and
 // push before the caller commits, so a rollback leaves a push with no notice.
