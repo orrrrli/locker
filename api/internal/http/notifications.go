@@ -2,8 +2,10 @@ package http
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/orrrrli/locker/api/internal/domain"
@@ -12,7 +14,13 @@ import (
 type notificationService interface {
 	Inbox(ctx context.Context, userID int64, before *int64) ([]domain.InboxItem, *int64, error)
 	MarkRead(ctx context.Context, userID, notificationID int64) error
+	RegisterDevice(ctx context.Context, userID, sessionID int64, token string) error
+	UnregisterDevice(ctx context.Context, userID int64, token string) error
 }
+
+// maxDeviceTokenLen caps the APNs token. Apple says not to rely on its length
+// (64 hex characters today), so this is room to grow, not the format.
+const maxDeviceTokenLen = 200
 
 var notificationErrors = errorMap{
 	{domain.ErrNotFound, http.StatusNotFound, "not_found"},
@@ -82,6 +90,71 @@ func (h notificationHandlers) inbox(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	writeJSON(w, http.StatusOK, out)
+}
+
+// registerDevice stores the APNs token of the device the caller is signed in
+// on (R11.7). The client calls it on every launch; a repeat refreshes
+// last_seen_at, and a token stored for another user moves to the caller.
+// The row is tied to the calling session, so logging out or the session
+// expiring stops pushes to this device only. The token is hex, kept
+// lowercase so one device is one row: 204, or 422 invalid_device_token.
+// Limits.DeviceToken answers 429 past its per-user budget.
+func (h notificationHandlers) registerDevice(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Token string `json:"token"`
+	}
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+	token := strings.ToLower(req.Token)
+	if !isDeviceToken(token) {
+		writeError(w, http.StatusUnprocessableEntity, "invalid_device_token")
+		return
+	}
+	userID, _ := userIDFrom(r.Context())
+	sessionID, _ := sessionIDFrom(r.Context())
+	err := h.svc.RegisterDevice(r.Context(), userID, sessionID, token)
+	if errors.Is(err, domain.ErrNotFound) {
+		// The session ended (a logout) after requireAuth let this through.
+		unauthorized(w)
+		return
+	}
+	if err != nil {
+		notificationErrors.write(w, r, "notifications", err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// unregisterDevice stops pushes to one of the caller's devices without
+// logging out (logging out removes it anyway). Only the caller's own token
+// goes. 204 also when the token is unknown or another user's: a retry is
+// safe and the answer reveals nothing. A malformed token is a 422.
+func (h notificationHandlers) unregisterDevice(w http.ResponseWriter, r *http.Request) {
+	token := strings.ToLower(r.PathValue("token"))
+	if !isDeviceToken(token) {
+		writeError(w, http.StatusUnprocessableEntity, "invalid_device_token")
+		return
+	}
+	userID, _ := userIDFrom(r.Context())
+	if err := h.svc.UnregisterDevice(r.Context(), userID, token); err != nil {
+		notificationErrors.write(w, r, "notifications", err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// isDeviceToken reports whether s is 1 to maxDeviceTokenLen lowercase hex digits.
+func isDeviceToken(s string) bool {
+	if s == "" || len(s) > maxDeviceTokenLen {
+		return false
+	}
+	for _, c := range s {
+		if !('0' <= c && c <= '9' || 'a' <= c && c <= 'f') {
+			return false
+		}
+	}
+	return true
 }
 
 // markRead records that the caller opened the notice (R11.8). A notice that

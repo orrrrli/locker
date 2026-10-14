@@ -2,8 +2,10 @@ package postgres
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
@@ -72,6 +74,46 @@ func (r *Notifications) PushTokens(ctx context.Context, notificationID int64) ([
 		return nil, fmt.Errorf("postgres: list notification push tokens: %w", err)
 	}
 	return tokens, nil
+}
+
+// RegisterDevice stores the token for the user and session, or moves it to
+// them and refreshes last_seen_at when it is already stored (R11.7), then
+// deletes any other token of that session: one session is one device.
+// Deleting the session deletes the row. A session already deleted is
+// domain.ErrNotFound. Call it inside InTx so both statements land together.
+func (r *Notifications) RegisterDevice(ctx context.Context, userID, sessionID int64, token string) error {
+	q := sqlcdb.New(Conn(ctx, r.pool))
+	session := pgtype.Int8{Int64: sessionID, Valid: true}
+	err := q.UpsertDeviceToken(ctx, sqlcdb.UpsertDeviceTokenParams{UserID: userID, SessionID: session, Token: token})
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) && pgErr.Code == foreignKeyViolationCode {
+		return domain.ErrNotFound
+	}
+	if err != nil {
+		return fmt.Errorf("postgres: upsert device token: %w", err)
+	}
+	if err := q.DeleteOtherSessionTokens(ctx, sqlcdb.DeleteOtherSessionTokensParams{SessionID: session, Token: token}); err != nil {
+		return fmt.Errorf("postgres: delete other session tokens: %w", err)
+	}
+	return nil
+}
+
+// UnregisterDevice deletes the user's own token; any other token is untouched.
+func (r *Notifications) UnregisterDevice(ctx context.Context, userID int64, token string) error {
+	err := sqlcdb.New(Conn(ctx, r.pool)).DeleteDeviceToken(ctx, sqlcdb.DeleteDeviceTokenParams{UserID: userID, Token: token})
+	if err != nil {
+		return fmt.Errorf("postgres: delete device token: %w", err)
+	}
+	return nil
+}
+
+// TrimDevices deletes the user's tokens beyond the keep newest by last_seen_at.
+func (r *Notifications) TrimDevices(ctx context.Context, userID int64, keep int) error {
+	err := sqlcdb.New(Conn(ctx, r.pool)).TrimDeviceTokens(ctx, sqlcdb.TrimDeviceTokensParams{UserID: userID, Keep: int32(keep)})
+	if err != nil {
+		return fmt.Errorf("postgres: trim device tokens: %w", err)
+	}
+	return nil
 }
 
 func notificationFromRow(row sqlcdb.Notification) domain.Notification {

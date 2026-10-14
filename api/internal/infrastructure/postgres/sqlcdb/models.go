@@ -47,6 +47,7 @@ type DeviceToken struct {
 	Token      string
 	CreatedAt  pgtype.Timestamptz
 	LastSeenAt pgtype.Timestamptz
+	SessionID  pgtype.Int8
 }
 
 type Invite struct {

@@ -15,7 +15,10 @@ import (
 	"github.com/orrrrli/locker/api/internal/infrastructure/postgres/sqlcdb"
 )
 
-const uniqueViolationCode = "23505"
+const (
+	uniqueViolationCode     = "23505"
+	foreignKeyViolationCode = "23503"
+)
 
 // Users is the repository for the user and what hangs off it to sign in:
 // auth identities, and on account deletion device tokens and sessions.

@@ -272,6 +272,10 @@ const (
 	// within a few minutes, so any 24 hours can hold up to 20.
 	joinRequestMaxPerUser = 10
 	joinRequestWindow     = 24 * time.Hour
+	// The app registers its token once per launch, so 20 an hour is room to
+	// spare; it slows a loop that keeps moving a known token between accounts.
+	deviceTokenMaxPerUser = 20
+	deviceTokenWindow     = time.Hour
 )
 
 // RateLimiter allows max requests per key in a window. Counters live in
@@ -311,6 +315,7 @@ type Limits struct {
 	// table (count of the user's requests in the last 24h) if the API ever
 	// runs more than one instance.
 	JoinRequest *RateLimiter
+	DeviceToken *RateLimiter // per user
 }
 
 // NewLimits returns the production limits; now nil means the real clock.
@@ -320,6 +325,7 @@ func NewLimits(now func() time.Time) Limits {
 		InviteCreate: NewRateLimiter(inviteCreateMaxPerUser, inviteCreateWindow, now),
 		InviteAccept: NewRateLimiter(inviteAcceptMaxPerUser, inviteAcceptWindow, now),
 		JoinRequest:  NewRateLimiter(joinRequestMaxPerUser, joinRequestWindow, now),
+		DeviceToken:  NewRateLimiter(deviceTokenMaxPerUser, deviceTokenWindow, now),
 	}
 }
 
@@ -329,6 +335,7 @@ func (l Limits) Prune() {
 	l.InviteCreate.Prune()
 	l.InviteAccept.Prune()
 	l.JoinRequest.Prune()
+	l.DeviceToken.Prune()
 }
 
 // limitBy lets a request through while its key has requests left, and

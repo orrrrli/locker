@@ -427,6 +427,108 @@ paths:
         "500":
           $ref: "#/components/responses/Internal"
 
+  /me/device-tokens:
+    post:
+      tags: [notifications]
+      operationId: registerDeviceToken
+      summary: Register the APNs token of the caller's device
+      description: |
+        The app calls it on every launch with the APNs token (R11.7). The API
+        keeps one row per device: a repeat refreshes `last_seen_at`, and a
+        token stored for another user moves to the caller, so the previous
+        user stops getting pushes on that device. The token is stored lowercase.
+
+        The token is tied to the calling session. Logging out, or the session
+        expiring after 60 idle days, removes it, so a signed-out device gets no
+        pushes and the user's other devices keep theirs. Register again after
+        every login. A session is one device: a new token from the same
+        session (after a reinstall) replaces its old one. An account keeps
+        its 10 most recently seen devices; the least recently seen is dropped
+        when an 11th registers (parallel calls can leave a few more until the
+        next one). At most 20 calls per user per hour.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [token]
+              additionalProperties: false
+              properties:
+                token:
+                  type: string
+                  description: APNs device token as hex, either case. Do not assume 64 characters.
+                  pattern: "^[0-9a-fA-F]+$"
+                  minLength: 1
+                  maxLength: 200
+      responses:
+        "204":
+          description: Stored, refreshed or moved to the caller.
+        "400":
+          $ref: "#/components/responses/InvalidRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "413":
+          $ref: "#/components/responses/BodyTooLarge"
+        "422":
+          description: "`invalid_device_token`: empty, not hex, or over 200 characters."
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Error"
+                  - properties:
+                      error:
+                        const: invalid_device_token
+        "429":
+          $ref: "#/components/responses/TooManyAttempts"
+        "500":
+          $ref: "#/components/responses/Internal"
+
+  /me/device-tokens/{token}:
+    delete:
+      tags: [notifications]
+      operationId: deleteDeviceToken
+      summary: Stop pushes to one of the caller's devices
+      description: |
+        Removes the caller's own token without ending the session. Logging
+        out removes it anyway. To keep push off on this device, the app must
+        also stop calling POST /me/device-tokens at launch, which would put
+        the token back. Only the caller's token goes: an unknown token, or
+        one stored for another user, also answers 204 and removes nothing,
+        so a retry is safe and the answer reveals nothing. The token is hex
+        in either letter case, like the POST.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: token
+          in: path
+          required: true
+          schema:
+            type: string
+            pattern: "^[0-9a-fA-F]+$"
+            minLength: 1
+            maxLength: 200
+      responses:
+        "204":
+          description: Removed, or the caller had no such token.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "422":
+          description: "`invalid_device_token`: not hex, or over 200 characters."
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Error"
+                  - properties:
+                      error:
+                        const: invalid_device_token
+        "500":
+          $ref: "#/components/responses/Internal"
+
   /me/join-requests:
     get:
       tags: [memberships]
@@ -1605,6 +1707,7 @@ components:
         - attendance_locked
         - invalid_attendees
         - invalid_upcoming
+        - invalid_device_token
     AlreadyMemberError:
       type: object
       required: [error, status]

@@ -3,12 +3,14 @@ package http
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"maps"
 	"net/http"
 	"net/http/httptest"
 	"slices"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -306,5 +308,299 @@ func TestMarkReadOutsideMyInboxIsNotFound(t *testing.T) {
 	}
 	if rec := markRead(t, api, "", otherTeam); rec.Code != http.StatusUnauthorized {
 		t.Fatalf("no token: status %d, want 401", rec.Code)
+	}
+}
+
+// deviceToken is a fake APNs token: 64 hex characters with letters, so the
+// uppercase tests reach strings.ToLower. A repeated pattern, not a random-looking
+// literal, so secret scanners do not read it as a key.
+var deviceToken = strings.Repeat("ab12", 16)
+
+func registerDevice(t *testing.T, api apiTest, token, deviceTok string) *httptest.ResponseRecorder {
+	t.Helper()
+	return api.do(t, http.MethodPost, "/me/device-tokens", token, map[string]string{"token": deviceTok})
+}
+
+type deviceRow struct {
+	userID   int64
+	lastSeen time.Time
+}
+
+// deviceRows returns every device_token row by token.
+func deviceRows(t *testing.T, api apiTest) map[string]deviceRow {
+	t.Helper()
+	rows, err := api.pool.Query(context.Background(), `SELECT token, user_id, last_seen_at FROM device_token`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	out := map[string]deviceRow{}
+	for rows.Next() {
+		var tok string
+		var row deviceRow
+		if err := rows.Scan(&tok, &row.userID, &row.lastSeen); err != nil {
+			t.Fatal(err)
+		}
+		out[tok] = row
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatal(err)
+	}
+	return out
+}
+
+func TestRegisterDeviceKeepsOneRowPerDevice(t *testing.T) {
+	api := newAPI(t, func() time.Time { return today })
+	anaID, anaToken := signUp(t, api, "ana@example.com")
+	beaID, beaToken := signUp(t, api, "bea@example.com")
+
+	if rec := registerDevice(t, api, anaToken, deviceToken); rec.Code != http.StatusNoContent {
+		t.Fatalf("register: status %d, body %s", rec.Code, rec.Body)
+	}
+	if got := deviceRows(t, api); len(got) != 1 || got[deviceToken].userID != anaID {
+		t.Fatalf("after register: %+v, want one row for ana", got)
+	}
+
+	// A repeat, even in uppercase, refreshes the same row.
+	old := time.Now().Add(-48 * time.Hour)
+	if _, err := api.pool.Exec(context.Background(), `UPDATE device_token SET last_seen_at = $1`, old); err != nil {
+		t.Fatal(err)
+	}
+	if rec := registerDevice(t, api, anaToken, strings.ToUpper(deviceToken)); rec.Code != http.StatusNoContent {
+		t.Fatalf("repeat: status %d, body %s", rec.Code, rec.Body)
+	}
+	got := deviceRows(t, api)
+	if len(got) != 1 || got[deviceToken].userID != anaID || !got[deviceToken].lastSeen.After(old.Add(time.Hour)) {
+		t.Fatalf("after repeat: %+v, want one row for ana with last_seen_at refreshed", got)
+	}
+
+	// The same device signed in as Bea moves to her.
+	if rec := registerDevice(t, api, beaToken, deviceToken); rec.Code != http.StatusNoContent {
+		t.Fatalf("bea: status %d, body %s", rec.Code, rec.Body)
+	}
+	if got := deviceRows(t, api); len(got) != 1 || got[deviceToken].userID != beaID {
+		t.Fatalf("after bea: %+v, want one row for bea", got)
+	}
+
+	// It moved with Bea's session, so Ana logging out elsewhere keeps it.
+	if rec := api.do(t, http.MethodPost, "/auth/logout", anaToken, nil); rec.Code != http.StatusNoContent {
+		t.Fatalf("ana logout: %d %s", rec.Code, rec.Body)
+	}
+	if got := deviceRows(t, api); len(got) != 1 || got[deviceToken].userID != beaID {
+		t.Fatalf("after ana logout: %+v, want bea's row kept", got)
+	}
+}
+
+func TestRegisterDeviceRejectsBadTokens(t *testing.T) {
+	api := newAPI(t, func() time.Time { return today })
+	_, token := signUp(t, api, "ana@example.com")
+
+	for _, bad := range []string{"", "xyz", "a1b2 c3", "a1b2-c3", strings.Repeat("a", maxDeviceTokenLen+1)} {
+		rec := registerDevice(t, api, token, bad)
+		if rec.Code != http.StatusUnprocessableEntity || errorCode(t, rec) != "invalid_device_token" {
+			t.Fatalf("%q: status %d, body %s; want 422 invalid_device_token", bad, rec.Code, rec.Body)
+		}
+	}
+	if rec := registerDevice(t, api, token, strings.Repeat("a", maxDeviceTokenLen)); rec.Code != http.StatusNoContent {
+		t.Fatalf("max length: status %d, want 204", rec.Code)
+	}
+	if rec := registerDevice(t, api, "", deviceToken); rec.Code != http.StatusUnauthorized {
+		t.Fatalf("no session: status %d, want 401", rec.Code)
+	}
+	if got := deviceRows(t, api); len(got) != 1 {
+		t.Fatalf("rows %+v, want only the max-length token", got)
+	}
+}
+
+// devTok returns a distinct valid device token for i.
+func devTok(i int) string { return fmt.Sprintf("%064x", i+1) }
+
+// loginToken signs in again as email, a second session like a second device.
+func loginToken(t *testing.T, s sessionTest, email string) string {
+	t.Helper()
+	rec := s.login(t, email, "correct horse")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("login: %d %s", rec.Code, rec.Body)
+	}
+	var body struct{ Token string }
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil || body.Token == "" {
+		t.Fatalf("login body %s: %v", rec.Body, err)
+	}
+	return body.Token
+}
+
+func TestLogoutRemovesOnlyThatDevicesToken(t *testing.T) {
+	s := newSessionTest(t)
+	phone := s.register(t, "ana@example.com")
+	ipad := loginToken(t, s, "ana@example.com")
+	for tok, dev := range map[string]string{phone: devTok(1), ipad: devTok(2)} {
+		if rec := registerDevice(t, s.apiTest, tok, dev); rec.Code != http.StatusNoContent {
+			t.Fatalf("register: %d %s", rec.Code, rec.Body)
+		}
+	}
+
+	if rec := s.do(t, http.MethodPost, "/auth/logout", phone, nil); rec.Code != http.StatusNoContent {
+		t.Fatalf("logout: %d %s", rec.Code, rec.Body)
+	}
+	got := deviceRows(t, s.apiTest)
+	if _, ok := got[devTok(2)]; len(got) != 1 || !ok {
+		t.Fatalf("after phone logout: %v, want only the iPad token", got)
+	}
+}
+
+func TestIdleSessionRemovesItsDeviceToken(t *testing.T) {
+	s := newSessionTest(t)
+	ana := s.register(t, "ana@example.com")
+	bea := s.register(t, "bea@example.com")
+	mustRegisterDevice(t, s.apiTest, ana, devTok(1))
+	mustRegisterDevice(t, s.apiTest, bea, devTok(2))
+
+	s.clock.advance(59 * day)
+	if rec := s.whoami(t, bea); rec.Code != http.StatusOK {
+		t.Fatalf("whoami: %d", rec.Code)
+	}
+	s.clock.advance(day)
+	if _, err := s.svc.DeleteIdleSessions(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	got := deviceRows(t, s.apiTest)
+	if _, ok := got[devTok(2)]; len(got) != 1 || !ok {
+		t.Fatalf("after idle cleanup: %v, want only bea's token", got)
+	}
+}
+
+func mustRegisterDevice(t *testing.T, api apiTest, token, deviceTok string) {
+	t.Helper()
+	if rec := registerDevice(t, api, token, deviceTok); rec.Code != http.StatusNoContent {
+		t.Fatalf("register %s: %d %s", deviceTok, rec.Code, rec.Body)
+	}
+}
+
+// signIn opens one more session for email, through the use case so the
+// login limits stay out of the way: one session is one device.
+func signIn(t *testing.T, api apiTest, email string) string {
+	t.Helper()
+	out, err := api.svc.Login(context.Background(), email, "correct horse")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return out.Token
+}
+
+func TestRegisterDeviceKeepsTheTenMostRecentlySeen(t *testing.T) {
+	api := newAPI(t, func() time.Time { return today })
+	_, bea := signUp(t, api, "bea@example.com")
+	mustRegisterDevice(t, api, bea, devTok(100))
+	signUp(t, api, "ana@example.com")
+
+	const n = notifications.MaxDevicesPerUser
+	devices := make([]string, n+1)
+	for i := range devices {
+		devices[i] = signIn(t, api, "ana@example.com")
+	}
+	for i := range n {
+		mustRegisterDevice(t, api, devices[i], devTok(i))
+	}
+	// The first device launches again, so the second is now the least recently seen.
+	mustRegisterDevice(t, api, devices[0], devTok(0))
+	mustRegisterDevice(t, api, devices[n], devTok(n))
+
+	got := deviceRows(t, api)
+	_, firstKept := got[devTok(0)]
+	_, secondKept := got[devTok(1)]
+	if len(got) != n+1 || !firstKept || secondKept {
+		t.Fatalf("rows %d, first kept %v, second kept %v; want ana's 10 most recently seen plus bea's 1", len(got), firstKept, secondKept)
+	}
+	if _, ok := got[devTok(100)]; !ok {
+		t.Fatal("trimming ana's devices removed bea's")
+	}
+}
+
+func TestRegisterDeviceReplacesTheSessionsOldToken(t *testing.T) {
+	api := newAPI(t, func() time.Time { return today })
+	_, ana := signUp(t, api, "ana@example.com")
+	mustRegisterDevice(t, api, ana, devTok(1))
+
+	// A reinstall: same session, new APNs token.
+	mustRegisterDevice(t, api, ana, devTok(2))
+	got := deviceRows(t, api)
+	if _, ok := got[devTok(2)]; len(got) != 1 || !ok {
+		t.Fatalf("rows %v, want only the new token", got)
+	}
+}
+
+func TestRegisterDeviceForAnEndedSessionIsNotFound(t *testing.T) {
+	api := newAPI(t, func() time.Time { return today })
+	userID, _ := signUp(t, api, "ana@example.com")
+	svc := notifications.NewService(notifications.Deps{
+		Tx: postgres.NewTxRunner(api.pool), Notifications: postgres.NewNotifications(api.pool),
+	})
+	// What a logout committing after requireAuth leaves: a session id with no row.
+	if err := svc.RegisterDevice(context.Background(), userID, 1<<40, deviceToken); !errors.Is(err, domain.ErrNotFound) {
+		t.Fatalf("err %v, want domain.ErrNotFound (the handler's 401)", err)
+	}
+	if got := deviceRows(t, api); len(got) != 0 {
+		t.Fatalf("rows %v, want none", got)
+	}
+}
+
+func TestRegisterDeviceIsRateLimited(t *testing.T) {
+	api := newAPI(t, func() time.Time { return today })
+	_, ana := signUp(t, api, "ana@example.com")
+	_, bea := signUp(t, api, "bea@example.com")
+
+	for i := range deviceTokenMaxPerUser {
+		if rec := registerDevice(t, api, ana, deviceToken); rec.Code != http.StatusNoContent {
+			t.Fatalf("call %d: %d %s", i+1, rec.Code, rec.Body)
+		}
+	}
+	if rec := registerDevice(t, api, ana, deviceToken); rec.Code != http.StatusTooManyRequests || rec.Header().Get("Retry-After") == "" {
+		t.Fatalf("over the limit: %d, Retry-After %q; want 429 with Retry-After", rec.Code, rec.Header().Get("Retry-After"))
+	}
+	if rec := registerDevice(t, api, bea, devTok(1)); rec.Code != http.StatusNoContent {
+		t.Fatalf("another user: %d, want 204", rec.Code)
+	}
+}
+
+func unregisterDevice(t *testing.T, api apiTest, token, deviceTok string) *httptest.ResponseRecorder {
+	t.Helper()
+	return api.do(t, http.MethodDelete, "/me/device-tokens/"+deviceTok, token, nil)
+}
+
+func TestUnregisterDeviceRemovesOnlyMyToken(t *testing.T) {
+	api := newAPI(t, func() time.Time { return today })
+	_, ana := signUp(t, api, "ana@example.com")
+	beaID, bea := signUp(t, api, "bea@example.com")
+	mustRegisterDevice(t, api, ana, deviceToken)
+	mustRegisterDevice(t, api, bea, devTok(2))
+
+	// Uppercase reaches the same row, like POST.
+	if rec := unregisterDevice(t, api, ana, strings.ToUpper(deviceToken)); rec.Code != http.StatusNoContent {
+		t.Fatalf("delete mine: %d %s", rec.Code, rec.Body)
+	}
+	// Bea's token, then a repeat and an unknown one: 204, nothing removed.
+	for _, tok := range []string{devTok(2), deviceToken, devTok(3)} {
+		if rec := unregisterDevice(t, api, ana, tok); rec.Code != http.StatusNoContent {
+			t.Fatalf("delete %s: %d %s; want 204", tok, rec.Code, rec.Body)
+		}
+	}
+	got := deviceRows(t, api)
+	if len(got) != 1 || got[devTok(2)].userID != beaID {
+		t.Fatalf("rows %v, want only bea's token", got)
+	}
+}
+
+func TestUnregisterDeviceRejectsBadTokens(t *testing.T) {
+	api := newAPI(t, func() time.Time { return today })
+	_, ana := signUp(t, api, "ana@example.com")
+
+	for _, bad := range []string{"xyz", "a1b2-c3", strings.Repeat("a", maxDeviceTokenLen+1)} {
+		rec := unregisterDevice(t, api, ana, bad)
+		if rec.Code != http.StatusUnprocessableEntity || errorCode(t, rec) != "invalid_device_token" {
+			t.Fatalf("%q: status %d, body %s; want 422 invalid_device_token", bad, rec.Code, rec.Body)
+		}
+	}
+	if rec := unregisterDevice(t, api, "", deviceToken); rec.Code != http.StatusUnauthorized {
+		t.Fatalf("no session: status %d, want 401", rec.Code)
 	}
 }
