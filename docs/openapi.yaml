@@ -39,6 +39,7 @@ tags:
   - name: invites
   - name: memberships
   - name: matches
+  - name: notifications
   - name: infra
     description: Health check, Universal Links and the invite landing page.
 
@@ -328,6 +329,101 @@ paths:
                   - properties:
                       error:
                         const: invalid_upcoming
+        "500":
+          $ref: "#/components/responses/Internal"
+
+  /me/notifications:
+    get:
+      tags: [notifications]
+      operationId: listMyNotifications
+      summary: List the caller's notices across their teams, newest first
+      description: |
+        One inbox with the notices of every team where the caller is an
+        active member now (R24.6); pending and left memberships show nothing,
+        and leaving a team drops its notices. Pages of 50, newest first: pass
+        `next_before` from one page as `before` to get the next. Notices that
+        arrive meanwhile never shift a page. No notice is `[]` with 200.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: before
+          in: query
+          required: false
+          description: Return notices older than this notice id. Omit it for the first page.
+          schema:
+            type: integer
+            format: int64
+            minimum: 1
+      responses:
+        "200":
+          description: One page of the caller's inbox.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [notifications, next_before]
+                properties:
+                  notifications:
+                    type: array
+                    maxItems: 50
+                    items:
+                      $ref: "#/components/schemas/InboxNotification"
+                  next_before:
+                    description: The `before` value for the next page; null on the last page.
+                    type: [integer, "null"]
+                    format: int64
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "422":
+          description: "`invalid_before`: `before` is repeated or not a positive integer."
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Error"
+                  - properties:
+                      error:
+                        const: invalid_before
+        "500":
+          $ref: "#/components/responses/Internal"
+
+  /notifications/{id}/read:
+    post:
+      tags: [notifications]
+      operationId: markNotificationRead
+      summary: Mark a notice as opened by the caller
+      description: |
+        Called when the caller opens the notice in the inbox or taps its push
+        (R11.8). Only the first open is kept, so repeating it answers 204
+        again without moving `read_at`. The UI says "opened the notice" (R11.11).
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+            minimum: 1
+      responses:
+        "204":
+          description: Marked as read (or already was).
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          description: |
+            `not_found`: the notice is not in the caller's inbox: unknown, of
+            another team, of a team they are no longer active in, sent before
+            they joined, or an id that is not a positive integer.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Error"
+                  - properties:
+                      error:
+                        const: not_found
         "500":
           $ref: "#/components/responses/Internal"
 
@@ -1657,6 +1753,38 @@ components:
             not_going_count:
               type: integer
               description: Active members of the team who answered not going.
+    InboxNotification:
+      description: A notice as the caller sees it in the inbox (R11.1, R24.6).
+      type: object
+      required: [id, team_id, team_name, kind, title, body, match_id, created_at, read_at]
+      properties:
+        id:
+          type: integer
+          format: int64
+        team_id:
+          type: integer
+          format: int64
+        team_name:
+          type: string
+        kind:
+          type: string
+          enum: [manual, match_created, match_changed, rsvp_reminder]
+        title:
+          type: string
+        body:
+          type: string
+        match_id:
+          description: The match an automatic notice is about; null otherwise.
+          type: [integer, "null"]
+          format: int64
+        created_at:
+          type: string
+          format: date-time
+          description: UTC, whole seconds.
+        read_at:
+          description: When the caller opened the notice (UI "opened the notice", R11.11); null until then. On a notice the caller sent, it is the send time. UTC, whole seconds.
+          type: [string, "null"]
+          format: date-time
     CreateMatchRequest:
       type: object
       additionalProperties: false
