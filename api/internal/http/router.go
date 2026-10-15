@@ -65,7 +65,9 @@ func NewRouter(d Deps) http.Handler {
 	mux.HandleFunc("POST /auth/register", a.register)
 	mux.HandleFunc("POST /auth/login", a.login)
 	mux.Handle("POST /auth/logout", a.requireAuth(http.HandlerFunc(a.logout)))
-	mux.Handle("DELETE /me", a.requireAuth(http.HandlerFunc(accountHandlers{svc: d.Account}.deleteMe)))
+	acct := accountHandlers{svc: d.Account}
+	mux.Handle("GET /me", a.requireAuth(http.HandlerFunc(acct.me)))
+	mux.Handle("DELETE /me", a.requireAuth(http.HandlerFunc(acct.deleteMe)))
 
 	z := authz{memberships: d.Memberships, users: d.Users}
 	t := teamHandlers{svc: d.Teams}
