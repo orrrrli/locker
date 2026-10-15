@@ -12,20 +12,24 @@ import (
 )
 
 const createMatch = `-- name: CreateMatch :one
+
 INSERT INTO match (team_id, starts_at, rival_name, location, created_by)
 VALUES ($1, $2, $3, $4, $5)
-RETURNING id, team_id, starts_at, rival_name, location, reminder_sent_at, attendance_closed_at, created_by
+RETURNING id
 `
 
 type CreateMatchParams struct {
 	TeamID    int64
 	StartsAt  pgtype.Timestamptz
-	RivalName string
+	RivalName pgtype.Text
 	Location  string
-	CreatedBy int64
+	CreatedBy pgtype.Int8
 }
 
-func (q *Queries) CreateMatch(ctx context.Context, arg CreateMatchParams) (Match, error) {
+// Every read goes through match_view, so a fixture match shows the other
+// team's name as rival_name. Writes return the id and the repository reads
+// the row back from the view.
+func (q *Queries) CreateMatch(ctx context.Context, arg CreateMatchParams) (int64, error) {
 	row := q.db.QueryRow(ctx, createMatch,
 		arg.TeamID,
 		arg.StartsAt,
@@ -33,28 +37,19 @@ func (q *Queries) CreateMatch(ctx context.Context, arg CreateMatchParams) (Match
 		arg.Location,
 		arg.CreatedBy,
 	)
-	var i Match
-	err := row.Scan(
-		&i.ID,
-		&i.TeamID,
-		&i.StartsAt,
-		&i.RivalName,
-		&i.Location,
-		&i.ReminderSentAt,
-		&i.AttendanceClosedAt,
-		&i.CreatedBy,
-	)
-	return i, err
+	var id int64
+	err := row.Scan(&id)
+	return id, err
 }
 
 const getMatch = `-- name: GetMatch :one
-SELECT id, team_id, starts_at, rival_name, location, reminder_sent_at, attendance_closed_at, created_by FROM match
+SELECT id, team_id, starts_at, rival_name, location, reminder_sent_at, attendance_closed_at, created_by, fixture_id, court_id, cancelled_at FROM match_view
 WHERE id = $1
 `
 
-func (q *Queries) GetMatch(ctx context.Context, id int64) (Match, error) {
+func (q *Queries) GetMatch(ctx context.Context, id int64) (MatchView, error) {
 	row := q.db.QueryRow(ctx, getMatch, id)
-	var i Match
+	var i MatchView
 	err := row.Scan(
 		&i.ID,
 		&i.TeamID,
@@ -64,26 +59,30 @@ func (q *Queries) GetMatch(ctx context.Context, id int64) (Match, error) {
 		&i.ReminderSentAt,
 		&i.AttendanceClosedAt,
 		&i.CreatedBy,
+		&i.FixtureID,
+		&i.CourtID,
+		&i.CancelledAt,
 	)
 	return i, err
 }
 
 const listMatches = `-- name: ListMatches :many
-SELECT id, team_id, starts_at, rival_name, location, reminder_sent_at, attendance_closed_at, created_by FROM match
+SELECT id, team_id, starts_at, rival_name, location, reminder_sent_at, attendance_closed_at, created_by, fixture_id, court_id, cancelled_at FROM match_view
 WHERE team_id = $1
 ORDER BY starts_at, id
 `
 
-// Every match of the team, soonest first.
-func (q *Queries) ListMatches(ctx context.Context, teamID int64) ([]Match, error) {
+// Every match of the team, soonest first, cancelled ones included: they stay
+// in the team's history with cancelled_at set.
+func (q *Queries) ListMatches(ctx context.Context, teamID int64) ([]MatchView, error) {
 	rows, err := q.db.Query(ctx, listMatches, teamID)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var items []Match
+	var items []MatchView
 	for rows.Next() {
-		var i Match
+		var i MatchView
 		if err := rows.Scan(
 			&i.ID,
 			&i.TeamID,
@@ -93,6 +92,9 @@ func (q *Queries) ListMatches(ctx context.Context, teamID int64) ([]Match, error
 			&i.ReminderSentAt,
 			&i.AttendanceClosedAt,
 			&i.CreatedBy,
+			&i.FixtureID,
+			&i.CourtID,
+			&i.CancelledAt,
 		); err != nil {
 			return nil, err
 		}
@@ -105,19 +107,22 @@ func (q *Queries) ListMatches(ctx context.Context, teamID int64) ([]Match, error
 }
 
 const listUpcomingMatchesForUser = `-- name: ListUpcomingMatchesForUser :many
-SELECT m.id, m.team_id, m.starts_at, m.rival_name, m.location, m.reminder_sent_at, m.attendance_closed_at, m.created_by,
+SELECT m.id, m.team_id, m.starts_at, m.rival_name, m.location, m.reminder_sent_at, m.attendance_closed_at, m.created_by, m.fixture_id, m.court_id, m.cancelled_at,
        t.name AS team_name, me.role, own.answer AS own_answer,
        count(*) FILTER (WHERE r.answer = 'going' AND rm.id IS NOT NULL) AS going,
        count(*) FILTER (WHERE r.answer = 'not_going' AND rm.id IS NOT NULL) AS not_going
 FROM membership me
 JOIN team t ON t.id = me.team_id
-JOIN match m ON m.team_id = me.team_id
+JOIN match_view m ON m.team_id = me.team_id
 LEFT JOIN rsvp own ON own.match_id = m.id AND own.membership_id = me.id
 LEFT JOIN rsvp r ON r.match_id = m.id
 LEFT JOIN membership rm ON rm.id = r.membership_id AND rm.status = 'active'
 WHERE me.user_id = $1 AND me.status = 'active'
   AND m.starts_at > $2::timestamptz
-GROUP BY m.id, t.id, me.id, own.answer
+  AND m.cancelled_at IS NULL
+GROUP BY m.id, m.team_id, m.starts_at, m.rival_name, m.location, m.reminder_sent_at,
+         m.attendance_closed_at, m.created_by, m.fixture_id, m.court_id, m.cancelled_at,
+         t.id, me.id, own.answer
 ORDER BY m.starts_at, m.id
 `
 
@@ -127,7 +132,7 @@ type ListUpcomingMatchesForUserParams struct {
 }
 
 type ListUpcomingMatchesForUserRow struct {
-	Match     Match
+	MatchView MatchView
 	TeamName  string
 	Role      string
 	OwnAnswer pgtype.Text
@@ -137,8 +142,9 @@ type ListUpcomingMatchesForUserRow struct {
 
 // Matches that start after now in every team where the user is active
 // (R14.1, R14.3, R14.4), soonest first, with the user's role and own answer
-// (R14.2). Counts only answers of members active in the team right now: an
-// RSVP row outlives a member who left, as in CloseDueAttendance.
+// (R14.2). Cancelled matches are left out. Counts only answers of members
+// active in the team right now: an RSVP row outlives a member who left, as
+// in CloseDueAttendance.
 func (q *Queries) ListUpcomingMatchesForUser(ctx context.Context, arg ListUpcomingMatchesForUserParams) ([]ListUpcomingMatchesForUserRow, error) {
 	rows, err := q.db.Query(ctx, listUpcomingMatchesForUser, arg.UserID, arg.Now)
 	if err != nil {
@@ -149,14 +155,17 @@ func (q *Queries) ListUpcomingMatchesForUser(ctx context.Context, arg ListUpcomi
 	for rows.Next() {
 		var i ListUpcomingMatchesForUserRow
 		if err := rows.Scan(
-			&i.Match.ID,
-			&i.Match.TeamID,
-			&i.Match.StartsAt,
-			&i.Match.RivalName,
-			&i.Match.Location,
-			&i.Match.ReminderSentAt,
-			&i.Match.AttendanceClosedAt,
-			&i.Match.CreatedBy,
+			&i.MatchView.ID,
+			&i.MatchView.TeamID,
+			&i.MatchView.StartsAt,
+			&i.MatchView.RivalName,
+			&i.MatchView.Location,
+			&i.MatchView.ReminderSentAt,
+			&i.MatchView.AttendanceClosedAt,
+			&i.MatchView.CreatedBy,
+			&i.MatchView.FixtureID,
+			&i.MatchView.CourtID,
+			&i.MatchView.CancelledAt,
 			&i.TeamName,
 			&i.Role,
 			&i.OwnAnswer,
@@ -174,7 +183,7 @@ func (q *Queries) ListUpcomingMatchesForUser(ctx context.Context, arg ListUpcomi
 }
 
 const lockMatchInTeam = `-- name: LockMatchInTeam :one
-SELECT id, team_id, starts_at, rival_name, location, reminder_sent_at, attendance_closed_at, created_by FROM match
+SELECT id FROM match
 WHERE team_id = $1 AND id = $2
 FOR UPDATE
 `
@@ -184,22 +193,14 @@ type LockMatchInTeamParams struct {
 	ID     int64
 }
 
-// GetMatch scoped to the team, holding the row until the transaction ends:
-// the attendance auto-save skips a match an admin is changing right now.
-func (q *Queries) LockMatchInTeam(ctx context.Context, arg LockMatchInTeamParams) (Match, error) {
+// Holds the team's match row until the transaction ends: the attendance
+// auto-save skips a match an admin is changing right now. The view cannot be
+// locked (outer joins), so the row is locked here and read from the view.
+func (q *Queries) LockMatchInTeam(ctx context.Context, arg LockMatchInTeamParams) (int64, error) {
 	row := q.db.QueryRow(ctx, lockMatchInTeam, arg.TeamID, arg.ID)
-	var i Match
-	err := row.Scan(
-		&i.ID,
-		&i.TeamID,
-		&i.StartsAt,
-		&i.RivalName,
-		&i.Location,
-		&i.ReminderSentAt,
-		&i.AttendanceClosedAt,
-		&i.CreatedBy,
-	)
-	return i, err
+	var id int64
+	err := row.Scan(&id)
+	return id, err
 }
 
 const updateMatch = `-- name: UpdateMatch :one
@@ -208,7 +209,7 @@ SET starts_at  = coalesce($1, starts_at),
     rival_name = coalesce($2, rival_name),
     location   = coalesce($3, location)
 WHERE id = $4 AND team_id = $5
-RETURNING id, team_id, starts_at, rival_name, location, reminder_sent_at, attendance_closed_at, created_by
+RETURNING id
 `
 
 type UpdateMatchParams struct {
@@ -221,7 +222,7 @@ type UpdateMatchParams struct {
 
 // A NULL argument keeps the current value (partial PATCH). Scoped to the
 // team, so an id from another team is not found.
-func (q *Queries) UpdateMatch(ctx context.Context, arg UpdateMatchParams) (Match, error) {
+func (q *Queries) UpdateMatch(ctx context.Context, arg UpdateMatchParams) (int64, error) {
 	row := q.db.QueryRow(ctx, updateMatch,
 		arg.StartsAt,
 		arg.RivalName,
@@ -229,16 +230,7 @@ func (q *Queries) UpdateMatch(ctx context.Context, arg UpdateMatchParams) (Match
 		arg.ID,
 		arg.TeamID,
 	)
-	var i Match
-	err := row.Scan(
-		&i.ID,
-		&i.TeamID,
-		&i.StartsAt,
-		&i.RivalName,
-		&i.Location,
-		&i.ReminderSentAt,
-		&i.AttendanceClosedAt,
-		&i.CreatedBy,
-	)
-	return i, err
+	var id int64
+	err := row.Scan(&id)
+	return id, err
 }

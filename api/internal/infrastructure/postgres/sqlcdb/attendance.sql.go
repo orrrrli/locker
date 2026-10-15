@@ -44,6 +44,7 @@ WITH due AS (
     SELECT id FROM match
     WHERE starts_at <= $1::timestamptz - interval '1 hour'
       AND attendance_closed_at IS NULL
+      AND cancelled_at IS NULL
       AND NOT EXISTS (SELECT 1 FROM charge c WHERE c.match_id = match.id)
     FOR UPDATE SKIP LOCKED
 ), saved AS (
@@ -67,7 +68,8 @@ WHERE id IN (SELECT id FROM due)
 // can still add them by hand. SKIP LOCKED leaves a match an admin is saving
 // right now to the next tick; the admin's save sets attendance_closed_at, so
 // it is never picked again (R10.2). A match a charge already targets is left
-// alone, as the admin save is (R10.4). Returns how many matches it closed.
+// alone, as the admin save is (R10.4), and so is a cancelled match. Returns
+// how many matches it closed.
 func (q *Queries) CloseDueAttendance(ctx context.Context, now pgtype.Timestamptz) (int64, error) {
 	result, err := q.db.Exec(ctx, closeDueAttendance, now)
 	if err != nil {

@@ -47,22 +47,34 @@ type matchHandlers struct {
 	svc matchService
 }
 
+// matchJSON: fixture_id and court_id are set on a league match, null on any
+// other; cancelled_at is null until the match is cancelled.
 type matchJSON struct {
-	ID        int64     `json:"id"`
-	TeamID    int64     `json:"team_id"`
-	StartsAt  time.Time `json:"starts_at"`
-	RivalName string    `json:"rival_name"`
-	Location  string    `json:"location"`
+	ID          int64      `json:"id"`
+	TeamID      int64      `json:"team_id"`
+	StartsAt    time.Time  `json:"starts_at"`
+	RivalName   string     `json:"rival_name"`
+	Location    string     `json:"location"`
+	FixtureID   *int64     `json:"fixture_id"`
+	CourtID     *int64     `json:"court_id"`
+	CancelledAt *time.Time `json:"cancelled_at"`
 }
 
 func toMatchJSON(m domain.Match) matchJSON {
-	return matchJSON{
+	out := matchJSON{
 		ID:        m.ID,
 		TeamID:    m.TeamID,
 		StartsAt:  apiTime(m.StartsAt),
 		RivalName: m.RivalName,
 		Location:  m.Location,
+		FixtureID: m.FixtureID,
+		CourtID:   m.CourtID,
 	}
+	if m.CancelledAt != nil {
+		c := apiTime(*m.CancelledAt)
+		out.CancelledAt = &c
+	}
+	return out
 }
 
 // createMatchRequest: an absent starts_at stays zero, which the use case
@@ -279,6 +291,8 @@ var matchErrors = errorMap{
 	{matches.ErrAttendanceClosed, http.StatusConflict, "attendance_closed"},
 	{matches.ErrInvalidAnswer, http.StatusUnprocessableEntity, "invalid_answer"},
 	{matches.ErrMatchStarted, http.StatusConflict, "match_started"},
+	{matches.ErrMatchCancelled, http.StatusConflict, "match_cancelled"},
+	{matches.ErrFixtureMatch, http.StatusConflict, "fixture_match"},
 	{application.ErrNotAdmin, http.StatusForbidden, "forbidden"},
 	{domain.ErrTeamBusy, http.StatusServiceUnavailable, "team_busy"},
 	{domain.ErrNotFound, http.StatusNotFound, "not_found"},

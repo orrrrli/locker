@@ -110,6 +110,7 @@ func start() error {
 		Tx:      postgres.NewTxRunner(pool),
 		Leagues: postgres.NewLeagues(pool),
 		Teams:   memberships,
+		Notices: notificationSvc,
 	})
 	router := apihttp.NewRouter(apihttp.Deps{
 		Auth:          authSvc,

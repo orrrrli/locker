@@ -57,6 +57,17 @@ type DeviceToken struct {
 	SessionID  pgtype.Int8
 }
 
+type Fixture struct {
+	ID          int64
+	LeagueID    int64
+	HomeTeamID  int64
+	AwayTeamID  int64
+	CourtID     int64
+	StartsAt    pgtype.Timestamptz
+	CancelledAt pgtype.Timestamptz
+	CreatedAt   pgtype.Timestamptz
+}
+
 type Invite struct {
 	ID        int64
 	TeamID    int64
@@ -89,11 +100,28 @@ type Match struct {
 	ID                 int64
 	TeamID             int64
 	StartsAt           pgtype.Timestamptz
+	RivalName          pgtype.Text
+	Location           string
+	ReminderSentAt     pgtype.Timestamptz
+	AttendanceClosedAt pgtype.Timestamptz
+	CreatedBy          pgtype.Int8
+	FixtureID          pgtype.Int8
+	CourtID            pgtype.Int8
+	CancelledAt        pgtype.Timestamptz
+}
+
+type MatchView struct {
+	ID                 int64
+	TeamID             int64
+	StartsAt           pgtype.Timestamptz
 	RivalName          string
 	Location           string
 	ReminderSentAt     pgtype.Timestamptz
 	AttendanceClosedAt pgtype.Timestamptz
-	CreatedBy          int64
+	CreatedBy          pgtype.Int8
+	FixtureID          pgtype.Int8
+	CourtID            pgtype.Int8
+	CancelledAt        pgtype.Timestamptz
 }
 
 type Membership struct {

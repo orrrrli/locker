@@ -1300,7 +1300,10 @@ paths:
         "404":
           $ref: "#/components/responses/NotFound"
         "409":
-          description: "`attendance_closed`: attendance is already saved, so `starts_at` cannot change."
+          description: |
+            - `attendance_closed`: attendance is already saved, so `starts_at` cannot change.
+            - `match_cancelled`: the match is cancelled.
+            - `fixture_match`: a league match; only the operator changes it, through its fixture.
           content:
             application/json:
               schema:
@@ -1308,7 +1311,7 @@ paths:
                   - $ref: "#/components/schemas/Error"
                   - properties:
                       error:
-                        const: attendance_closed
+                        enum: [attendance_closed, match_cancelled, fixture_match]
         "413":
           $ref: "#/components/responses/BodyTooLarge"
         "422":
@@ -1361,7 +1364,9 @@ paths:
         "404":
           $ref: "#/components/responses/NotFound"
         "409":
-          description: "`match_started`: `starts_at` is now or in the past; the answer did not change."
+          description: |
+            - `match_started`: `starts_at` is now or in the past; the answer did not change.
+            - `match_cancelled`: the match is cancelled.
           content:
             application/json:
               schema:
@@ -1369,7 +1374,7 @@ paths:
                   - $ref: "#/components/schemas/Error"
                   - properties:
                       error:
-                        const: match_started
+                        enum: [match_started, match_cancelled]
         "413":
           $ref: "#/components/responses/BodyTooLarge"
         "422":
@@ -1447,6 +1452,7 @@ paths:
           description: |
             - `match_not_started`: `starts_at` is still in the future.
             - `attendance_locked`: a charge targets this match; the list did not change.
+            - `match_cancelled`: the match is cancelled.
           content:
             application/json:
               schema:
@@ -1454,7 +1460,7 @@ paths:
                   - $ref: "#/components/schemas/Error"
                   - properties:
                       error:
-                        enum: [match_not_started, attendance_locked]
+                        enum: [match_not_started, attendance_locked, match_cancelled]
         "413":
           $ref: "#/components/responses/BodyTooLarge"
         "422":
@@ -1958,9 +1964,11 @@ paths:
       operationId: unenrollTeam
       summary: Remove a team from a league
       description: |
-        Operator only (R16.8). The team can be enrolled again later. Once
-        fixtures exist (BE-VENUE-5), this also deletes the team's future
-        fixtures in the league and cancels both sides' linked matches.
+        Operator only (R16.8). The team can be enrolled again later. In the
+        same transaction, the team's future fixtures in the league are
+        deleted and both sides' linked matches cancelled, each team getting a
+        `match_changed` notice ("Partido cancelado: vs. <rival>"). Past
+        matches keep their attendance and fees.
       security:
         - bearerAuth: []
       responses:
@@ -1972,6 +1980,175 @@ paths:
           $ref: "#/components/responses/NotOperator"
         "404":
           $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/Internal"
+
+  /operator/leagues/{id}/fixtures:
+    parameters:
+      - $ref: "#/components/parameters/LeagueID"
+    post:
+      tags: [operator]
+      operationId: createFixture
+      summary: Schedule a league fixture
+      description: |
+        Operator only. Home and away are two different teams enrolled in the
+        league; the court is one of the league's venue; `starts_at` falls on
+        the league's weekday, inside its window, in the venue's timezone (at
+        or after `start_time`, before `end_time`). In one transaction it
+        creates the fixture, one match per team (rival: the other team;
+        location: "<venue> · <court>") and a `match_created` notice for each
+        team, pushed after commit (R11.4). Teams cannot change these matches
+        (`PATCH /matches/{id}` answers 409 `fixture_match`).
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateFixtureRequest"
+      responses:
+        "201":
+          description: The fixture and its two matches.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Fixture"
+        "400":
+          $ref: "#/components/responses/InvalidRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/NotOperator"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "413":
+          $ref: "#/components/responses/BodyTooLarge"
+        "422":
+          description: |
+            - `same_team`: home and away are the same team.
+            - `team_not_enrolled`: a team is not enrolled in the league, unknown, or dissolved.
+            - `invalid_court`: the court is not one of the league's venue.
+            - `outside_league_window`: not on the league's weekday inside its window, in the venue's timezone.
+            - `invalid_starts_at`: missing, or outside years 1 to 9999.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Error"
+                  - properties:
+                      error:
+                        enum: [same_team, team_not_enrolled, invalid_court, outside_league_window, invalid_starts_at]
+        "500":
+          $ref: "#/components/responses/Internal"
+        "503":
+          $ref: "#/components/responses/TeamBusy"
+  /operator/leagues/{id}/fixtures/{fixtureId}:
+    parameters:
+      - $ref: "#/components/parameters/LeagueID"
+      - name: fixtureId
+        in: path
+        required: true
+        description: Fixture id. A fixture of another league answers 404, like an unknown one.
+        schema:
+          type: integer
+          format: int64
+          minimum: 1
+    patch:
+      tags: [operator]
+      operationId: updateFixture
+      summary: Move a fixture
+      description: |
+        Operator only. Send `starts_at`, `court_id` or both; an absent or
+        null field keeps its value. The result is checked like a new fixture.
+        Both linked matches move in the same transaction and each team gets a
+        `match_changed` notice when the time or court actually changes.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateFixtureRequest"
+      responses:
+        "200":
+          description: The fixture and its two matches.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Fixture"
+        "400":
+          $ref: "#/components/responses/InvalidRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/NotOperator"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          description: |
+            - `fixture_cancelled`: the fixture was deleted.
+            - `attendance_closed`: a team already saved attendance; the time can no longer change (the court can).
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Error"
+                  - properties:
+                      error:
+                        enum: [fixture_cancelled, attendance_closed]
+        "413":
+          $ref: "#/components/responses/BodyTooLarge"
+        "422":
+          description: |
+            - `nothing_to_update`: neither field sent.
+            - `invalid_court`, `outside_league_window`, `invalid_starts_at`: as in `POST`.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Error"
+                  - properties:
+                      error:
+                        enum: [nothing_to_update, invalid_court, outside_league_window, invalid_starts_at]
+        "500":
+          $ref: "#/components/responses/Internal"
+    delete:
+      tags: [operator]
+      operationId: deleteFixture
+      summary: Delete a fixture
+      description: |
+        Operator only, before kickoff. The fixture and both linked matches
+        are cancelled in one transaction (the rows stay, with `cancelled_at`)
+        and each team gets a `match_changed` notice ("Partido cancelado: vs.
+        <rival>").
+      security:
+        - bearerAuth: []
+      responses:
+        "204":
+          description: The fixture is deleted and its matches cancelled.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/NotOperator"
+        "404":
+          description: "`not_found`: unknown fixture, one of another league, or one already deleted."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: |
+            - `fixture_started`: the fixture has kicked off; it stays.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Error"
+                  - properties:
+                      error:
+                        enum: [fixture_started]
         "500":
           $ref: "#/components/responses/Internal"
 
@@ -2275,6 +2452,14 @@ components:
         - invalid_venue
         - invalid_team
         - already_enrolled
+        - same_team
+        - team_not_enrolled
+        - invalid_court
+        - outside_league_window
+        - fixture_started
+        - fixture_cancelled
+        - match_cancelled
+        - fixture_match
     AlreadyMemberError:
       type: object
       required: [error, status]
@@ -2386,7 +2571,7 @@ components:
 
     Match:
       type: object
-      required: [id, team_id, starts_at, rival_name, location]
+      required: [id, team_id, starts_at, rival_name, location, fixture_id, court_id, cancelled_at]
       properties:
         id:
           type: integer
@@ -2398,8 +2583,27 @@ components:
           $ref: "#/components/schemas/Timestamp"
         rival_name:
           type: string
+          description: On a league match, the other team's current name.
         location:
           type: string
+          description: On a league match, "<venue> · <court>".
+        fixture_id:
+          type: [integer, "null"]
+          format: int64
+          description: The league fixture this match belongs to; null for a match the team scheduled.
+        court_id:
+          type: [integer, "null"]
+          format: int64
+          description: The court of a league match; null otherwise.
+        cancelled_at:
+          description: |
+            When the match was cancelled (its league fixture was deleted, or
+            the team left the league); null otherwise. A cancelled match stays
+            in `GET /teams/{id}/matches`, is left out of `GET /me/matches`,
+            and takes no RSVP, attendance or change.
+          oneOf:
+            - $ref: "#/components/schemas/Timestamp"
+            - type: "null"
     UpcomingMatch:
       description: A match plus the team, the caller's role and answer, and the RSVP counts (R14.2).
       allOf:
@@ -2931,3 +3135,66 @@ components:
           format: int64
         enrolled_at:
           $ref: "#/components/schemas/Timestamp"
+    Fixture:
+      type: object
+      required: [id, league_id, home_team_id, away_team_id, court_id, starts_at, matches]
+      properties:
+        id:
+          type: integer
+          format: int64
+        league_id:
+          type: integer
+          format: int64
+        home_team_id:
+          type: integer
+          format: int64
+        away_team_id:
+          type: integer
+          format: int64
+        court_id:
+          type: integer
+          format: int64
+        starts_at:
+          $ref: "#/components/schemas/Timestamp"
+        matches:
+          type: array
+          description: The two linked matches, home first.
+          items:
+            type: object
+            required: [id, team_id]
+            properties:
+              id:
+                type: integer
+                format: int64
+              team_id:
+                type: integer
+                format: int64
+    CreateFixtureRequest:
+      type: object
+      additionalProperties: false
+      required: [home_team_id, away_team_id, court_id, starts_at]
+      properties:
+        home_team_id:
+          type: integer
+          format: int64
+        away_team_id:
+          type: integer
+          format: int64
+        court_id:
+          type: integer
+          format: int64
+        starts_at:
+          type: string
+          format: date-time
+          description: Any RFC 3339 time; stored and returned in UTC.
+    UpdateFixtureRequest:
+      type: object
+      additionalProperties: false
+      description: At least one field. Absent or null keeps the current value.
+      properties:
+        starts_at:
+          type: [string, "null"]
+          format: date-time
+        court_id:
+          type: [integer, "null"]
+          format: int64

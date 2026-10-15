@@ -135,6 +135,26 @@ func TestLeagueChecks(t *testing.T) {
 	}
 }
 
+// TestMatchNeedsRivalAndCreatorOutsideFixtures: only a fixture match may
+// leave rival_name and created_by empty (design.md resolved decision 7), and
+// a fixture match always names its court.
+func TestMatchNeedsRivalAndCreatorOutsideFixtures(t *testing.T) {
+	pool, _ := testPool(t)
+	ctx := context.Background()
+	if err := Migrate(ctx, pool); err != nil {
+		t.Fatal(err)
+	}
+	var teamID int64
+	if err := pool.QueryRow(ctx, `INSERT INTO team (name, timezone) VALUES ('T', 'America/Tijuana') RETURNING id`).Scan(&teamID); err != nil {
+		t.Fatal(err)
+	}
+	_, err := pool.Exec(ctx, `INSERT INTO match (team_id, starts_at, location) VALUES ($1, now(), 'Cancha')`, teamID)
+	var pgErr *pgconn.PgError
+	if !errors.As(err, &pgErr) || pgErr.Code != "23514" {
+		t.Fatalf("match without rival or creator: err = %v, want check_violation", err)
+	}
+}
+
 // TestDomainEnumsMatchCheckConstraints keeps the domain constants and the
 // CHECK constraints from drifting apart.
 func TestDomainEnumsMatchCheckConstraints(t *testing.T) {
