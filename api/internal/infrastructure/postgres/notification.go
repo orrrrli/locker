@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgtype"
@@ -24,17 +25,22 @@ func NewNotifications(pool *pgxpool.Pool) *Notifications {
 
 // InsertNotification stores the notice and one recipient per active
 // membership of its team, the sender's copy already read. Call it inside a
-// transaction so both land together.
+// transaction so both land together. A zero CreatedAt takes the database's
+// clock.
 func (r *Notifications) InsertNotification(ctx context.Context, n domain.Notification) (domain.Notification, error) {
 	q := sqlcdb.New(Conn(ctx, r.pool))
-	row, err := q.InsertNotification(ctx, sqlcdb.InsertNotificationParams{
+	params := sqlcdb.InsertNotificationParams{
 		TeamID:  n.TeamID,
 		Kind:    string(n.Kind),
 		Title:   n.Title,
 		Body:    n.Body,
 		MatchID: optInt8(n.MatchID),
 		SentBy:  optInt8(n.SentBy),
-	})
+	}
+	if !n.CreatedAt.IsZero() {
+		params.CreatedAt = timestamptz(n.CreatedAt)
+	}
+	row, err := q.InsertNotification(ctx, params)
 	if err != nil {
 		return domain.Notification{}, fmt.Errorf("postgres: insert notification: %w", err)
 	}
@@ -158,4 +164,16 @@ func (r *Notifications) MarkRead(ctx context.Context, userID, notificationID int
 		return domain.ErrNotFound
 	}
 	return nil
+}
+
+// CountManualSince counts the team's manual notices created at or after
+// since (R11.3).
+func (r *Notifications) CountManualSince(ctx context.Context, teamID int64, since time.Time) (int, error) {
+	n, err := sqlcdb.New(Conn(ctx, r.pool)).CountManualNotificationsSince(ctx, sqlcdb.CountManualNotificationsSinceParams{
+		TeamID: teamID, CreatedAt: timestamptz(since),
+	})
+	if err != nil {
+		return 0, fmt.Errorf("postgres: count manual notifications since: %w", err)
+	}
+	return int(n), nil
 }

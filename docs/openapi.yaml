@@ -332,6 +332,72 @@ paths:
         "500":
           $ref: "#/components/responses/Internal"
 
+  /teams/{id}/notifications:
+    parameters:
+      - $ref: "#/components/parameters/TeamID"
+    post:
+      tags: [notifications]
+      operationId: sendNotification
+      summary: Send a notice to the whole team
+      description: |
+        Admins only. The notice lands in the inbox of every active member
+        now (R11.2), the sender's copy already read, and is pushed to the
+        members who have not muted the team (R11.6). A team sends at most 10
+        manual notices between two local midnights in its timezone (R11.3);
+        automatic notices do not count. `title` is one line; `body` may span
+        lines (CRLF becomes LF).
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SendNotificationRequest"
+      responses:
+        "201":
+          description: Notice stored and sent.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Notification"
+        "400":
+          $ref: "#/components/responses/InvalidRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          description: "`daily_limit_reached`: the team already sent 10 notices since local midnight; try again tomorrow."
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Error"
+                  - properties:
+                      error:
+                        const: daily_limit_reached
+        "413":
+          $ref: "#/components/responses/BodyTooLarge"
+        "422":
+          description: |
+            - `invalid_title`: empty or over 80 characters after trimming, or contains control or invisible characters.
+            - `invalid_body`: empty or over 1000 characters after trimming, or contains control characters other than line feeds, or invisible characters.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Error"
+                  - properties:
+                      error:
+                        enum: [invalid_title, invalid_body]
+        "500":
+          $ref: "#/components/responses/Internal"
+        "503":
+          $ref: "#/components/responses/TeamBusy"
+
   /me/notifications:
     get:
       tags: [notifications]
@@ -1708,6 +1774,9 @@ components:
         - invalid_attendees
         - invalid_upcoming
         - invalid_device_token
+        - invalid_title
+        - invalid_body
+        - daily_limit_reached
     AlreadyMemberError:
       type: object
       required: [error, status]
@@ -1856,6 +1925,45 @@ components:
             not_going_count:
               type: integer
               description: Active members of the team who answered not going.
+    SendNotificationRequest:
+      type: object
+      additionalProperties: false
+      required: [title, body]
+      properties:
+        title:
+          type: string
+          description: 1 to 80 characters after trimming, one line.
+        body:
+          type: string
+          description: 1 to 1000 characters after trimming; may span lines.
+    Notification:
+      description: A notice as stored (R11.1). The inbox adds the team name and the caller's read state.
+      type: object
+      required: [id, team_id, kind, title, body, match_id, sent_by, created_at]
+      properties:
+        id:
+          type: integer
+          format: int64
+        team_id:
+          type: integer
+          format: int64
+        kind:
+          type: string
+          enum: [manual, match_created, match_changed, rsvp_reminder]
+        title:
+          type: string
+        body:
+          type: string
+        match_id:
+          description: The match an automatic notice is about; null otherwise.
+          type: [integer, "null"]
+          format: int64
+        sent_by:
+          description: The sending admin's membership id; null on an automatic notice.
+          type: [integer, "null"]
+          format: int64
+        created_at:
+          $ref: "#/components/schemas/Timestamp"
     InboxNotification:
       description: A notice as the caller sees it in the inbox (R11.1, R24.6).
       type: object

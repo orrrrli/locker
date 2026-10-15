@@ -101,6 +101,7 @@ func NewRouter(d Deps) http.Handler {
 	mux.Handle("GET /matches/{id}/attendance", a.requireAuth(z.requireActiveMember(match, http.HandlerFunc(mt.getAttendance))))
 
 	nt := notificationHandlers{svc: d.Notifications}
+	mux.Handle("POST /teams/{id}/notifications", a.requireAuth(z.requireRole(team, domain.RoleAdmin, http.HandlerFunc(nt.send))))
 	mux.Handle("GET /me/notifications", a.requireAuth(http.HandlerFunc(nt.inbox)))
 	mux.Handle("POST /notifications/{id}/read", a.requireAuth(http.HandlerFunc(nt.markRead)))
 	mux.Handle("POST /me/device-tokens", a.requireAuth(limitBy(d.Limits.DeviceToken, byUser, http.HandlerFunc(nt.registerDevice))))

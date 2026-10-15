@@ -97,6 +97,8 @@ func start() error {
 	notificationSvc := notifications.NewService(notifications.Deps{
 		Tx:            postgres.NewTxRunner(pool),
 		Notifications: postgres.NewNotifications(pool),
+		Memberships:   memberships,
+		Teams:         postgres.NewTeams(pool),
 	})
 	router := apihttp.NewRouter(apihttp.Deps{
 		Auth:          authSvc,
