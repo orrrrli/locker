@@ -53,11 +53,6 @@ func newAPI(t *testing.T, now func() time.Time) apiTest {
 	// exercise sessions without a feature endpoint.
 	mux := http.NewServeMux()
 	memberships := postgres.NewMemberships(pool)
-	teamSvc := teams.NewService(teams.Deps{
-		Tx:          postgres.NewTxRunner(pool),
-		Teams:       postgres.NewTeams(pool),
-		Memberships: memberships,
-	})
 	inviteSvc := invites.NewService(invites.Deps{
 		Tx:            postgres.NewTxRunner(pool),
 		Invites:       postgres.NewInvites(pool),
@@ -90,6 +85,12 @@ func newAPI(t *testing.T, now func() time.Time) apiTest {
 	venueSvc := venues.NewService(venues.Deps{Tx: postgres.NewTxRunner(pool), Venues: postgres.NewVenues(pool)})
 	leagueSvc := leagues.NewService(leagues.Deps{
 		Tx: postgres.NewTxRunner(pool), Leagues: postgres.NewLeagues(pool), Teams: memberships, Notices: notificationSvc, Now: now,
+	})
+	teamSvc := teams.NewService(teams.Deps{
+		Tx:          postgres.NewTxRunner(pool),
+		Teams:       postgres.NewTeams(pool),
+		Memberships: memberships,
+		Leagues:     leagueSvc,
 	})
 	pageSvc := pages.NewService(pages.Deps{Pages: postgres.NewPages(pool), Memberships: memberships, Now: now})
 	leadSvc := leads.NewService(leads.Deps{Tx: postgres.NewTxRunner(pool), Leads: postgres.NewVenueLeads(pool), Now: now})

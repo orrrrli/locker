@@ -144,3 +144,13 @@ func leagueFromRow(row sqlcdb.League) domain.League {
 		CreatedAt:      row.CreatedAt.Time,
 	}
 }
+
+// EnrolledLeagues returns the ids of the leagues the team is enrolled in,
+// ascending.
+func (r *Leagues) EnrolledLeagues(ctx context.Context, teamID int64) ([]int64, error) {
+	ids, err := sqlcdb.New(Conn(ctx, r.pool)).ListEnrolledLeagues(ctx, teamID)
+	if err != nil {
+		return nil, fmt.Errorf("postgres: enrolled leagues: %w", err)
+	}
+	return ids, nil
+}

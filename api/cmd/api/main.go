@@ -70,10 +70,22 @@ func start() error {
 	loginLimiter := apihttp.NewLoginLimiter(nil)
 	limits := apihttp.NewLimits(nil)
 	memberships := postgres.NewMemberships(pool)
+	// Push stays nil (inbox only) until the APNs sender, BE-NOTIF-2.
+	notificationSvc := notifications.NewService(notifications.Deps{
+		Tx:            postgres.NewTxRunner(pool),
+		Notifications: postgres.NewNotifications(pool),
+	})
+	leagueSvc := leagues.NewService(leagues.Deps{
+		Tx:      postgres.NewTxRunner(pool),
+		Leagues: postgres.NewLeagues(pool),
+		Teams:   memberships,
+		Notices: notificationSvc,
+	})
 	teamSvc := teams.NewService(teams.Deps{
 		Tx:          postgres.NewTxRunner(pool),
 		Teams:       postgres.NewTeams(pool),
 		Memberships: memberships,
+		Leagues:     leagueSvc,
 	})
 	inviteSvc := invites.NewService(invites.Deps{
 		Tx:            postgres.NewTxRunner(pool),
@@ -91,11 +103,6 @@ func start() error {
 		Memberships: memberships,
 		Users:       postgres.NewUsers(pool),
 	})
-	// Push stays nil (inbox only) until the APNs sender, BE-NOTIF-2.
-	notificationSvc := notifications.NewService(notifications.Deps{
-		Tx:            postgres.NewTxRunner(pool),
-		Notifications: postgres.NewNotifications(pool),
-	})
 	matchRepo := postgres.NewMatches(pool)
 	matchSvc := matches.NewService(matches.Deps{
 		Tx:          postgres.NewTxRunner(pool),
@@ -107,12 +114,6 @@ func start() error {
 	venueSvc := venues.NewService(venues.Deps{
 		Tx:     postgres.NewTxRunner(pool),
 		Venues: postgres.NewVenues(pool),
-	})
-	leagueSvc := leagues.NewService(leagues.Deps{
-		Tx:      postgres.NewTxRunner(pool),
-		Leagues: postgres.NewLeagues(pool),
-		Teams:   memberships,
-		Notices: notificationSvc,
 	})
 	pageSvc := pages.NewService(pages.Deps{Pages: postgres.NewPages(pool), Memberships: memberships})
 	leadSvc := leads.NewService(leads.Deps{Tx: postgres.NewTxRunner(pool), Leads: postgres.NewVenueLeads(pool)})

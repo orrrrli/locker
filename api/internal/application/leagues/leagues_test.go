@@ -42,14 +42,15 @@ func setup(t *testing.T) fixture {
 	}
 	memberships := postgres.NewMemberships(pool)
 	now := time.Date(2026, 10, 15, 12, 0, 0, 0, time.UTC)
+	svc := leagues.NewService(leagues.Deps{
+		Tx: postgres.NewTxRunner(pool), Leagues: postgres.NewLeagues(pool), Teams: memberships,
+		Notices: notifications.NewService(notifications.Deps{Tx: postgres.NewTxRunner(pool), Notifications: postgres.NewNotifications(pool)}),
+		Now:     func() time.Time { return now },
+	})
 	return fixture{
-		svc: leagues.NewService(leagues.Deps{
-			Tx: postgres.NewTxRunner(pool), Leagues: postgres.NewLeagues(pool), Teams: memberships,
-			Notices: notifications.NewService(notifications.Deps{Tx: postgres.NewTxRunner(pool), Notifications: postgres.NewNotifications(pool)}),
-			Now:     func() time.Time { return now },
-		}),
+		svc: svc,
 		teams: teams.NewService(teams.Deps{
-			Tx: postgres.NewTxRunner(pool), Teams: postgres.NewTeams(pool), Memberships: memberships,
+			Tx: postgres.NewTxRunner(pool), Teams: postgres.NewTeams(pool), Memberships: memberships, Leagues: svc,
 		}),
 		pool:  pool,
 		venue: v.ID,

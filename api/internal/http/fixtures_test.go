@@ -205,3 +205,28 @@ func TestCancelledFixtureMatch(t *testing.T) {
 		t.Fatalf("DELETE twice = %d %s, want 404", rec.Code, rec.Body)
 	}
 }
+
+// TestDissolvedTeamLeavesItsLeagues (#421): DELETE /teams/{id} on an
+// enrolled team cancels its future fixtures; the rival's match is
+// cancelled, and the league's pages stop showing the team.
+func TestDissolvedTeamLeavesItsLeagues(t *testing.T) {
+	s := setupFixtures(t)
+	s.createFixture(t)
+	if rec := s.api.do(t, http.MethodDelete, teamPath(s.home.ID), s.homeToken, nil); rec.Code != http.StatusNoContent {
+		t.Fatalf("dissolve = %d %s", rec.Code, rec.Body)
+	}
+	ms := s.teamMatches(t, s.away, s.awayToken)
+	if len(ms) != 1 || ms[0].CancelledAt == nil || ms[0].RivalName != "Rayos" {
+		t.Fatalf("rival's matches = %+v, want the match against Rayos, cancelled", ms)
+	}
+	var day fixtureDayJSON
+	getJSON(t, s.api, fmt.Sprintf("/leagues/%d/fixtures", s.league.ID), s.awayToken, &day)
+	if day.Date != nil || len(day.Fixtures) != 0 {
+		t.Fatalf("league fixtures = %+v, want none", day)
+	}
+	var teams struct{ Teams []leagueTeamJSON }
+	getJSON(t, s.api, fmt.Sprintf("/leagues/%d/teams", s.league.ID), s.awayToken, &teams)
+	if len(teams.Teams) != 1 || teams.Teams[0].ID != s.away.ID {
+		t.Fatalf("league teams = %+v, want only Truenos", teams.Teams)
+	}
+}

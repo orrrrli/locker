@@ -68,7 +68,9 @@ type FixtureChange struct {
 // the venue's timezone (open question 28). In one transaction it writes the
 // fixture, one match per team (no rival_name, no creator) and a
 // match_created notice for each team (R11.4); the notices are pushed after
-// commit. The league lock keeps an enrollment from being removed meanwhile.
+// commit. Locks go teams first, then the league, the order dissolving takes
+// them in: the team locks keep a dissolve from committing meanwhile, the
+// league lock an unenroll.
 func (s *Service) CreateFixture(ctx context.Context, leagueID int64, in NewFixture) (domain.Fixture, []domain.Match, error) {
 	if in.HomeTeamID == in.AwayTeamID {
 		return domain.Fixture{}, nil, ErrSameTeam
@@ -81,6 +83,10 @@ func (s *Service) CreateFixture(ctx context.Context, leagueID int64, in NewFixtu
 	var matches []domain.Match
 	var notices []domain.Notification
 	err := s.tx.InTx(ctx, func(ctx context.Context) error {
+		teams, err := s.lockTeams(ctx, in.HomeTeamID, in.AwayTeamID)
+		if err != nil {
+			return err
+		}
 		league, err := s.leagues.LockLeague(ctx, leagueID)
 		if err != nil {
 			return err
@@ -92,8 +98,10 @@ func (s *Service) CreateFixture(ctx context.Context, leagueID int64, in NewFixtu
 		if !inWindow(league, court.Timezone, startsAt) {
 			return ErrOutsideWindow
 		}
-		if err := s.checkTeams(ctx, leagueID, in.HomeTeamID, in.AwayTeamID); err != nil {
+		if n, err := s.leagues.CountEnrolled(ctx, leagueID, teams); err != nil {
 			return err
+		} else if n != len(teams) {
+			return ErrTeamNotEnrolled
 		}
 		fixture, err = s.leagues.CreateFixture(ctx, domain.Fixture{
 			LeagueID: leagueID, HomeTeamID: in.HomeTeamID, AwayTeamID: in.AwayTeamID, CourtID: in.CourtID, StartsAt: startsAt,
@@ -242,30 +250,23 @@ func (s *Service) courtOf(ctx context.Context, league domain.League, courtID int
 	return court, err
 }
 
-// checkTeams locks both teams, in id order so two fixtures of the same teams
-// cannot deadlock, and checks neither is dissolved and both are enrolled.
-func (s *Service) checkTeams(ctx context.Context, leagueID int64, teams ...int64) error {
+// lockTeams locks the teams, in id order so two fixtures of the same teams
+// cannot deadlock, checks none is dissolved, and returns the sorted ids.
+func (s *Service) lockTeams(ctx context.Context, teams ...int64) ([]int64, error) {
 	sorted := slices.Sorted(slices.Values(teams))
 	for _, id := range sorted {
 		if _, err := s.teams.LockTeamForAdminChange(ctx, id); errors.Is(err, domain.ErrNotFound) {
-			return ErrTeamNotEnrolled
+			return nil, ErrTeamNotEnrolled
 		} else if err != nil {
-			return err
+			return nil, err
 		}
 		if _, dissolved, err := s.teams.TeamForJoin(ctx, id); err != nil {
-			return err
+			return nil, err
 		} else if dissolved {
-			return ErrTeamNotEnrolled
+			return nil, ErrTeamNotEnrolled
 		}
 	}
-	n, err := s.leagues.CountEnrolled(ctx, leagueID, sorted)
-	if err != nil {
-		return err
-	}
-	if n != len(sorted) {
-		return ErrTeamNotEnrolled
-	}
-	return nil
+	return sorted, nil
 }
 
 // storeNotices stores one notice per match, inside the caller's transaction.

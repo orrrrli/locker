@@ -44,6 +44,8 @@ type Leagues interface {
 	// league; UnenrollTeam returns domain.ErrNotFound for one that is not.
 	EnrollTeam(ctx context.Context, leagueID, teamID int64) (domain.Enrollment, error)
 	UnenrollTeam(ctx context.Context, leagueID, teamID int64) error
+	// EnrolledLeagues returns the team's league ids, ascending.
+	EnrolledLeagues(ctx context.Context, teamID int64) ([]int64, error)
 	Fixtures
 }
 
@@ -188,31 +190,67 @@ func (s *Service) Enroll(ctx context.Context, leagueID, teamID int64) (domain.En
 func (s *Service) Unenroll(ctx context.Context, leagueID, teamID int64) error {
 	var notices []domain.Notification
 	err := s.tx.InTx(ctx, func(ctx context.Context) error {
-		league, err := s.leagues.LockLeague(ctx, leagueID)
-		if err != nil {
-			return err
-		}
-		if err := s.leagues.UnenrollTeam(ctx, leagueID, teamID); err != nil {
-			return err
-		}
-		fixtures, err := s.leagues.FutureFixturesOfTeam(ctx, leagueID, teamID, s.now().UTC())
-		if err != nil {
-			return err
-		}
-		for _, f := range fixtures {
-			n, err := s.cancel(ctx, league, f)
-			if err != nil {
-				return err
-			}
-			notices = append(notices, n...)
-		}
-		return nil
+		var err error
+		notices, err = s.withdraw(ctx, leagueID, teamID)
+		return err
 	})
 	if err != nil {
 		return err
 	}
 	s.deliver(ctx, notices)
 	return nil
+}
+
+// WithdrawTeam takes a team that is being dissolved out of every league it
+// is enrolled in, as Unenroll does for one (#421). It must run inside the
+// dissolve's transaction, after the team lock: league locks always come
+// after team locks (CreateFixture takes them in the same order). It returns
+// the notices to pass to DeliverNotices once that transaction commits.
+func (s *Service) WithdrawTeam(ctx context.Context, teamID int64) ([]domain.Notification, error) {
+	ids, err := s.leagues.EnrolledLeagues(ctx, teamID)
+	if err != nil {
+		return nil, err
+	}
+	var notices []domain.Notification
+	for _, id := range ids {
+		n, err := s.withdraw(ctx, id, teamID)
+		if err != nil {
+			return nil, err
+		}
+		notices = append(notices, n...)
+	}
+	return notices, nil
+}
+
+// DeliverNotices pushes notices WithdrawTeam stored; call it after the
+// transaction commits.
+func (s *Service) DeliverNotices(ctx context.Context, notices []domain.Notification) {
+	s.deliver(ctx, notices)
+}
+
+// withdraw removes the enrollment and cancels the team's future fixtures in
+// the league, inside the caller's transaction, under the league lock.
+func (s *Service) withdraw(ctx context.Context, leagueID, teamID int64) ([]domain.Notification, error) {
+	league, err := s.leagues.LockLeague(ctx, leagueID)
+	if err != nil {
+		return nil, err
+	}
+	if err := s.leagues.UnenrollTeam(ctx, leagueID, teamID); err != nil {
+		return nil, err
+	}
+	fixtures, err := s.leagues.FutureFixturesOfTeam(ctx, leagueID, teamID, s.now().UTC())
+	if err != nil {
+		return nil, err
+	}
+	var notices []domain.Notification
+	for _, f := range fixtures {
+		n, err := s.cancel(ctx, league, f)
+		if err != nil {
+			return nil, err
+		}
+		notices = append(notices, n...)
+	}
+	return notices, nil
 }
 
 // apply validates every non-nil field of c and sets it on l, then checks the
