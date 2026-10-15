@@ -1033,6 +1033,9 @@ paths:
         - `shirt_number` and/or `position`: edit the profile. Any active member
           can edit their own; editing someone else's is admin only. Answers 200
           with the Membership.
+        - `push_muted`: mute or unmute pushes from this team (R11.6). Own
+          membership only, for anyone, admins included; another member's is
+          403. Notices still land in the inbox. Answers 200 with the Membership.
 
         Any active member of the team passes the route check; the admin check
         runs in the use case and answers 403 `forbidden`. Body validation
@@ -2053,7 +2056,7 @@ components:
     Membership:
       type: object
       description: Returned by PATCH /memberships/{id}.
-      required: [id, team_id, role, status, shirt_number, position]
+      required: [id, team_id, role, status, shirt_number, position, push_muted]
       properties:
         id:
           type: integer
@@ -2075,6 +2078,9 @@ components:
           oneOf:
             - $ref: "#/components/schemas/Position"
             - type: "null"
+        push_muted:
+          type: boolean
+          description: True when this member muted pushes from the team (R11.6).
     RosterMember:
       type: object
       required: [id, name, role, status, shirt_number, position]
@@ -2107,6 +2113,14 @@ components:
         - $ref: "#/components/schemas/RoleChange"
         - $ref: "#/components/schemas/DecisionChange"
         - $ref: "#/components/schemas/ProfileChange"
+        - $ref: "#/components/schemas/PushMutedChange"
+    PushMutedChange:
+      type: object
+      additionalProperties: false
+      required: [push_muted]
+      properties:
+        push_muted:
+          type: boolean
     RoleChange:
       type: object
       additionalProperties: false
