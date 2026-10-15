@@ -8,11 +8,37 @@ import (
 	"strings"
 	"time"
 
+	"github.com/orrrrli/locker/api/internal/application/notifications"
 	"github.com/orrrrli/locker/api/internal/domain"
 )
 
+// notificationFinder resolves the team of a notice. Routes on
+// /notifications/{id} that need the team use it.
+type notificationFinder interface {
+	// NotificationByID returns the notice in any team, or domain.ErrNotFound.
+	NotificationByID(ctx context.Context, id int64) (domain.Notification, error)
+}
+
+// teamFromNotification resolves the team of the notice in the path. An
+// unknown notice is a 404, the same answer a stranger to the team gets, so
+// notice ids from other teams reveal nothing.
+func teamFromNotification(name string, f notificationFinder) teamOf {
+	return func(r *http.Request) (int64, error) {
+		id, err := idFromPath(r, name)
+		if err != nil {
+			return 0, err
+		}
+		n, err := f.NotificationByID(r.Context(), id)
+		if err != nil {
+			return 0, err
+		}
+		return n.TeamID, nil
+	}
+}
+
 type notificationService interface {
 	Inbox(ctx context.Context, userID int64, before *int64) ([]domain.InboxItem, *int64, error)
+	Receipts(ctx context.Context, teamID, notificationID int64) (notifications.Receipts, error)
 	MarkRead(ctx context.Context, userID, notificationID int64) error
 	RegisterDevice(ctx context.Context, userID, sessionID int64, token string) error
 	UnregisterDevice(ctx context.Context, userID int64, token string) error
@@ -155,6 +181,40 @@ func isDeviceToken(s string) bool {
 		}
 	}
 	return true
+}
+
+type receiptJSON struct {
+	MembershipID int64  `json:"membership_id"`
+	Name         string `json:"name"`
+}
+
+type receiptsJSON struct {
+	NotificationID int64         `json:"notification_id"`
+	OpenedCount    int           `json:"opened_count"`
+	RecipientCount int           `json:"recipient_count"`
+	NotOpened      []receiptJSON `json:"not_opened"`
+}
+
+// receipts answers "opened by X of Y" and who has not opened the notice yet
+// (R11.10). It runs behind requireRole(admin) on the notice's team, so a
+// player gets 403 and a stranger 404.
+func (h notificationHandlers) receipts(w http.ResponseWriter, r *http.Request) {
+	id, err := idFromPath(r, "id")
+	if err != nil {
+		writeError(w, http.StatusNotFound, "not_found")
+		return
+	}
+	caller, _ := membershipFrom(r.Context())
+	rs, err := h.svc.Receipts(r.Context(), caller.TeamID, id)
+	if err != nil {
+		notificationErrors.write(w, r, "notifications", err)
+		return
+	}
+	out := receiptsJSON{NotificationID: rs.NotificationID, OpenedCount: rs.OpenedCount, RecipientCount: rs.RecipientCount, NotOpened: make([]receiptJSON, len(rs.NotOpened))}
+	for i, p := range rs.NotOpened {
+		out.NotOpened[i] = receiptJSON{MembershipID: p.MembershipID, Name: p.Name}
+	}
+	writeJSON(w, http.StatusOK, out)
 }
 
 // markRead records that the caller opened the notice (R11.8). A notice that

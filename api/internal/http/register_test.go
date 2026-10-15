@@ -78,15 +78,16 @@ func newAPI(t *testing.T, now func() time.Time) apiTest {
 		Memberships: memberships,
 		Now:         now,
 	})
+	notificationRepo := postgres.NewNotifications(pool)
 	notificationSvc := notifications.NewService(notifications.Deps{
-		Tx: postgres.NewTxRunner(pool), Notifications: postgres.NewNotifications(pool),
+		Tx: postgres.NewTxRunner(pool), Notifications: notificationRepo,
 	})
 	// Limits high enough that no test of a feature trips them; the limits
 	// have their own tests in ratelimit_test.go.
 	limits := Limits{Register: NewRateLimiter(1000, time.Hour, nil)}
 	mux.Handle("/", NewRouter(Deps{
 		Auth: svc, Teams: teamSvc, Invites: inviteSvc, Members: memberSvc, Account: accountSvc,
-		Matches: matchSvc, MatchFinder: matchRepo, Notifications: notificationSvc,
+		Matches: matchSvc, MatchFinder: matchRepo, Notifications: notificationSvc, NotificationFinder: notificationRepo,
 		Memberships: memberships, Users: postgres.NewUsers(pool), Limits: limits,
 	}))
 	mux.Handle("GET /test/whoami", authHandlers{svc: svc}.requireAuth(http.HandlerFunc(

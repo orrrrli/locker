@@ -38,3 +38,10 @@ type InboxItem struct {
 	TeamName string
 	ReadAt   *time.Time // nil until the member opens it
 }
+
+// Receipt is one recipient's read state as the admin sees it (R11.10).
+type Receipt struct {
+	MembershipID int64
+	Name         string
+	ReadAt       *time.Time
+}

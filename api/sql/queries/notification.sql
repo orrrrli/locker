@@ -48,3 +48,17 @@ SET read_at = COALESCE(r.read_at, now())
 FROM membership m
 WHERE r.notification_id = sqlc.arg(notification_id) AND m.id = r.membership_id
   AND m.user_id = sqlc.arg(user_id) AND m.status = 'active';
+
+-- name: GetNotification :one
+SELECT * FROM notification
+WHERE id = $1;
+
+-- name: ListNotificationReceipts :many
+-- Every recipient of the notice with their name and when they opened it
+-- (R11.10). An anonymized member shows the override, "Ex-jugador #N".
+SELECT r.membership_id, coalesce(m.display_name_override, u.name, '')::text AS name, r.read_at
+FROM notification_recipient r
+JOIN membership m ON m.id = r.membership_id
+LEFT JOIN "user" u ON u.id = m.user_id
+WHERE r.notification_id = $1
+ORDER BY name, m.id;

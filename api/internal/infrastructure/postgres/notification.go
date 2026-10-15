@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -158,4 +159,31 @@ func (r *Notifications) MarkRead(ctx context.Context, userID, notificationID int
 		return domain.ErrNotFound
 	}
 	return nil
+}
+
+// NotificationByID returns the notice in any team, or domain.ErrNotFound.
+// Routes on /notifications/{id} that need the team use it.
+func (r *Notifications) NotificationByID(ctx context.Context, id int64) (domain.Notification, error) {
+	row, err := sqlcdb.New(Conn(ctx, r.pool)).GetNotification(ctx, id)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return domain.Notification{}, domain.ErrNotFound
+	}
+	if err != nil {
+		return domain.Notification{}, fmt.Errorf("postgres: notification by id: %w", err)
+	}
+	return notificationFromRow(row), nil
+}
+
+// Receipts returns every recipient of the notice with their name and read
+// time, by name.
+func (r *Notifications) Receipts(ctx context.Context, notificationID int64) ([]domain.Receipt, error) {
+	rows, err := sqlcdb.New(Conn(ctx, r.pool)).ListNotificationReceipts(ctx, notificationID)
+	if err != nil {
+		return nil, fmt.Errorf("postgres: list notification receipts: %w", err)
+	}
+	out := make([]domain.Receipt, len(rows))
+	for i, row := range rows {
+		out[i] = domain.Receipt{MembershipID: row.MembershipID, Name: row.Name, ReadAt: utcPtr(row.ReadAt)}
+	}
+	return out, nil
 }

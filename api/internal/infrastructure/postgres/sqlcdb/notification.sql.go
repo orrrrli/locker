@@ -11,6 +11,27 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const getNotification = `-- name: GetNotification :one
+SELECT id, team_id, kind, title, body, match_id, sent_by, created_at FROM notification
+WHERE id = $1
+`
+
+func (q *Queries) GetNotification(ctx context.Context, id int64) (Notification, error) {
+	row := q.db.QueryRow(ctx, getNotification, id)
+	var i Notification
+	err := row.Scan(
+		&i.ID,
+		&i.TeamID,
+		&i.Kind,
+		&i.Title,
+		&i.Body,
+		&i.MatchID,
+		&i.SentBy,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
 const insertNotification = `-- name: InsertNotification :one
 INSERT INTO notification (team_id, kind, title, body, match_id, sent_by)
 VALUES ($1, $2, $3, $4, $5, $6)
@@ -149,6 +170,43 @@ func (q *Queries) ListNotificationPushTokens(ctx context.Context, notificationID
 			return nil, err
 		}
 		items = append(items, token)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listNotificationReceipts = `-- name: ListNotificationReceipts :many
+SELECT r.membership_id, coalesce(m.display_name_override, u.name, '')::text AS name, r.read_at
+FROM notification_recipient r
+JOIN membership m ON m.id = r.membership_id
+LEFT JOIN "user" u ON u.id = m.user_id
+WHERE r.notification_id = $1
+ORDER BY name, m.id
+`
+
+type ListNotificationReceiptsRow struct {
+	MembershipID int64
+	Name         string
+	ReadAt       pgtype.Timestamptz
+}
+
+// Every recipient of the notice with their name and when they opened it
+// (R11.10). An anonymized member shows the override, "Ex-jugador #N".
+func (q *Queries) ListNotificationReceipts(ctx context.Context, notificationID int64) ([]ListNotificationReceiptsRow, error) {
+	rows, err := q.db.Query(ctx, listNotificationReceipts, notificationID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListNotificationReceiptsRow
+	for rows.Next() {
+		var i ListNotificationReceiptsRow
+		if err := rows.Scan(&i.MembershipID, &i.Name, &i.ReadAt); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
