@@ -1189,7 +1189,10 @@ paths:
       description: |
         Admins only. `starts_at` is any RFC 3339 time within years 1 to 9999
         in UTC; it is stored and returned in UTC. Rival and location are free
-        text, trimmed.
+        text, trimmed. Every active member gets a `match_created` notice
+        (R11.4), stored with the match and pushed after it is saved: title
+        "Partido nuevo: vs. <rival>", body like "Mar 20 · 19:00 · Cancha 3."
+        with the time in the team's timezone.
       security:
         - bearerAuth: []
       requestBody:
@@ -1269,7 +1272,10 @@ paths:
       description: |
         Admins of the match's team only. Send any of the fields; an absent or
         null field keeps its value. Once attendance is saved, `starts_at`
-        cannot change: schedule a new match instead.
+        cannot change: schedule a new match instead. When the time or the
+        location actually changes, every active member gets a `match_changed`
+        notice ("Cambio de partido: vs. <rival>", body with the new values);
+        a change of rival alone sends none (R11.4).
       security:
         - bearerAuth: []
       requestBody:

@@ -20,7 +20,7 @@ import (
 )
 
 // notify sends an automatic notice to the team through the real use case
-// (no push) and returns its id. No route sends one yet (BE-NOTIF-4, -5).
+// (no push) and returns its id, without a match behind it.
 func notify(t *testing.T, api apiTest, teamID int64, title string) int64 {
 	t.Helper()
 	return send(t, api, domain.Notification{TeamID: teamID, Kind: domain.NotificationMatchCreated, Title: title, Body: "vs Halcones"})
@@ -102,10 +102,13 @@ func TestInboxAcrossActiveTeams(t *testing.T) {
 	first := notify(t, api, pumas.ID, "Pumas 1")
 	pendingNotice := notify(t, api, pending.ID, "Pending 1")
 	leftNotice := notify(t, api, left.ID, "Left 1") // received while active...
+	// Creating the match sends its match_created notice (R11.4).
 	m := createMatch(t, api, adminToken, halcones.ID, matchBody)
-	second := send(t, api, domain.Notification{
-		TeamID: halcones.ID, Kind: domain.NotificationMatchCreated, Title: "Halcones 1", Body: "vs Halcones", MatchID: &m.ID,
-	})
+	var second int64
+	if err := api.pool.QueryRow(context.Background(),
+		`SELECT id FROM notification WHERE match_id = $1 AND kind = 'match_created'`, m.ID).Scan(&second); err != nil {
+		t.Fatal(err)
+	}
 	// ...then Ana leaves: that team's notices leave her inbox with it.
 	if _, err := api.pool.Exec(context.Background(),
 		`UPDATE membership SET status = 'left' WHERE team_id = $1 AND user_id = $2`, left.ID, anaID); err != nil {
@@ -125,7 +128,7 @@ func TestInboxAcrossActiveTeams(t *testing.T) {
 		t.Fatalf("keys = %v, want %v", keys, want)
 	}
 	if s := fmt.Sprintf("%s %s %s %s %s %s %s", got["team_id"], got["team_name"], got["kind"], got["title"], got["body"], got["match_id"], got["read_at"]); s !=
-		strconv.FormatInt(halcones.ID, 10)+` "Halcones" "match_created" "Halcones 1" "vs Halcones" `+strconv.FormatInt(m.ID, 10)+` null` {
+		strconv.FormatInt(halcones.ID, 10)+` "Halcones" "match_created" "Partido nuevo: vs. Halcones" "Mar 20 · 19:00 · Cancha 3." `+strconv.FormatInt(m.ID, 10)+` null` {
 		t.Fatalf("item = %s", s)
 	}
 	assertAPITime(t, "created_at", got["created_at"])
