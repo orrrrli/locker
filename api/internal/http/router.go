@@ -17,6 +17,7 @@ type Deps struct {
 	Matches       matchService
 	Notifications notificationService
 	Venues        venueService
+	Leagues       leagueService
 	// MatchFinder resolves the team of routes on /matches/{id}.
 	MatchFinder matchFinder
 	// AppleAppID ("<team id>.<bundle id>") is the app invite links open;
@@ -121,6 +122,11 @@ func NewRouter(d Deps) http.Handler {
 	op.HandleFunc("POST /operator/venues/{id}/courts", v.addCourt)
 	op.HandleFunc("PATCH /operator/venues/{id}/courts/{courtId}", v.renameCourt)
 	op.HandleFunc("DELETE /operator/venues/{id}/courts/{courtId}", v.removeCourt)
+	lg := leagueHandlers{svc: d.Leagues}
+	op.HandleFunc("POST /operator/leagues", lg.create)
+	op.HandleFunc("PATCH /operator/leagues/{id}", lg.update)
+	op.HandleFunc("POST /operator/leagues/{id}/teams", lg.enroll)
+	op.HandleFunc("DELETE /operator/leagues/{id}/teams/{teamId}", lg.unenroll)
 	return operatorFirst(a.requireAuth(z.requireOperator(jsonMisses(op))), jsonMisses(mux))
 }
 
