@@ -52,6 +52,21 @@ type Notifications interface {
 	// CountManualSince counts the team's manual notices created at or after
 	// since.
 	CountManualSince(ctx context.Context, teamID int64, since time.Time) (int, error)
+	// CountActiveWithoutRSVP counts the team's active members who have not
+	// answered the match.
+	CountActiveWithoutRSVP(ctx context.Context, teamID, matchID int64) (int, error)
+	// InsertRSVPReminder stores the reminder plus one recipient per active
+	// member who has not answered n.MatchID.
+	InsertRSVPReminder(ctx context.Context, n domain.Notification) (domain.Notification, error)
+}
+
+// Matches is what the reminder job needs from the match table.
+type Matches interface {
+	// LockDueForReminder returns the matches kicking off within 24 hours of
+	// now that have not been reminded, holding them for the transaction and
+	// skipping those another transaction holds.
+	LockDueForReminder(ctx context.Context, now time.Time) ([]domain.Match, error)
+	SetReminderSent(ctx context.Context, id int64, at time.Time) error
 }
 
 // Teams is what the notice use cases need from the team table.
@@ -84,6 +99,8 @@ type Deps struct {
 	Memberships application.AdminLocker
 	Teams       Teams
 	Now         func() time.Time
+	// Matches serves SendDueReminders.
+	Matches Matches
 }
 
 type Service struct {
@@ -92,6 +109,7 @@ type Service struct {
 	push          Pusher
 	memberships   application.AdminLocker
 	teams         Teams
+	matches       Matches
 	now           func() time.Time
 }
 
@@ -99,7 +117,7 @@ func NewService(d Deps) *Service {
 	if d.Now == nil {
 		d.Now = time.Now
 	}
-	return &Service{tx: d.Tx, notifications: d.Notifications, push: d.Push, memberships: d.Memberships, teams: d.Teams, now: d.Now}
+	return &Service{tx: d.Tx, notifications: d.Notifications, push: d.Push, memberships: d.Memberships, teams: d.Teams, matches: d.Matches, now: d.Now}
 }
 
 // Send stores the notice for every active member of n.TeamID in one
@@ -207,6 +225,75 @@ func (s *Service) sendMatchNotice(ctx context.Context, kind domain.NotificationK
 	}
 	_, err = s.Send(ctx, domain.Notification{TeamID: m.TeamID, Kind: kind, Title: title, Body: body, MatchID: &m.ID})
 	return err
+}
+
+// SendDueReminders is the ticker job for RSVP reminders (R11.5): for every
+// match that kicks off within the next 24 hours and has not been reminded,
+// it stores one rsvp_reminder notice for the active members who have not
+// answered, marks the match reminded in the same transaction, and pushes
+// after commit. A match everyone answered is marked without a notice. The
+// due matches are locked with SKIP LOCKED, so two runners (two ticks, two
+// instances) never remind the same match twice: the one that holds the row
+// marks it before it commits, and the other skips it. It reports how many
+// matches it marked.
+//
+// ponytail: a match scheduled less than 24 hours ahead is reminded on the
+// next tick, right after its match_created notice; one scheduled in the
+// past is never reminded and keeps reminder_sent_at NULL.
+func (s *Service) SendDueReminders(ctx context.Context) (int64, error) {
+	now := s.now().UTC()
+	var sent []domain.Notification
+	var marked int64
+	err := s.tx.InTx(ctx, func(ctx context.Context) error {
+		due, err := s.matches.LockDueForReminder(ctx, now)
+		if err != nil {
+			return err
+		}
+		for _, m := range due {
+			pending, err := s.notifications.CountActiveWithoutRSVP(ctx, m.TeamID, m.ID)
+			if err != nil {
+				return err
+			}
+			if pending > 0 {
+				title, body, err := s.reminderText(ctx, m)
+				if err != nil {
+					return err
+				}
+				n, err := s.notifications.InsertRSVPReminder(ctx, domain.Notification{
+					TeamID: m.TeamID, Kind: domain.NotificationRSVPReminder, Title: title, Body: body, MatchID: &m.ID, CreatedAt: now,
+				})
+				if err != nil {
+					return err
+				}
+				sent = append(sent, n)
+			}
+			if err := s.matches.SetReminderSent(ctx, m.ID, now); err != nil {
+				return err
+			}
+			marked++
+		}
+		return nil
+	})
+	if err != nil {
+		return 0, err
+	}
+	for _, n := range sent {
+		s.pushStored(ctx, n)
+	}
+	return marked, nil
+}
+
+func (s *Service) reminderText(ctx context.Context, m domain.Match) (title, body string, err error) {
+	team, err := s.teams.GetTeam(ctx, m.TeamID)
+	if err != nil {
+		return "", "", err
+	}
+	loc, err := time.LoadLocation(team.Timezone)
+	if err != nil {
+		return "", "", err
+	}
+	when := m.StartsAt.In(loc).Format("02/01/2006 15:04")
+	return "¿Vas al partido vs " + m.RivalName + "?", when + " en " + m.Location + ". Aún no has respondido.", nil
 }
 
 // pushStored delivers a committed notice to the recipients who have not

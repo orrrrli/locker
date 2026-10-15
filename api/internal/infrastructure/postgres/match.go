@@ -216,3 +216,26 @@ func utcPtr(t pgtype.Timestamptz) *time.Time {
 	u := t.Time.UTC()
 	return &u
 }
+
+// LockDueForReminder returns the matches that kick off within 24 hours of
+// now and have not been reminded, holding their rows until the transaction
+// ends; matches another transaction holds are skipped (R11.5).
+func (r *Matches) LockDueForReminder(ctx context.Context, now time.Time) ([]domain.Match, error) {
+	rows, err := sqlcdb.New(Conn(ctx, r.pool)).LockMatchesDueForReminder(ctx, timestamptz(now))
+	if err != nil {
+		return nil, fmt.Errorf("postgres: lock matches due for reminder: %w", err)
+	}
+	out := make([]domain.Match, len(rows))
+	for i, row := range rows {
+		out[i] = matchFromRow(row)
+	}
+	return out, nil
+}
+
+// SetReminderSent records when the match's RSVP reminder went out.
+func (r *Matches) SetReminderSent(ctx context.Context, id int64, at time.Time) error {
+	if err := sqlcdb.New(Conn(ctx, r.pool)).SetMatchReminderSent(ctx, sqlcdb.SetMatchReminderSentParams{At: timestamptz(at), ID: id}); err != nil {
+		return fmt.Errorf("postgres: set match reminder sent: %w", err)
+	}
+	return nil
+}

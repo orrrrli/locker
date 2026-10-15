@@ -49,3 +49,20 @@ WHERE me.user_id = sqlc.arg(user_id) AND me.status = 'active'
   AND m.starts_at > sqlc.arg(now)::timestamptz
 GROUP BY m.id, t.id, me.id, own.answer
 ORDER BY m.starts_at, m.id;
+
+-- name: LockMatchesDueForReminder :many
+-- Matches kicking off within the next 24 hours whose RSVP reminder is still
+-- pending, held for the transaction (R11.5). SKIP LOCKED leaves a match
+-- another runner holds to that runner, so two tickers or two API instances
+-- never remind twice: the holder sets reminder_sent_at before it commits.
+SELECT * FROM match
+WHERE reminder_sent_at IS NULL
+  AND starts_at > sqlc.arg(now)::timestamptz
+  AND starts_at <= sqlc.arg(now)::timestamptz + interval '24 hours'
+ORDER BY starts_at, id
+FOR UPDATE SKIP LOCKED;
+
+-- name: SetMatchReminderSent :exec
+UPDATE match
+SET reminder_sent_at = sqlc.arg(at)::timestamptz
+WHERE id = sqlc.arg(id);

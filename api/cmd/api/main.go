@@ -87,14 +87,15 @@ func start() error {
 		Memberships: memberships,
 		Users:       postgres.NewUsers(pool),
 	})
+	matchRepo := postgres.NewMatches(pool)
 	// Push stays nil (inbox only) until the APNs sender, BE-NOTIF-2.
 	notificationSvc := notifications.NewService(notifications.Deps{
 		Tx:            postgres.NewTxRunner(pool),
 		Notifications: postgres.NewNotifications(pool),
 		Memberships:   memberships,
 		Teams:         postgres.NewTeams(pool),
+		Matches:       matchRepo,
 	})
-	matchRepo := postgres.NewMatches(pool)
 	matchSvc := matches.NewService(matches.Deps{
 		Tx:          postgres.NewTxRunner(pool),
 		Matches:     matchRepo,
@@ -124,6 +125,7 @@ func start() error {
 		runJob(ctx, "delete idle sessions", authSvc.DeleteIdleSessions)
 		runJob(ctx, "delete expired invites", inviteSvc.DeleteExpired)
 		runJob(ctx, "close attendance", matchSvc.CloseDueAttendance)
+		runJob(ctx, "send rsvp reminders", notificationSvc.SendDueReminders)
 	})
 
 	ln, err := net.Listen("tcp", ":"+strconv.Itoa(cfg.Port))

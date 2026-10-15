@@ -202,6 +202,64 @@ func (q *Queries) LockMatchInTeam(ctx context.Context, arg LockMatchInTeamParams
 	return i, err
 }
 
+const lockMatchesDueForReminder = `-- name: LockMatchesDueForReminder :many
+SELECT id, team_id, starts_at, rival_name, location, reminder_sent_at, attendance_closed_at, created_by FROM match
+WHERE reminder_sent_at IS NULL
+  AND starts_at > $1::timestamptz
+  AND starts_at <= $1::timestamptz + interval '24 hours'
+ORDER BY starts_at, id
+FOR UPDATE SKIP LOCKED
+`
+
+// Matches kicking off within the next 24 hours whose RSVP reminder is still
+// pending, held for the transaction (R11.5). SKIP LOCKED leaves a match
+// another runner holds to that runner, so two tickers or two API instances
+// never remind twice: the holder sets reminder_sent_at before it commits.
+func (q *Queries) LockMatchesDueForReminder(ctx context.Context, now pgtype.Timestamptz) ([]Match, error) {
+	rows, err := q.db.Query(ctx, lockMatchesDueForReminder, now)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Match
+	for rows.Next() {
+		var i Match
+		if err := rows.Scan(
+			&i.ID,
+			&i.TeamID,
+			&i.StartsAt,
+			&i.RivalName,
+			&i.Location,
+			&i.ReminderSentAt,
+			&i.AttendanceClosedAt,
+			&i.CreatedBy,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const setMatchReminderSent = `-- name: SetMatchReminderSent :exec
+UPDATE match
+SET reminder_sent_at = $1::timestamptz
+WHERE id = $2
+`
+
+type SetMatchReminderSentParams struct {
+	At pgtype.Timestamptz
+	ID int64
+}
+
+func (q *Queries) SetMatchReminderSent(ctx context.Context, arg SetMatchReminderSentParams) error {
+	_, err := q.db.Exec(ctx, setMatchReminderSent, arg.At, arg.ID)
+	return err
+}
+
 const updateMatch = `-- name: UpdateMatch :one
 UPDATE match
 SET starts_at  = coalesce($1, starts_at),
