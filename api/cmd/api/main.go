@@ -15,6 +15,7 @@ import (
 
 	"github.com/orrrrli/locker/api/internal/application/account"
 	"github.com/orrrrli/locker/api/internal/application/auth"
+	"github.com/orrrrli/locker/api/internal/application/charges"
 	"github.com/orrrrli/locker/api/internal/application/invites"
 	"github.com/orrrrli/locker/api/internal/application/matches"
 	applicationmemberships "github.com/orrrrli/locker/api/internal/application/memberships"
@@ -93,6 +94,12 @@ func start() error {
 		Matches:     matchRepo,
 		Memberships: memberships,
 	})
+	chargeSvc := charges.NewService(charges.Deps{
+		Tx:          postgres.NewTxRunner(pool),
+		Charges:     postgres.NewCharges(pool),
+		Matches:     matchRepo,
+		Memberships: memberships,
+	})
 	// Push stays nil (inbox only) until the APNs sender, BE-NOTIF-2.
 	notificationSvc := notifications.NewService(notifications.Deps{
 		Tx:            postgres.NewTxRunner(pool),
@@ -105,6 +112,7 @@ func start() error {
 		Members:       memberSvc,
 		Account:       accountSvc,
 		Matches:       matchSvc,
+		Charges:       chargeSvc,
 		Notifications: notificationSvc,
 		MatchFinder:   matchRepo,
 		AppleAppID:    cfg.AppleAppID,

@@ -15,6 +15,7 @@ type Deps struct {
 	Members       membershipService
 	Account       accountService
 	Matches       matchService
+	Charges       chargeService
 	Notifications notificationService
 	// MatchFinder resolves the team of routes on /matches/{id}.
 	MatchFinder matchFinder
@@ -99,6 +100,9 @@ func NewRouter(d Deps) http.Handler {
 	mux.Handle("PUT /matches/{id}/rsvp", a.requireAuth(z.requireActiveMember(match, http.HandlerFunc(mt.rsvp))))
 	mux.Handle("PUT /matches/{id}/attendance", a.requireAuth(z.requireRole(match, domain.RoleAdmin, http.HandlerFunc(mt.saveAttendance))))
 	mux.Handle("GET /matches/{id}/attendance", a.requireAuth(z.requireActiveMember(match, http.HandlerFunc(mt.getAttendance))))
+
+	ch := chargeHandlers{svc: d.Charges}
+	mux.Handle("POST /teams/{id}/charges", a.requireAuth(z.requireRole(team, domain.RoleAdmin, http.HandlerFunc(ch.create))))
 
 	nt := notificationHandlers{svc: d.Notifications}
 	mux.Handle("GET /me/notifications", a.requireAuth(http.HandlerFunc(nt.inbox)))
