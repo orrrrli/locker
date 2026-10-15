@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -12,6 +13,7 @@ import (
 
 	"github.com/orrrrli/locker/api/internal/application"
 	"github.com/orrrrli/locker/api/internal/application/matches"
+	"github.com/orrrrli/locker/api/internal/application/notifications"
 	"github.com/orrrrli/locker/api/internal/application/teams"
 	"github.com/orrrrli/locker/api/internal/domain"
 	"github.com/orrrrli/locker/api/internal/infrastructure/postgres"
@@ -47,9 +49,13 @@ func newFixture(t *testing.T) fixture {
 		t.Fatal(err)
 	}
 	now := kickoff.Add(-24 * time.Hour)
+	notifier := notifications.NewService(notifications.Deps{
+		Tx: postgres.NewTxRunner(pool), Notifications: postgres.NewNotifications(pool),
+		Memberships: members, Teams: postgres.NewTeams(pool),
+	})
 	svc := matches.NewService(matches.Deps{
 		Tx: postgres.NewTxRunner(pool), Matches: postgres.NewMatches(pool), Memberships: members,
-		Now: func() time.Time { return now },
+		Notifier: notifier, Now: func() time.Time { return now },
 	})
 	return fixture{svc: svc, pool: pool, team: team.ID, admin: admin.ID, now: &now}
 }
@@ -256,5 +262,103 @@ func TestUpdateIsPartialAndScopedToTheTeam(t *testing.T) {
 	}
 	if _, err := f.svc.Update(ctx, f.team, f.admin, otherMatch, nil, nil, &location); !errors.Is(err, domain.ErrNotFound) {
 		t.Fatalf("other team's match: err = %v, want ErrNotFound", err)
+	}
+}
+
+// notice is one row of notification plus its recipients.
+type notice struct {
+	kind, title, body string
+	matchID           *int64
+	recipients        []int64
+}
+
+// notices returns the team's notices, oldest first, with their recipients.
+func notices(t *testing.T, f fixture) []notice {
+	t.Helper()
+	rows, err := f.pool.Query(context.Background(),
+		`SELECT n.kind, n.title, n.body, n.match_id,
+		        coalesce(array_agg(r.membership_id ORDER BY r.membership_id) FILTER (WHERE r.membership_id IS NOT NULL), '{}')
+		 FROM notification n LEFT JOIN notification_recipient r ON r.notification_id = n.id
+		 WHERE n.team_id = $1 GROUP BY n.id ORDER BY n.id`, f.team)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	var out []notice
+	for rows.Next() {
+		var n notice
+		if err := rows.Scan(&n.kind, &n.title, &n.body, &n.matchID, &n.recipients); err != nil {
+			t.Fatal(err)
+		}
+		out = append(out, n)
+	}
+	return out
+}
+
+// Scheduling a match tells every active member, the creator included and
+// unread (R11.4): an automatic notice has no sender. The kickoff is written
+// in the team's timezone (Tijuana, UTC-7 in October).
+func TestCreateSendsMatchCreatedNotice(t *testing.T) {
+	f := newFixture(t)
+	player := addMember(t, f, "player@example.com", "player", "active")
+	addMember(t, f, "pending@example.com", "player", "pending")
+	m := newMatch(t, f)
+	ns := notices(t, f)
+	if len(ns) != 1 {
+		t.Fatalf("notices = %+v, want one", ns)
+	}
+	n := ns[0]
+	if n.kind != "match_created" || n.title != "Nuevo partido vs Halcones" || n.body != "20/10/2026 19:00 en Cancha 3" ||
+		n.matchID == nil || *n.matchID != m.ID || !slices.Equal(n.recipients, []int64{f.admin, player}) {
+		t.Fatalf("notice = %+v", n)
+	}
+	var unread int
+	if err := f.pool.QueryRow(context.Background(), `SELECT count(*) FROM notification_recipient WHERE read_at IS NULL`).Scan(&unread); err != nil || unread != 2 {
+		t.Fatalf("unread copies = %d (%v), want 2: an automatic notice has no sender", unread, err)
+	}
+}
+
+// A new time or place sends one match_changed notice; a new rival name alone
+// sends nothing, and a refused update sends nothing (R11.4).
+func TestUpdateNotifiesOnlyForTimeOrLocation(t *testing.T) {
+	f := newFixture(t)
+	ctx := context.Background()
+	m := newMatch(t, f)
+	str := func(s string) *string { return &s }
+	later := kickoff.Add(time.Hour)
+
+	if _, err := f.svc.Update(ctx, f.team, f.admin, m.ID, nil, str("Águilas"), nil); err != nil {
+		t.Fatal(err)
+	}
+	if ns := notices(t, f); len(ns) != 1 {
+		t.Fatalf("after a rival change, notices = %d, want only the creation", len(ns))
+	}
+	if _, err := f.svc.Update(ctx, f.team, f.admin, m.ID, &later, nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	ns := notices(t, f)
+	if len(ns) != 2 || ns[1].kind != "match_changed" || ns[1].title != "Cambio en el partido vs Águilas" ||
+		ns[1].body != "Ahora 20/10/2026 20:00 en Cancha 3" || ns[1].matchID == nil || *ns[1].matchID != m.ID {
+		t.Fatalf("after a time change, notices = %+v", ns)
+	}
+	if _, err := f.svc.Update(ctx, f.team, f.admin, m.ID, nil, nil, str("Cancha 5")); err != nil {
+		t.Fatal(err)
+	}
+	if ns := notices(t, f); len(ns) != 3 || ns[2].body != "Ahora 20/10/2026 20:00 en Cancha 5" {
+		t.Fatalf("after a location change, notices = %+v", ns)
+	}
+	// The same values again, and a time change with both fields, count as
+	// one change each; a refused update sends nothing.
+	if _, err := f.svc.Update(ctx, f.team, f.admin, m.ID, &later, nil, str("Cancha 5")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.svc.Update(ctx, f.team, f.admin, m.ID, &kickoff, str("Halcones"), str("Cancha 3")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.svc.Update(ctx, f.team, f.admin, m.ID, &later, nil, str("")); !errors.Is(err, matches.ErrInvalidLocation) {
+		t.Fatalf("invalid update: %v", err)
+	}
+	if ns := notices(t, f); len(ns) != 4 {
+		t.Fatalf("notices = %d, want 4: unchanged values and refused updates send nothing", len(ns))
 	}
 }

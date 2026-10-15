@@ -467,3 +467,41 @@ func TestUpcomingMatchesEmptyWithoutActiveTeam(t *testing.T) {
 		}
 	}
 }
+
+// Scheduling a match puts a match_created notice in every active member's
+// inbox, and moving it a match_changed one; a rival rename sends nothing
+// (R11.4).
+func TestMatchNoticesReachTheTeam(t *testing.T) {
+	api := newAPI(t, func() time.Time { return today })
+	_, adminToken := signUp(t, api, "admin@example.com")
+	playerID, playerToken := signUp(t, api, "player@example.com")
+	team := createTeam(t, api, adminToken, "Pumas", "America/Tijuana")
+	addMember(t, api, team.ID, playerID, "player", "active")
+	m := createMatch(t, api, adminToken, team.ID, matchBody)
+	path := "/matches/" + strconv.FormatInt(m.ID, 10)
+
+	page := getInbox(t, api, playerToken, "")
+	if len(page.Notifications) != 1 {
+		t.Fatalf("inbox after create = %v, want one notice", page.Notifications)
+	}
+	n := page.Notifications[0]
+	if string(n["kind"]) != `"match_created"` || string(n["match_id"]) != strconv.FormatInt(m.ID, 10) ||
+		string(n["title"]) != `"Nuevo partido vs Halcones"` || string(n["body"]) != `"20/10/2026 19:00 en Cancha 3"` {
+		t.Fatalf("notice = %v", n)
+	}
+
+	if rec := api.do(t, http.MethodPatch, path, adminToken, map[string]string{"rival_name": "Águilas"}); rec.Code != http.StatusOK {
+		t.Fatalf("rename: status %d, body %s", rec.Code, rec.Body)
+	}
+	if page := getInbox(t, api, playerToken, ""); len(page.Notifications) != 1 {
+		t.Fatalf("inbox after a rename = %d notices, want still 1", len(page.Notifications))
+	}
+	if rec := api.do(t, http.MethodPatch, path, adminToken, map[string]string{"location": "Cancha 5"}); rec.Code != http.StatusOK {
+		t.Fatalf("move: status %d, body %s", rec.Code, rec.Body)
+	}
+	page = getInbox(t, api, playerToken, "")
+	if len(page.Notifications) != 2 || string(page.Notifications[0]["kind"]) != `"match_changed"` ||
+		string(page.Notifications[0]["body"]) != `"Ahora 20/10/2026 19:00 en Cancha 5"` {
+		t.Fatalf("inbox after a move = %v", page.Notifications)
+	}
+}

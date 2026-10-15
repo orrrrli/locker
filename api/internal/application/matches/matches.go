@@ -48,10 +48,18 @@ type Matches interface {
 	ListAttendance(ctx context.Context, matchID int64) ([]int64, error)
 }
 
+// Notifier sends the automatic notices about a match (R11.4). It runs after
+// the match committed, so the notice never goes out for a rolled-back write.
+type Notifier interface {
+	MatchCreated(ctx context.Context, m domain.Match) error
+	MatchChanged(ctx context.Context, m domain.Match) error
+}
+
 type Deps struct {
 	Tx          application.TxRunner
 	Matches     Matches
 	Memberships application.AdminLocker
+	Notifier    Notifier         // nil means no automatic notices
 	Now         func() time.Time // nil means time.Now
 }
 
@@ -59,6 +67,7 @@ type Service struct {
 	tx          application.TxRunner
 	matches     Matches
 	memberships application.AdminLocker
+	notifier    Notifier
 	now         func() time.Time
 }
 
@@ -66,12 +75,27 @@ func NewService(d Deps) *Service {
 	if d.Now == nil {
 		d.Now = time.Now
 	}
-	return &Service{tx: d.Tx, matches: d.Matches, memberships: d.Memberships, now: d.Now}
+	return &Service{tx: d.Tx, matches: d.Matches, memberships: d.Memberships, notifier: d.Notifier, now: d.Now}
 }
 
-// Create schedules a match for the team (R9.1). startsAt is stored in UTC.
-// callerID is the admin's membership, checked by requireRole and again under
-// the team lock; it is also recorded as the creator.
+// notify sends an automatic notice once the match committed. Its error is
+// dropped: the match is saved, so failing the request would make the client
+// retry and schedule it twice; the notice alone is what is lost.
+//
+// ponytail: unlogged, the application layer has no logger. Log it here once
+// one exists. A notice inside the match's transaction would be atomic with
+// it, but Send pushes after its own commit and must not join another.
+func (s *Service) notify(send func() error) {
+	if s.notifier == nil {
+		return
+	}
+	_ = send()
+}
+
+// Create schedules a match for the team (R9.1) and tells every active
+// member (R11.4). startsAt is stored in UTC. callerID is the admin's
+// membership, checked by requireRole and again under the team lock; it is
+// also recorded as the creator.
 func (s *Service) Create(ctx context.Context, teamID, callerID int64, startsAt time.Time, rival, location string) (domain.Match, error) {
 	if !validStartsAt(startsAt) {
 		return domain.Match{}, ErrInvalidStartsAt
@@ -96,6 +120,7 @@ func (s *Service) Create(ctx context.Context, teamID, callerID int64, startsAt t
 	if err != nil {
 		return domain.Match{}, err
 	}
+	s.notify(func() error { return s.notifier.MatchCreated(ctx, out) })
 	return out, nil
 }
 
@@ -116,7 +141,9 @@ func (s *Service) Upcoming(ctx context.Context, userID int64) ([]domain.Upcoming
 
 // Update lets the admin callerID change the time, the rival, the place or
 // any of them. A nil field keeps its value. Once attendance is saved the
-// time cannot move (ErrAttendanceClosed); the rest still can.
+// time cannot move (ErrAttendanceClosed); the rest still can. A change of
+// time or place tells every active member (R11.4); a new rival name alone
+// does not.
 func (s *Service) Update(ctx context.Context, teamID, callerID, matchID int64, startsAt *time.Time, rival, location *string) (domain.Match, error) {
 	if startsAt == nil && rival == nil && location == nil {
 		return domain.Match{}, ErrNothingToUpdate
@@ -142,12 +169,13 @@ func (s *Service) Update(ctx context.Context, teamID, callerID, matchID int64, s
 		}
 		location = &l
 	}
-	var out domain.Match
+	var out, cur domain.Match
 	err := s.tx.InTx(ctx, func(ctx context.Context) error {
 		if _, err := application.LockTeamAsAdmin(ctx, s.memberships, teamID, callerID); err != nil {
 			return err
 		}
-		cur, err := s.matches.LockMatchInTeam(ctx, teamID, matchID)
+		var err error
+		cur, err = s.matches.LockMatchInTeam(ctx, teamID, matchID)
 		if err != nil {
 			return err
 		}
@@ -160,6 +188,9 @@ func (s *Service) Update(ctx context.Context, teamID, callerID, matchID int64, s
 	})
 	if err != nil {
 		return domain.Match{}, err
+	}
+	if !cur.StartsAt.Equal(out.StartsAt) || cur.Location != out.Location {
+		s.notify(func() error { return s.notifier.MatchChanged(ctx, out) })
 	}
 	return out, nil
 }

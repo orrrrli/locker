@@ -174,6 +174,41 @@ func (s *Service) SendManual(ctx context.Context, teamID, callerID int64, title,
 	return out, nil
 }
 
+// MatchCreated stores a match_created notice about m for every active member
+// of its team and pushes it (R11.4). The kickoff is written in the team's
+// timezone. Call it after the match committed, never inside its transaction.
+func (s *Service) MatchCreated(ctx context.Context, m domain.Match) error {
+	return s.sendMatchNotice(ctx, domain.NotificationMatchCreated, m)
+}
+
+// MatchChanged is MatchCreated for a match whose time or place changed.
+func (s *Service) MatchChanged(ctx context.Context, m domain.Match) error {
+	return s.sendMatchNotice(ctx, domain.NotificationMatchChanged, m)
+}
+
+func (s *Service) sendMatchNotice(ctx context.Context, kind domain.NotificationKind, m domain.Match) error {
+	team, err := s.teams.GetTeam(ctx, m.TeamID)
+	if err != nil {
+		return err
+	}
+	loc, err := time.LoadLocation(team.Timezone)
+	if err != nil {
+		return err
+	}
+	when := m.StartsAt.In(loc).Format("02/01/2006 15:04")
+	var title, body string
+	switch kind {
+	case domain.NotificationMatchCreated:
+		title = "Nuevo partido vs " + m.RivalName
+		body = when + " en " + m.Location
+	default:
+		title = "Cambio en el partido vs " + m.RivalName
+		body = "Ahora " + when + " en " + m.Location
+	}
+	_, err = s.Send(ctx, domain.Notification{TeamID: m.TeamID, Kind: kind, Title: title, Body: body, MatchID: &m.ID})
+	return err
+}
+
 // pushStored delivers a committed notice to the recipients who have not
 // muted the team (R11.6). It runs after the transaction, so a rollback never
 // leaves a push with no notice.
