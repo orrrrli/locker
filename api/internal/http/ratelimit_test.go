@@ -4,8 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"maps"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -119,7 +122,7 @@ func (lt limitTest) fail(peer, email string, n int) {
 }
 
 func (lt limitTest) entries() (ip, pair, account int) {
-	return len(lt.lim.ip.keys), len(lt.lim.pair.keys), len(lt.lim.account.keys)
+	return len(lt.lim.ip.host.keys), len(lt.lim.pair.keys), len(lt.lim.account.keys)
 }
 
 const (
@@ -271,10 +274,10 @@ func TestLoginLimits(t *testing.T) {
 		if ip, pair, account := lt.entries(); ip != 1 || pair != 1 || account != 1 {
 			t.Fatalf("after Prune ip=%d pair=%d account=%d, want 1 1 1", ip, pair, account)
 		}
-		if _, ok := lt.lim.ip.keys[ipA]; ok {
+		if _, ok := lt.lim.ip.host.keys[ipA]; ok {
 			t.Fatal("expired counter for ipA survived Prune")
 		}
-		if _, ok := lt.lim.ip.keys[ipB]; !ok {
+		if _, ok := lt.lim.ip.host.keys[ipB]; !ok {
 			t.Fatal("live counter for ipB was pruned")
 		}
 	})
@@ -282,18 +285,19 @@ func TestLoginLimits(t *testing.T) {
 
 func TestClientIP(t *testing.T) {
 	tests := []struct {
-		name, peer, realIP, want string
-		ok                       bool
+		name, peer, realIP string
+		want               ipKey
+		ok                 bool
 	}{
-		{"direct client", "203.0.113.9:5000", "", "203.0.113.9", true},
-		{"public peer cannot set the header", "203.0.113.9:5000", "198.51.100.7", "203.0.113.9", true},
-		{"nginx via the Docker bridge", "172.18.0.1:5000", "198.51.100.7", "198.51.100.7", true},
-		{"nginx via loopback, IPv6 client keyed by /64", "127.0.0.1:5000", "2001:db8:1:2:3:4:5:6", "2001:db8:1:2::/64", true},
-		{"IPv4-mapped header", "172.18.0.1:5000", "::ffff:198.51.100.7", "198.51.100.7", true},
-		{"IPv6 peer keyed by /64", "[2001:db8::1]:5000", "", "2001:db8::/64", true},
-		{"zone stripped", "[fe80::1%eth0]:5000", "", "fe80::/64", true},
-		{"malformed header", "172.18.0.1:5000", "nope", "", false},
-		{"header with a port", "172.18.0.1:5000", "198.51.100.7:1", "", false},
+		{"direct client", "203.0.113.9:5000", "", ipKey{host: "203.0.113.9"}, true},
+		{"public peer cannot set the header", "203.0.113.9:5000", "198.51.100.7", ipKey{host: "203.0.113.9"}, true},
+		{"nginx via the Docker bridge", "172.18.0.1:5000", "198.51.100.7", ipKey{host: "198.51.100.7"}, true},
+		{"nginx via loopback, IPv6 client keyed by /64 and /48", "127.0.0.1:5000", "2001:db8:1:2:3:4:5:6", ipKey{host: "2001:db8:1:2::/64", block: "2001:db8:1::/48"}, true},
+		{"IPv4-mapped header", "172.18.0.1:5000", "::ffff:198.51.100.7", ipKey{host: "198.51.100.7"}, true},
+		{"IPv6 peer keyed by /64 and /48", "[2001:db8::1]:5000", "", ipKey{host: "2001:db8::/64", block: "2001:db8::/48"}, true},
+		{"zone stripped", "[fe80::1%eth0]:5000", "", ipKey{host: "fe80::/64", block: "fe80::/48"}, true},
+		{"malformed header", "172.18.0.1:5000", "nope", ipKey{}, false},
+		{"header with a port", "172.18.0.1:5000", "198.51.100.7:1", ipKey{}, false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -444,5 +448,117 @@ func TestLimitByUserKeysOnTheSignedInUser(t *testing.T) {
 	}
 	if code := call(2).Code; code != http.StatusNoContent {
 		t.Fatalf("other user = %d, want 204", code)
+	}
+}
+
+// v6Host is the first address of the n-th /64 in the 2001:db8:1::/48 block,
+// bracketed for RemoteAddr.
+func v6Host(n int) string { return fmt.Sprintf("[2001:db8:1:%x::1]", n) }
+
+func TestLoginIsLimitedPerIPv6Block(t *testing.T) {
+	lt := newLimitTest(t)
+	blockMax := loginMaxPerIP * blockMultiplier
+	// One failure from each of blockMax distinct /64s in one /48, each with
+	// its own email, so neither the /64, pair nor account limits are near.
+	for i := 0; i < blockMax; i++ {
+		lt.expect(lt.login(v6Host(i), "", fmt.Sprintf("u%d@example.com", i), "wrong"), http.StatusUnauthorized)
+	}
+	lt.expect(lt.login(v6Host(blockMax), "", "fresh@example.com", rightPassword), http.StatusTooManyRequests)
+	if lt.svc.calls.Load() != int64(blockMax) {
+		t.Fatalf("Login calls = %d, want %d: the /48 limit must refuse before the password check", lt.svc.calls.Load(), blockMax)
+	}
+	if hosts := len(lt.lim.ip.host.keys); hosts != blockMax {
+		t.Fatalf("host entries = %d, want %d: a refused /48 must not leave a /64 entry behind", hosts, blockMax)
+	}
+	// Another /48 is not affected.
+	lt.expect(lt.login("[2001:db8:2::1]", "", "other@example.com", rightPassword), http.StatusOK)
+	// The block stays closed for a full window from its last failure.
+	lt.clk.advance(loginWindow - time.Second)
+	lt.expect(lt.login(v6Host(blockMax), "", "fresh@example.com", rightPassword), http.StatusTooManyRequests)
+	lt.clk.advance(time.Second)
+	lt.expect(lt.login(v6Host(blockMax), "", "fresh@example.com", rightPassword), http.StatusOK)
+}
+
+func TestRegisterIsLimitedPerIPv6Block(t *testing.T) {
+	clk := &clock{t: today}
+	svc := &fakeAuth{}
+	limits := NewLimits(clk.now)
+	h := NewRouter(Deps{Auth: svc, Limits: limits})
+	register := func(peer string) int {
+		req := httptest.NewRequest(http.MethodPost, "/auth/register", strings.NewReader(`{}`))
+		req.RemoteAddr = peer + ":40000"
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+		return rec.Code
+	}
+	blockMax := registerMaxPerIP * blockMultiplier
+	for i := 0; i < blockMax; i++ {
+		if code := register(v6Host(i)); code != http.StatusCreated {
+			t.Fatalf("registration %d from its own /64 = %d, want 201", i+1, code)
+		}
+	}
+	if code := register(v6Host(blockMax)); code != http.StatusTooManyRequests {
+		t.Fatalf("registration past the /48 limit = %d, want 429", code)
+	}
+	if hosts := len(limits.Register.l.host.keys); hosts != blockMax {
+		t.Fatalf("host entries = %d, want %d: a refused /48 must not leave a /64 entry behind", hosts, blockMax)
+	}
+	if code := register("[2001:db8:2::1]"); code != http.StatusCreated {
+		t.Fatalf("another /48 = %d, want 201", code)
+	}
+	clk.advance(registerWindow)
+	if code := register(v6Host(blockMax)); code != http.StatusCreated {
+		t.Fatalf("after the window = %d, want 201", code)
+	}
+}
+
+func TestLimiterCapsLiveKeys(t *testing.T) {
+	l := newLimiter(2, time.Minute)
+	l.maxKeys = 2
+	t0 := today
+	take := func(key string, at time.Time, wantWait time.Duration, wantOK bool) {
+		t.Helper()
+		wait, ok := l.take(key, at)
+		if ok != wantOK || wait != wantWait {
+			t.Fatalf("take(%q) = %v, %v; want %v, %v", key, wait, ok, wantWait, wantOK)
+		}
+	}
+	take("a", t0, 0, true)
+	take("b", t0.Add(10*time.Second), 0, true)
+	// Full: a new key is refused until the first entry expires, and refusing
+	// it leaves no entry behind.
+	take("c", t0.Add(20*time.Second), 40*time.Second, false)
+	if len(l.keys) != 2 {
+		t.Fatalf("keys = %d after a refused new key, want 2", len(l.keys))
+	}
+	// Keys already counted keep their budget while the map is full.
+	take("a", t0.Add(20*time.Second), 0, true)
+	// Once a's window has passed, a new key evicts it in place; b is live.
+	take("c", t0.Add(time.Minute), 0, true)
+	if _, ok := l.keys["a"]; ok || len(l.keys) != 2 {
+		t.Fatalf("keys = %v, want b and c only", slices.Sorted(maps.Keys(l.keys)))
+	}
+	// An expired key of its own is reused, not refused, even when full.
+	take("b", t0.Add(2*time.Minute), 0, true)
+}
+
+func TestFullLoginLimiterRefusesStrangersOnly(t *testing.T) {
+	lt := newLimitTest(t)
+	lt.lim.ip.host.maxKeys = 2
+	lt.fail(ipA, ana, 1)
+	lt.fail(ipB, "bob@example.com", 1)
+	// A third IP gets a 429 with Retry-After, without a password check.
+	rec := lt.login("203.0.113.3", "", "carla@example.com", rightPassword)
+	lt.expect(rec, http.StatusTooManyRequests)
+	if rec.Header().Get("Retry-After") != "900" {
+		t.Fatalf("Retry-After = %q, want 900 (the first entry's remaining window)", rec.Header().Get("Retry-After"))
+	}
+	if lt.svc.calls.Load() != 2 {
+		t.Fatal("a refused stranger reached the password check")
+	}
+	// The IPs already counted still log in.
+	lt.expect(lt.login(ipA, "", ana, rightPassword), http.StatusOK)
+	if ip, _, _ := lt.entries(); ip > 2 {
+		t.Fatalf("ip entries = %d, want at most 2", ip)
 	}
 }
