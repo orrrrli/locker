@@ -74,8 +74,9 @@ func (r *Users) PasswordIdentity(ctx context.Context, email string) (int64, stri
 }
 
 // DeletePersonalData runs the user part of account deletion (R5.2): it
-// deletes the user's auth identities, device tokens and sessions, then nulls
-// the personal fields and sets deleted_at. The row stays, so the history that
+// deletes the user's auth identities, device tokens and sessions, unlinks
+// their venue leads (R25.8), then nulls the personal fields and sets
+// deleted_at. The row stays, so the history that
 // hangs off it keeps its foreign keys. It returns domain.ErrNotFound when the
 // user is unknown or already deleted.
 func (r *Users) DeletePersonalData(ctx context.Context, userID int64) error {
@@ -88,6 +89,9 @@ func (r *Users) DeletePersonalData(ctx context.Context, userID int64) error {
 	}
 	if err := q.DeleteSessionsOfUser(ctx, userID); err != nil {
 		return fmt.Errorf("postgres: delete sessions: %w", err)
+	}
+	if err := q.UnlinkVenueLeadsOfUser(ctx, pgtype.Int8{Int64: userID, Valid: true}); err != nil {
+		return fmt.Errorf("postgres: unlink venue leads: %w", err)
 	}
 	n, err := q.ClearUserPersonalData(ctx, userID)
 	if err != nil {

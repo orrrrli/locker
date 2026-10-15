@@ -200,3 +200,16 @@ type Venue struct {
 	Timezone  string
 	CreatedAt pgtype.Timestamptz
 }
+
+type VenueLead struct {
+	ID          int64
+	UserID      pgtype.Int8
+	ContactName string
+	VenueName   string
+	City        string
+	Phone       pgtype.Text
+	Email       pgtype.Text
+	Message     pgtype.Text
+	CreatedAt   pgtype.Timestamptz
+	HandledAt   pgtype.Timestamptz
+}
