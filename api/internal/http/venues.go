@@ -2,7 +2,10 @@ package http
 
 import (
 	"context"
+	"math"
 	"net/http"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/orrrrli/locker/api/internal/application/venues"
@@ -15,10 +18,11 @@ type venueService interface {
 	AddCourt(ctx context.Context, venueID int64, name string) (domain.Court, error)
 	RenameCourt(ctx context.Context, venueID, courtID int64, name *string) (domain.Court, error)
 	RemoveCourt(ctx context.Context, venueID, courtID int64) error
+	Near(ctx context.Context, latitude, longitude float64) ([]domain.NearbyVenue, error)
 }
 
-// venueHandlers serve /operator/venues. They are registered only on the
-// operator mux, behind requireOperator (rule 12).
+// venueHandlers serve /operator/venues, registered only on the operator mux
+// behind requireOperator (rule 12), and GET /venues for any signed-in user.
 type venueHandlers struct {
 	svc venueService
 }
@@ -177,6 +181,59 @@ func (h venueHandlers) removeCourt(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+type nearbyVenueJSON struct {
+	ID         int64   `json:"id"`
+	Name       string  `json:"name"`
+	Address    string  `json:"address"`
+	Latitude   float64 `json:"latitude"`
+	Longitude  float64 `json:"longitude"`
+	Timezone   string  `json:"timezone"`
+	CourtCount int     `json:"court_count"`
+	DistanceM  int     `json:"distance_m"`
+}
+
+// near answers GET /venues?near=lat,lng with the venues within 25 km,
+// nearest first (R15.6). The point lives only in this request: the API logs
+// paths without the query, and nginx keeps no access log for /venues.
+func (h venueHandlers) near(w http.ResponseWriter, r *http.Request) {
+	lat, lng, ok := parseNear(r.URL.Query()["near"])
+	if !ok {
+		writeError(w, http.StatusUnprocessableEntity, "invalid_near")
+		return
+	}
+	vs, err := h.svc.Near(r.Context(), lat, lng)
+	if err != nil {
+		venueErrors.write(w, r, "venues", err)
+		return
+	}
+	out := make([]nearbyVenueJSON, len(vs))
+	for i, v := range vs {
+		out[i] = nearbyVenueJSON{
+			ID: v.ID, Name: v.Name, Address: v.Address, Latitude: v.Latitude, Longitude: v.Longitude,
+			Timezone: v.Timezone, CourtCount: v.CourtCount, DistanceM: int(math.Round(v.DistanceM)),
+		}
+	}
+	writeJSON(w, http.StatusOK, map[string][]nearbyVenueJSON{"venues": out})
+}
+
+// parseNear reads exactly one near=lat,lng with two decimal numbers and no
+// spaces. The range is the use case's to check.
+func parseNear(vals []string) (lat, lng float64, ok bool) {
+	if len(vals) != 1 {
+		return 0, 0, false
+	}
+	latS, lngS, found := strings.Cut(vals[0], ",")
+	if !found {
+		return 0, 0, false
+	}
+	lat, err1 := strconv.ParseFloat(latS, 64)
+	lng, err2 := strconv.ParseFloat(lngS, 64)
+	if err1 != nil || err2 != nil {
+		return 0, 0, false
+	}
+	return lat, lng, true
+}
+
 // courtFromPath reads {id} and {courtId}; a court of another venue is not
 // found, like an unknown one.
 func courtFromPath(r *http.Request) (venueID, courtID int64, err error) {
@@ -199,5 +256,6 @@ var venueErrors = errorMap{
 	{venues.ErrNothingToUpdate, http.StatusUnprocessableEntity, "nothing_to_update"},
 	{venues.ErrCourtNameTaken, http.StatusConflict, "court_name_taken"},
 	{venues.ErrLastCourt, http.StatusConflict, "last_court"},
+	{venues.ErrInvalidNear, http.StatusUnprocessableEntity, "invalid_near"},
 	{domain.ErrNotFound, http.StatusNotFound, "not_found"},
 }

@@ -162,3 +162,34 @@ func venueFromRow(row sqlcdb.Venue) domain.Venue {
 		CreatedAt: row.CreatedAt.Time,
 	}
 }
+
+// ListNear returns up to limit venues within radiusM meters of the point,
+// nearest first. The point is only a query parameter (R15.6).
+func (r *Venues) ListNear(ctx context.Context, latitude, longitude, radiusM float64, limit int) ([]domain.NearbyVenue, error) {
+	rows, err := sqlcdb.New(Conn(ctx, r.pool)).ListVenuesNear(ctx, sqlcdb.ListVenuesNearParams{
+		Latitude:   latitude,
+		Longitude:  longitude,
+		RadiusM:    radiusM,
+		MaxResults: int32(limit),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("postgres: list venues near: %w", err)
+	}
+	out := make([]domain.NearbyVenue, len(rows))
+	for i, row := range rows {
+		out[i] = domain.NearbyVenue{
+			Venue: domain.Venue{
+				ID:        row.ID,
+				Name:      row.Name,
+				Address:   row.Address,
+				Latitude:  row.Latitude,
+				Longitude: row.Longitude,
+				Timezone:  row.Timezone,
+				CreatedAt: row.CreatedAt.Time,
+			},
+			CourtCount: int(row.CourtCount),
+			DistanceM:  row.DistanceM,
+		}
+	}
+	return out, nil
+}
