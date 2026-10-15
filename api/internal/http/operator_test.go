@@ -18,8 +18,8 @@ func setOperator(t *testing.T, api apiTest, userID int64, on bool) {
 	}
 }
 
-// TestRequireOperatorGatesTheOperatorPrefix: no route is registered under
-// /operator/ yet, so getting past the gate shows up as the sub-mux's JSON 404.
+// TestRequireOperatorGatesTheOperatorPrefix: /operator/nope is not a route,
+// so getting past the gate shows up as the sub-mux's JSON 404.
 func TestRequireOperatorGatesTheOperatorPrefix(t *testing.T) {
 	api := newAPI(t, func() time.Time { return today })
 	_, userToken := signUp(t, api, "player@example.com")
@@ -39,7 +39,7 @@ func TestRequireOperatorGatesTheOperatorPrefix(t *testing.T) {
 		{"not the operator, bare prefix", http.MethodGet, "/operator", userToken, http.StatusForbidden, "forbidden"},
 		{"not the operator, write", http.MethodPost, "/operator/leagues", userToken, http.StatusForbidden, "forbidden"},
 		{"not the operator, nested path", http.MethodDelete, "/operator/venues/1/courts/2", userToken, http.StatusForbidden, "forbidden"},
-		{"operator passes the gate", http.MethodGet, "/operator/venues", operatorToken, http.StatusNotFound, "not_found"},
+		{"operator passes the gate", http.MethodGet, "/operator/nope", operatorToken, http.StatusNotFound, "not_found"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -57,11 +57,11 @@ func TestOperatorFlagIsReadOnEveryRequest(t *testing.T) {
 	api := newAPI(t, func() time.Time { return today })
 	id, token := signUp(t, api, "operator@example.com")
 	setOperator(t, api, id, true)
-	if rec := api.do(t, http.MethodGet, "/operator/venues", token, nil); rec.Code != http.StatusNotFound {
+	if rec := api.do(t, http.MethodGet, "/operator/nope", token, nil); rec.Code != http.StatusNotFound {
 		t.Fatalf("as operator = %d %s, want 404 past the gate", rec.Code, rec.Body)
 	}
 	setOperator(t, api, id, false)
-	if rec := api.do(t, http.MethodGet, "/operator/venues", token, nil); rec.Code != http.StatusForbidden {
+	if rec := api.do(t, http.MethodGet, "/operator/nope", token, nil); rec.Code != http.StatusForbidden {
 		t.Fatalf("after clearing the flag = %d %s, want 403", rec.Code, rec.Body)
 	}
 }

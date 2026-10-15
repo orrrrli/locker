@@ -16,6 +16,7 @@ type Deps struct {
 	Account       accountService
 	Matches       matchService
 	Notifications notificationService
+	Venues        venueService
 	// MatchFinder resolves the team of routes on /matches/{id}.
 	MatchFinder matchFinder
 	// AppleAppID ("<team id>.<bundle id>") is the app invite links open;
@@ -112,6 +113,12 @@ func NewRouter(d Deps) http.Handler {
 	// is never reached instead of skipping the gate (rule 12). A non-operator
 	// gets 403 even on an unknown path; the operator gets the usual JSON 404.
 	op := http.NewServeMux()
+	v := venueHandlers{svc: d.Venues}
+	op.HandleFunc("POST /operator/venues", v.create)
+	op.HandleFunc("PATCH /operator/venues/{id}", v.update)
+	op.HandleFunc("POST /operator/venues/{id}/courts", v.addCourt)
+	op.HandleFunc("PATCH /operator/venues/{id}/courts/{courtId}", v.renameCourt)
+	op.HandleFunc("DELETE /operator/venues/{id}/courts/{courtId}", v.removeCourt)
 	return operatorFirst(a.requireAuth(z.requireOperator(jsonMisses(op))), jsonMisses(mux))
 }
 

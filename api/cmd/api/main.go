@@ -20,6 +20,7 @@ import (
 	applicationmemberships "github.com/orrrrli/locker/api/internal/application/memberships"
 	"github.com/orrrrli/locker/api/internal/application/notifications"
 	"github.com/orrrrli/locker/api/internal/application/teams"
+	"github.com/orrrrli/locker/api/internal/application/venues"
 	apihttp "github.com/orrrrli/locker/api/internal/http"
 	"github.com/orrrrli/locker/api/internal/infrastructure/password"
 	"github.com/orrrrli/locker/api/internal/infrastructure/postgres"
@@ -98,6 +99,10 @@ func start() error {
 		Tx:            postgres.NewTxRunner(pool),
 		Notifications: postgres.NewNotifications(pool),
 	})
+	venueSvc := venues.NewService(venues.Deps{
+		Tx:     postgres.NewTxRunner(pool),
+		Venues: postgres.NewVenues(pool),
+	})
 	router := apihttp.NewRouter(apihttp.Deps{
 		Auth:          authSvc,
 		Teams:         teamSvc,
@@ -106,6 +111,7 @@ func start() error {
 		Account:       accountSvc,
 		Matches:       matchSvc,
 		Notifications: notificationSvc,
+		Venues:        venueSvc,
 		MatchFinder:   matchRepo,
 		AppleAppID:    cfg.AppleAppID,
 		DownloadURL:   cfg.DownloadURL,
