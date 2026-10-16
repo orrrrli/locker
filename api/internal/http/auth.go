@@ -60,7 +60,7 @@ func unauthorized(w http.ResponseWriter) {
 type authHandlers struct {
 	svc       authService
 	limits    *LoginLimiter
-	registers *RateLimiter // per client IP
+	registers *IPRateLimiter // per client IP
 }
 
 type registerRequest struct {

@@ -11,6 +11,25 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const countManualNotificationsSince = `-- name: CountManualNotificationsSince :one
+SELECT count(*) FROM notification
+WHERE team_id = $1 AND kind = 'manual' AND created_at >= $2
+`
+
+type CountManualNotificationsSinceParams struct {
+	TeamID    int64
+	CreatedAt pgtype.Timestamptz
+}
+
+// Manual notices of the team since an instant (local midnight in the team's
+// timezone, R11.3). Automatic notices never count.
+func (q *Queries) CountManualNotificationsSince(ctx context.Context, arg CountManualNotificationsSinceParams) (int64, error) {
+	row := q.db.QueryRow(ctx, countManualNotificationsSince, arg.TeamID, arg.CreatedAt)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const getNotification = `-- name: GetNotification :one
 SELECT id, team_id, kind, title, body, match_id, sent_by, created_at FROM notification
 WHERE id = $1
@@ -33,20 +52,23 @@ func (q *Queries) GetNotification(ctx context.Context, id int64) (Notification, 
 }
 
 const insertNotification = `-- name: InsertNotification :one
-INSERT INTO notification (team_id, kind, title, body, match_id, sent_by)
-VALUES ($1, $2, $3, $4, $5, $6)
+INSERT INTO notification (team_id, kind, title, body, match_id, sent_by, created_at)
+VALUES ($1, $2, $3, $4, $5, $6, coalesce($7::timestamptz, now()))
 RETURNING id, team_id, kind, title, body, match_id, sent_by, created_at
 `
 
 type InsertNotificationParams struct {
-	TeamID  int64
-	Kind    string
-	Title   string
-	Body    string
-	MatchID pgtype.Int8
-	SentBy  pgtype.Int8
+	TeamID    int64
+	Kind      string
+	Title     string
+	Body      string
+	MatchID   pgtype.Int8
+	SentBy    pgtype.Int8
+	CreatedAt pgtype.Timestamptz
 }
 
+// created_at comes from the caller's clock when set (a manual notice counts
+// against its team's local day, R11.3); otherwise from the database.
 func (q *Queries) InsertNotification(ctx context.Context, arg InsertNotificationParams) (Notification, error) {
 	row := q.db.QueryRow(ctx, insertNotification,
 		arg.TeamID,
@@ -55,6 +77,7 @@ func (q *Queries) InsertNotification(ctx context.Context, arg InsertNotification
 		arg.Body,
 		arg.MatchID,
 		arg.SentBy,
+		arg.CreatedAt,
 	)
 	var i Notification
 	err := row.Scan(

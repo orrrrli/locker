@@ -20,7 +20,7 @@ import (
 )
 
 // notify sends an automatic notice to the team through the real use case
-// (no push) and returns its id. No route sends one yet (BE-NOTIF-4, -5).
+// (no push) and returns its id. No route sends one yet (BE-NOTIF-5).
 func notify(t *testing.T, api apiTest, teamID int64, title string) int64 {
 	t.Helper()
 	return send(t, api, domain.Notification{TeamID: teamID, Kind: domain.NotificationMatchCreated, Title: title, Body: "vs Halcones"})
@@ -695,5 +695,93 @@ func TestReceipts(t *testing.T) {
 	got = decode(rec)
 	if got.OpenedCount != 3 || !strings.Contains(rec.Body.String(), `"not_opened":[]`) {
 		t.Fatalf("all opened = %+v, body %s", got, rec.Body)
+	}
+}
+
+// Admins send a notice to the team (R11.2): every active member sees it in
+// the inbox, the sender's copy read; players and strangers cannot send. The
+// 11th notice of the local day is a 409 (R11.3).
+func TestSendNotification(t *testing.T) {
+	now := today
+	api := newAPI(t, func() time.Time { return now })
+	adminID, adminToken := signUp(t, api, "admin@example.com")
+	playerID, playerToken := signUp(t, api, "player@example.com")
+	pendingID, pendingToken := signUp(t, api, "pending@example.com")
+	_, strangerToken := signUp(t, api, "stranger@example.com")
+	team := createTeam(t, api, adminToken, "Pumas", "America/Tijuana")
+	addMember(t, api, team.ID, playerID, "player", "active")
+	addMember(t, api, team.ID, pendingID, "player", "pending")
+	admin := membershipID(t, api, team.ID, adminID)
+	path := "/teams/" + strconv.FormatInt(team.ID, 10) + "/notifications"
+	body := map[string]string{"title": "Cancha 3", "body": "Hoy cambiamos de cancha"}
+
+	for _, tc := range []struct {
+		name, token string
+		body        any
+		status      int
+		code        string
+	}{
+		{"no token", "", body, http.StatusUnauthorized, "unauthorized"},
+		{"player", playerToken, body, http.StatusForbidden, "forbidden"},
+		{"pending", pendingToken, body, http.StatusNotFound, "not_found"},
+		{"stranger", strangerToken, body, http.StatusNotFound, "not_found"},
+		{"not json", adminToken, "nope", http.StatusBadRequest, "invalid_request"},
+		{"unknown field", adminToken, map[string]string{"title": "x", "body": "x", "kind": "manual"}, http.StatusBadRequest, "invalid_request"},
+		{"empty title", adminToken, map[string]string{"title": " ", "body": "x"}, http.StatusUnprocessableEntity, "invalid_title"},
+		{"empty body", adminToken, map[string]string{"title": "x", "body": ""}, http.StatusUnprocessableEntity, "invalid_body"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			rec := api.do(t, http.MethodPost, path, tc.token, tc.body)
+			if rec.Code != tc.status || errorCode(t, rec) != tc.code {
+				t.Fatalf("status %d, body %s; want %d %s", rec.Code, rec.Body, tc.status, tc.code)
+			}
+		})
+	}
+
+	rec := api.do(t, http.MethodPost, path, adminToken, body)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("POST: status %d, body %s", rec.Code, rec.Body)
+	}
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(rec.Body.Bytes(), &raw); err != nil {
+		t.Fatal(err)
+	}
+	if keys, want := slices.Sorted(maps.Keys(raw)), []string{"body", "created_at", "id", "kind", "match_id", "sent_by", "team_id", "title"}; !slices.Equal(keys, want) {
+		t.Fatalf("keys = %v, want %v", keys, want)
+	}
+	assertAPITime(t, "created_at", raw["created_at"])
+	var n notificationJSON
+	if err := json.Unmarshal(rec.Body.Bytes(), &n); err != nil {
+		t.Fatal(err)
+	}
+	if n.TeamID != team.ID || n.Kind != domain.NotificationManual || n.Title != "Cancha 3" || n.Body != "Hoy cambiamos de cancha" ||
+		n.MatchID != nil || n.SentBy == nil || *n.SentBy != admin || !n.CreatedAt.Equal(now) {
+		t.Fatalf("notice = %+v", n)
+	}
+
+	// The player has it unread; the sender has it read; the pending member has nothing.
+	if page := getInbox(t, api, playerToken, ""); !slices.Equal(ids(t, page.Notifications), []int64{n.ID}) || string(page.Notifications[0]["read_at"]) != "null" {
+		t.Fatalf("player inbox = %v", page.Notifications)
+	}
+	if page := getInbox(t, api, adminToken, ""); !slices.Equal(ids(t, page.Notifications), []int64{n.ID}) || string(page.Notifications[0]["read_at"]) == "null" {
+		t.Fatalf("admin inbox = %v, want the notice already read", page.Notifications)
+	}
+	if page := getInbox(t, api, pendingToken, ""); len(page.Notifications) != 0 {
+		t.Fatalf("pending inbox = %v, want empty", page.Notifications)
+	}
+
+	// 9 more fill the day; the 11th is refused until local midnight passes.
+	for i := 0; i < notifications.MaxManualPerDay-1; i++ {
+		if rec := api.do(t, http.MethodPost, path, adminToken, body); rec.Code != http.StatusCreated {
+			t.Fatalf("notice %d: status %d, body %s", i+2, rec.Code, rec.Body)
+		}
+	}
+	if rec := api.do(t, http.MethodPost, path, adminToken, body); rec.Code != http.StatusConflict || errorCode(t, rec) != "daily_limit_reached" {
+		t.Fatalf("11th notice: status %d, body %s; want 409 daily_limit_reached", rec.Code, rec.Body)
+	}
+	// today is 15:00 UTC, 08:00 in Tijuana; the next local midnight is 07:00 UTC tomorrow.
+	now = time.Date(2026, 10, 7, 7, 0, 0, 0, time.UTC)
+	if rec := api.do(t, http.MethodPost, path, adminToken, body); rec.Code != http.StatusCreated {
+		t.Fatalf("after local midnight: status %d, body %s", rec.Code, rec.Body)
 	}
 }
