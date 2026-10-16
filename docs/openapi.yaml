@@ -852,7 +852,11 @@ paths:
         pending member and sets the caller's membership left. Final: the team
         disappears from `GET /teams` and every team route answers 404. Its
         history (memberships, attendance, fees) is kept. The sole member of a
-        team dissolves it before `DELETE /me` (R5.4).
+        team dissolves it before `DELETE /me` (R5.4). The team also leaves
+        every league it is enrolled in: its future fixtures are deleted and
+        both sides' matches cancelled, and each rival team gets a
+        `match_changed` notice ("Partido cancelado: vs. <team>"). Past
+        matches stay.
       security:
         - bearerAuth: []
       responses:

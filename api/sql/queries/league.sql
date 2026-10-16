@@ -31,3 +31,10 @@ RETURNING league_id, team_id, enrolled_at;
 -- name: UnenrollTeam :execrows
 DELETE FROM league_team
 WHERE league_id = $1 AND team_id = $2;
+
+-- name: ListEnrolledLeagues :many
+-- The leagues the team is enrolled in, by id: the order dissolving locks
+-- them in.
+SELECT league_id FROM league_team
+WHERE team_id = $1
+ORDER BY league_id;

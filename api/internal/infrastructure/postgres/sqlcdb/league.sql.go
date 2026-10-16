@@ -97,6 +97,34 @@ func (q *Queries) GetLeague(ctx context.Context, id int64) (League, error) {
 	return i, err
 }
 
+const listEnrolledLeagues = `-- name: ListEnrolledLeagues :many
+SELECT league_id FROM league_team
+WHERE team_id = $1
+ORDER BY league_id
+`
+
+// The leagues the team is enrolled in, by id: the order dissolving locks
+// them in.
+func (q *Queries) ListEnrolledLeagues(ctx context.Context, teamID int64) ([]int64, error) {
+	rows, err := q.db.Query(ctx, listEnrolledLeagues, teamID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []int64
+	for rows.Next() {
+		var league_id int64
+		if err := rows.Scan(&league_id); err != nil {
+			return nil, err
+		}
+		items = append(items, league_id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const lockLeague = `-- name: LockLeague :one
 SELECT id, venue_id, name, weekday, start_time, end_time, season_name, season_starts_on, season_ends_on, created_at
 FROM league
