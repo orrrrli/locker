@@ -158,3 +158,128 @@ func TestCreateChargeForMatchAttendees(t *testing.T) {
 		t.Fatalf("attendance after the charge: status %d, body %s; want locked", rec.Code, rec.Body)
 	}
 }
+
+func decodeChargeList(t *testing.T, rec *httptest.ResponseRecorder) []chargeJSON {
+	t.Helper()
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET charges: status %d, body %s", rec.Code, rec.Body)
+	}
+	// [] never null, as every list.
+	var raw struct{ Charges json.RawMessage }
+	if err := json.Unmarshal(rec.Body.Bytes(), &raw); err != nil {
+		t.Fatal(err)
+	}
+	if string(raw.Charges) == "null" {
+		t.Fatal("charges is null, want []")
+	}
+	var body struct {
+		Charges []chargeJSON `json:"charges"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	return body.Charges
+}
+
+// Admins see every charge and entry; a player only their own entries and
+// only the charges they are in (R12.4); pending, left and strangers see
+// nothing. Marking paid is admin only and answers the entry (R12.3).
+func TestListAndMarkCharges(t *testing.T) {
+	api := newAPI(t, func() time.Time { return today })
+	adminID, adminToken := signUp(t, api, "admin@example.com")
+	playerID, playerToken := signUp(t, api, "player@example.com")
+	lateID, lateToken := signUp(t, api, "late@example.com")
+	pendingID, pendingToken := signUp(t, api, "pending@example.com")
+	_, strangerToken := signUp(t, api, "stranger@example.com")
+	team := createTeam(t, api, adminToken, "Pumas", "America/Tijuana")
+	addMember(t, api, team.ID, playerID, "player", "active")
+	addMember(t, api, team.ID, pendingID, "player", "pending")
+	admin, player := membershipID(t, api, team.ID, adminID), membershipID(t, api, team.ID, playerID)
+	path := "/teams/" + strconv.FormatInt(team.ID, 10) + "/charges"
+
+	if cs := decodeChargeList(t, api.do(t, http.MethodGet, path, adminToken, nil)); len(cs) != 0 {
+		t.Fatalf("charges before any = %+v, want none", cs)
+	}
+	rec := api.do(t, http.MethodPost, path, adminToken, feeBody)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("POST: status %d, body %s", rec.Code, rec.Body)
+	}
+	c := decodeCharge(t, rec)
+	// Someone who joins after the charge is not in it.
+	addMember(t, api, team.ID, lateID, "player", "active")
+
+	entry := "/charges/" + strconv.FormatInt(c.ID, 10) + "/members/" + strconv.FormatInt(player, 10)
+	for _, tc := range []struct {
+		name, token, path string
+		body              any
+		status            int
+		code              string
+	}{
+		{"player marks", playerToken, entry, map[string]string{"status": "paid"}, http.StatusForbidden, "forbidden"},
+		{"stranger marks", strangerToken, entry, map[string]string{"status": "paid"}, http.StatusNotFound, "not_found"},
+		{"pending marks", pendingToken, entry, map[string]string{"status": "paid"}, http.StatusNotFound, "not_found"},
+		{"unknown charge", adminToken, "/charges/999999/members/" + strconv.FormatInt(player, 10), map[string]string{"status": "paid"}, http.StatusNotFound, "not_found"},
+		{"membership not in the charge", adminToken, "/charges/" + strconv.FormatInt(c.ID, 10) + "/members/" + strconv.FormatInt(membershipID(t, api, team.ID, lateID), 10), map[string]string{"status": "paid"}, http.StatusNotFound, "not_found"},
+		{"bad membership id", adminToken, "/charges/" + strconv.FormatInt(c.ID, 10) + "/members/x", map[string]string{"status": "paid"}, http.StatusNotFound, "not_found"},
+		{"invalid status", adminToken, entry, map[string]string{"status": "waived"}, http.StatusUnprocessableEntity, "invalid_status"},
+		{"no status", adminToken, entry, map[string]string{}, http.StatusUnprocessableEntity, "invalid_status"},
+		{"unknown field", adminToken, entry, map[string]string{"status": "paid", "note": "x"}, http.StatusBadRequest, "invalid_request"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			rec := api.do(t, http.MethodPatch, tc.path, tc.token, tc.body)
+			if rec.Code != tc.status || errorCode(t, rec) != tc.code {
+				t.Fatalf("status %d, body %s; want %d %s", rec.Code, rec.Body, tc.status, tc.code)
+			}
+		})
+	}
+
+	rec = api.do(t, http.MethodPatch, entry, adminToken, map[string]string{"status": "paid"})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("PATCH paid: status %d, body %s", rec.Code, rec.Body)
+	}
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(rec.Body.Bytes(), &raw); err != nil {
+		t.Fatal(err)
+	}
+	if keys, want := slices.Sorted(maps.Keys(raw)), []string{"membership_id", "paid_marked_at", "paid_marked_by", "status"}; !slices.Equal(keys, want) {
+		t.Fatalf("entry keys = %v, want %v", keys, want)
+	}
+	var e chargeMemberJSON
+	if err := json.Unmarshal(rec.Body.Bytes(), &e); err != nil {
+		t.Fatal(err)
+	}
+	if e.MembershipID != player || e.Status != "paid" || e.PaidMarkedBy == nil || *e.PaidMarkedBy != admin || e.PaidMarkedAt == nil || !e.PaidMarkedAt.Equal(today) {
+		t.Fatalf("entry = %+v, want paid by %d at %v", e, admin, today)
+	}
+
+	// The admin sees both entries with the player's marked; the player sees
+	// only their own; the late member is in no charge; the rest see nothing.
+	asAdmin := decodeChargeList(t, api.do(t, http.MethodGet, path, adminToken, nil))
+	if len(asAdmin) != 1 || !slices.Equal(chargeMemberIDs(asAdmin[0]), []int64{admin, player}) || asAdmin[0].Members[1].Status != "paid" {
+		t.Fatalf("admin list = %+v", asAdmin)
+	}
+	asPlayer := decodeChargeList(t, api.do(t, http.MethodGet, path, playerToken, nil))
+	if len(asPlayer) != 1 || !slices.Equal(chargeMemberIDs(asPlayer[0]), []int64{player}) || asPlayer[0].Members[0].Status != "paid" {
+		t.Fatalf("player list = %+v, want only the player's own paid entry", asPlayer)
+	}
+	if cs := decodeChargeList(t, api.do(t, http.MethodGet, path, lateToken, nil)); len(cs) != 0 {
+		t.Fatalf("late member list = %+v, want none", cs)
+	}
+	for name, token := range map[string]string{"pending": pendingToken, "stranger": strangerToken, "no token": ""} {
+		rec := api.do(t, http.MethodGet, path, token, nil)
+		if want := http.StatusNotFound; token == "" {
+			want = http.StatusUnauthorized
+		} else if rec.Code != want {
+			t.Fatalf("%s: status %d, body %s; want %d", name, rec.Code, rec.Body, want)
+		}
+	}
+
+	// Back to pending clears the marker.
+	rec = api.do(t, http.MethodPatch, entry, adminToken, map[string]string{"status": "pending"})
+	if err := json.Unmarshal(rec.Body.Bytes(), &e); err != nil || rec.Code != http.StatusOK {
+		t.Fatalf("PATCH pending: status %d, body %s", rec.Code, rec.Body)
+	}
+	if e.Status != "pending" || e.PaidMarkedBy != nil || e.PaidMarkedAt != nil {
+		t.Fatalf("entry = %+v, want pending and cleared", e)
+	}
+}

@@ -5,6 +5,7 @@ package charges
 import (
 	"context"
 	"errors"
+	"time"
 
 	"github.com/orrrrli/locker/api/internal/application"
 	"github.com/orrrrli/locker/api/internal/domain"
@@ -23,7 +24,8 @@ var (
 	ErrAttendanceOpen = errors.New("the match's attendance is not saved yet")
 	// ErrNoAttendees rejects charging a match nobody attended: a charge with
 	// no entries is nothing to collect.
-	ErrNoAttendees = errors.New("the match has no attendees to charge")
+	ErrNoAttendees   = errors.New("the match has no attendees to charge")
+	ErrInvalidStatus = errors.New("status must be paid or pending")
 )
 
 // Target says who owes the charge (R12.1).
@@ -55,6 +57,17 @@ type Charges interface {
 	// returns how many it inserted.
 	AddAttendees(ctx context.Context, chargeID, matchID int64) (int, error)
 	ListMembers(ctx context.Context, chargeID int64) ([]domain.ChargeMember, error)
+	// ChargeInTeam returns domain.ErrNotFound when the team has no such charge.
+	ChargeInTeam(ctx context.Context, teamID, id int64) (domain.Charge, error)
+	// ListCharges returns the team's charges, newest first.
+	ListCharges(ctx context.Context, teamID int64) ([]domain.Charge, error)
+	// ListMembersOfTeam returns every entry of the team's charges, or only
+	// membershipID's when it is not nil, by charge then membership id.
+	ListMembersOfTeam(ctx context.Context, teamID int64, membershipID *int64) ([]domain.ChargeMember, error)
+	// GetMember and SetMemberStatus return domain.ErrNotFound when the
+	// membership has no entry in the charge.
+	GetMember(ctx context.Context, chargeID, membershipID int64) (domain.ChargeMember, error)
+	SetMemberStatus(ctx context.Context, chargeID, membershipID int64, status domain.ChargeStatus, markedBy *int64, markedAt *time.Time) (domain.ChargeMember, error)
 }
 
 // Matches is what the fee use cases need from the match table.
@@ -69,6 +82,7 @@ type Deps struct {
 	Charges     Charges
 	Matches     Matches
 	Memberships application.AdminLocker
+	Now         func() time.Time // nil means time.Now
 }
 
 type Service struct {
@@ -76,10 +90,14 @@ type Service struct {
 	charges     Charges
 	matches     Matches
 	memberships application.AdminLocker
+	now         func() time.Time
 }
 
 func NewService(d Deps) *Service {
-	return &Service{tx: d.Tx, charges: d.Charges, matches: d.Matches, memberships: d.Memberships}
+	if d.Now == nil {
+		d.Now = time.Now
+	}
+	return &Service{tx: d.Tx, charges: d.Charges, matches: d.Matches, memberships: d.Memberships, now: d.Now}
 }
 
 // Input is a new charge. MatchID is required with TargetMatchAttendees and
@@ -91,8 +109,9 @@ type Input struct {
 	MatchID     *int64
 }
 
-// Created is a charge with its entries, one per targeted membership.
-type Created struct {
+// Detail is a charge with its entries, one per targeted membership, by
+// membership id.
+type Detail struct {
 	domain.Charge
 	Members []domain.ChargeMember
 }
@@ -106,27 +125,27 @@ type Created struct {
 // transaction, as SaveAttendance holds it: the list cannot change between
 // the read and the insert, and once the charge exists the attendance is
 // locked for good (R10.4).
-func (s *Service) Create(ctx context.Context, teamID, callerID int64, in Input) (Created, error) {
+func (s *Service) Create(ctx context.Context, teamID, callerID int64, in Input) (Detail, error) {
 	concept, ok := application.CleanText(in.Concept, maxConceptLen)
 	if !ok {
-		return Created{}, ErrInvalidConcept
+		return Detail{}, ErrInvalidConcept
 	}
 	if in.AmountCents < 1 || in.AmountCents > MaxAmountCents {
-		return Created{}, ErrInvalidAmount
+		return Detail{}, ErrInvalidAmount
 	}
 	switch in.Target {
 	case TargetActiveMembers:
 		if in.MatchID != nil {
-			return Created{}, ErrInvalidTarget
+			return Detail{}, ErrInvalidTarget
 		}
 	case TargetMatchAttendees:
 		if in.MatchID == nil {
-			return Created{}, ErrInvalidTarget
+			return Detail{}, ErrInvalidTarget
 		}
 	default:
-		return Created{}, ErrInvalidTarget
+		return Detail{}, ErrInvalidTarget
 	}
-	var out Created
+	var out Detail
 	err := s.tx.InTx(ctx, func(ctx context.Context) error {
 		if _, err := application.LockTeamAsAdmin(ctx, s.memberships, teamID, callerID); err != nil {
 			return err
@@ -164,11 +183,86 @@ func (s *Service) Create(ctx context.Context, teamID, callerID int64, in Input) 
 		if err != nil {
 			return err
 		}
-		out = Created{Charge: c, Members: members}
+		out = Detail{Charge: c, Members: members}
 		return nil
 	})
 	if err != nil {
-		return Created{}, err
+		return Detail{}, err
+	}
+	return out, nil
+}
+
+// List returns the team's charges, newest first, as the caller may see them
+// (R12.4): an admin gets every charge with every entry, members who left
+// included (R12.6); a player gets only the charges they are in, each with
+// only their own entry. Callers must have checked the caller is an active
+// member of the team.
+//
+// ponytail: no pagination; a season of weekly fees is a few dozen rows.
+func (s *Service) List(ctx context.Context, caller domain.Membership) ([]Detail, error) {
+	var only *int64
+	if caller.Role != domain.RoleAdmin {
+		only = &caller.ID
+	}
+	all, err := s.charges.ListCharges(ctx, caller.TeamID)
+	if err != nil {
+		return nil, err
+	}
+	entries, err := s.charges.ListMembersOfTeam(ctx, caller.TeamID, only)
+	if err != nil {
+		return nil, err
+	}
+	byCharge := make(map[int64][]domain.ChargeMember, len(all))
+	for _, e := range entries {
+		byCharge[e.ChargeID] = append(byCharge[e.ChargeID], e)
+	}
+	out := make([]Detail, 0, len(all))
+	for _, c := range all {
+		members := byCharge[c.ID]
+		if only != nil && len(members) == 0 {
+			continue
+		}
+		out = append(out, Detail{Charge: c, Members: members})
+	}
+	return out, nil
+}
+
+// SetStatus lets the admin callerID mark a member's entry paid in cash, which
+// records who marked it and when (R12.3), or back to pending, which clears
+// both. It is idempotent: an entry already in that status is returned as it
+// is, so a repeated "paid" keeps the first marker. The membership need not
+// be active: a member who left still pays what they owe (R12.6).
+func (s *Service) SetStatus(ctx context.Context, teamID, callerID, chargeID, membershipID int64, status domain.ChargeStatus) (domain.ChargeMember, error) {
+	if status != domain.ChargePaid && status != domain.ChargePending {
+		return domain.ChargeMember{}, ErrInvalidStatus
+	}
+	var out domain.ChargeMember
+	err := s.tx.InTx(ctx, func(ctx context.Context) error {
+		if _, err := application.LockTeamAsAdmin(ctx, s.memberships, teamID, callerID); err != nil {
+			return err
+		}
+		if _, err := s.charges.ChargeInTeam(ctx, teamID, chargeID); err != nil {
+			return err
+		}
+		cur, err := s.charges.GetMember(ctx, chargeID, membershipID)
+		if err != nil {
+			return err
+		}
+		if cur.Status == status {
+			out = cur
+			return nil
+		}
+		var by *int64
+		var at *time.Time
+		if status == domain.ChargePaid {
+			now := s.now().UTC()
+			by, at = &callerID, &now
+		}
+		out, err = s.charges.SetMemberStatus(ctx, chargeID, membershipID, status, by, at)
+		return err
+	})
+	if err != nil {
+		return domain.ChargeMember{}, err
 	}
 	return out, nil
 }

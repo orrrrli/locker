@@ -49,6 +49,77 @@ func (q *Queries) CreateCharge(ctx context.Context, arg CreateChargeParams) (Cha
 	return i, err
 }
 
+const getCharge = `-- name: GetCharge :one
+SELECT id, team_id, concept, amount_cents, currency, match_id, created_by, created_at FROM charge
+WHERE id = $1
+`
+
+func (q *Queries) GetCharge(ctx context.Context, id int64) (Charge, error) {
+	row := q.db.QueryRow(ctx, getCharge, id)
+	var i Charge
+	err := row.Scan(
+		&i.ID,
+		&i.TeamID,
+		&i.Concept,
+		&i.AmountCents,
+		&i.Currency,
+		&i.MatchID,
+		&i.CreatedBy,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
+const getChargeInTeam = `-- name: GetChargeInTeam :one
+SELECT id, team_id, concept, amount_cents, currency, match_id, created_by, created_at FROM charge
+WHERE team_id = $1 AND id = $2
+`
+
+type GetChargeInTeamParams struct {
+	TeamID int64
+	ID     int64
+}
+
+// Scoped to the team, so an id from another team is not found.
+func (q *Queries) GetChargeInTeam(ctx context.Context, arg GetChargeInTeamParams) (Charge, error) {
+	row := q.db.QueryRow(ctx, getChargeInTeam, arg.TeamID, arg.ID)
+	var i Charge
+	err := row.Scan(
+		&i.ID,
+		&i.TeamID,
+		&i.Concept,
+		&i.AmountCents,
+		&i.Currency,
+		&i.MatchID,
+		&i.CreatedBy,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
+const getChargeMember = `-- name: GetChargeMember :one
+SELECT charge_id, membership_id, status, paid_marked_by, paid_marked_at FROM charge_member
+WHERE charge_id = $1 AND membership_id = $2
+`
+
+type GetChargeMemberParams struct {
+	ChargeID     int64
+	MembershipID int64
+}
+
+func (q *Queries) GetChargeMember(ctx context.Context, arg GetChargeMemberParams) (ChargeMember, error) {
+	row := q.db.QueryRow(ctx, getChargeMember, arg.ChargeID, arg.MembershipID)
+	var i ChargeMember
+	err := row.Scan(
+		&i.ChargeID,
+		&i.MembershipID,
+		&i.Status,
+		&i.PaidMarkedBy,
+		&i.PaidMarkedAt,
+	)
+	return i, err
+}
+
 const insertChargeMembersForActive = `-- name: InsertChargeMembersForActive :execrows
 INSERT INTO charge_member (charge_id, membership_id)
 SELECT $1::bigint, m.id
@@ -123,4 +194,118 @@ func (q *Queries) ListChargeMembers(ctx context.Context, chargeID int64) ([]Char
 		return nil, err
 	}
 	return items, nil
+}
+
+const listChargeMembersOfTeam = `-- name: ListChargeMembersOfTeam :many
+SELECT cm.charge_id, cm.membership_id, cm.status, cm.paid_marked_by, cm.paid_marked_at FROM charge_member cm
+JOIN charge c ON c.id = cm.charge_id
+WHERE c.team_id = $1
+  AND ($2::bigint IS NULL OR cm.membership_id = $2::bigint)
+ORDER BY cm.charge_id, cm.membership_id
+`
+
+type ListChargeMembersOfTeamParams struct {
+	TeamID       int64
+	MembershipID pgtype.Int8
+}
+
+// Every entry of the team's charges, or only one membership's when
+// membership_id is set (a player sees their own balance, R12.4). Entries of
+// members who left stay (R12.6).
+func (q *Queries) ListChargeMembersOfTeam(ctx context.Context, arg ListChargeMembersOfTeamParams) ([]ChargeMember, error) {
+	rows, err := q.db.Query(ctx, listChargeMembersOfTeam, arg.TeamID, arg.MembershipID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ChargeMember
+	for rows.Next() {
+		var i ChargeMember
+		if err := rows.Scan(
+			&i.ChargeID,
+			&i.MembershipID,
+			&i.Status,
+			&i.PaidMarkedBy,
+			&i.PaidMarkedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listChargesOfTeam = `-- name: ListChargesOfTeam :many
+SELECT id, team_id, concept, amount_cents, currency, match_id, created_by, created_at FROM charge
+WHERE team_id = $1
+ORDER BY created_at DESC, id DESC
+`
+
+// Newest first.
+func (q *Queries) ListChargesOfTeam(ctx context.Context, teamID int64) ([]Charge, error) {
+	rows, err := q.db.Query(ctx, listChargesOfTeam, teamID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Charge
+	for rows.Next() {
+		var i Charge
+		if err := rows.Scan(
+			&i.ID,
+			&i.TeamID,
+			&i.Concept,
+			&i.AmountCents,
+			&i.Currency,
+			&i.MatchID,
+			&i.CreatedBy,
+			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const setChargeMemberStatus = `-- name: SetChargeMemberStatus :one
+UPDATE charge_member
+SET status = $3, paid_marked_by = $4, paid_marked_at = $5
+WHERE charge_id = $1 AND membership_id = $2
+RETURNING charge_id, membership_id, status, paid_marked_by, paid_marked_at
+`
+
+type SetChargeMemberStatusParams struct {
+	ChargeID     int64
+	MembershipID int64
+	Status       string
+	PaidMarkedBy pgtype.Int8
+	PaidMarkedAt pgtype.Timestamptz
+}
+
+// paid records who marked it and when; pending clears both (the CHECK ties
+// them to the status, R12.3).
+func (q *Queries) SetChargeMemberStatus(ctx context.Context, arg SetChargeMemberStatusParams) (ChargeMember, error) {
+	row := q.db.QueryRow(ctx, setChargeMemberStatus,
+		arg.ChargeID,
+		arg.MembershipID,
+		arg.Status,
+		arg.PaidMarkedBy,
+		arg.PaidMarkedAt,
+	)
+	var i ChargeMember
+	err := row.Scan(
+		&i.ChargeID,
+		&i.MembershipID,
+		&i.Status,
+		&i.PaidMarkedBy,
+		&i.PaidMarkedAt,
+	)
+	return i, err
 }

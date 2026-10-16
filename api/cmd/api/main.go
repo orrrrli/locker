@@ -94,9 +94,10 @@ func start() error {
 		Matches:     matchRepo,
 		Memberships: memberships,
 	})
+	chargeRepo := postgres.NewCharges(pool)
 	chargeSvc := charges.NewService(charges.Deps{
 		Tx:          postgres.NewTxRunner(pool),
-		Charges:     postgres.NewCharges(pool),
+		Charges:     chargeRepo,
 		Matches:     matchRepo,
 		Memberships: memberships,
 	})
@@ -117,6 +118,7 @@ func start() error {
 		Charges:       chargeSvc,
 		Notifications: notificationSvc,
 		MatchFinder:   matchRepo,
+		ChargeFinder:  chargeRepo,
 		AppleAppID:    cfg.AppleAppID,
 		DownloadURL:   cfg.DownloadURL,
 		Memberships:   memberships,

@@ -1423,6 +1423,111 @@ paths:
           $ref: "#/components/responses/Internal"
         "503":
           $ref: "#/components/responses/TeamBusy"
+    get:
+      tags: [fees]
+      operationId: listCharges
+      summary: List the team's charges, newest first
+      description: |
+        Active members only. An admin gets every charge with every entry,
+        members who left included (R12.6). A player gets only the charges
+        they are in, each with only their own entry (R12.4).
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: The charges the caller may see.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [charges]
+                properties:
+                  charges:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Charge"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/Internal"
+
+  /charges/{id}/members/{membershipId}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        description: Charge id. An unknown id answers 404, the same as a charge of a team the caller is not active in.
+        schema:
+          type: integer
+          format: int64
+          minimum: 1
+      - name: membershipId
+        in: path
+        required: true
+        description: Membership id of the entry.
+        schema:
+          type: integer
+          format: int64
+          minimum: 1
+    patch:
+      tags: [fees]
+      operationId: updateChargeMember
+      summary: Mark a member's entry paid in cash, or pending again
+      description: |
+        Admins only. `paid` records the caller's membership and the time
+        (R12.3); `pending` clears both. Idempotent: an entry already in that
+        status is returned as it is, so a repeated `paid` keeps the first
+        marker. The member need not be active: one who left still pays what
+        they owe (R12.6).
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateChargeMemberRequest"
+      responses:
+        "200":
+          description: The entry.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ChargeMember"
+        "400":
+          $ref: "#/components/responses/InvalidRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          description: "`not_found`: no such charge for the caller, or the membership has no entry in it."
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Error"
+                  - properties:
+                      error:
+                        const: not_found
+        "413":
+          $ref: "#/components/responses/BodyTooLarge"
+        "422":
+          description: "`invalid_status`: not `paid` or `pending`."
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Error"
+                  - properties:
+                      error:
+                        const: invalid_status
+        "500":
+          $ref: "#/components/responses/Internal"
+        "503":
+          $ref: "#/components/responses/TeamBusy"
 
   /matches/{id}:
     parameters:
@@ -1885,6 +1990,7 @@ components:
         - invalid_match
         - attendance_open
         - no_attendees
+        - invalid_status
         - invalid_title
         - invalid_body
         - daily_limit_reached
@@ -2087,6 +2193,13 @@ components:
           type: integer
           format: int64
           description: Required with `match_attendees`; not allowed otherwise.
+    UpdateChargeMemberRequest:
+      type: object
+      additionalProperties: false
+      required: [status]
+      properties:
+        status:
+          $ref: "#/components/schemas/ChargeStatus"
     ChargeMember:
       type: object
       required: [membership_id, status, paid_marked_by, paid_marked_at]
