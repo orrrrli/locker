@@ -256,8 +256,8 @@ Migrations:
 - A `CHECK`, `NOT NULL` or `UNIQUE` added to an existing column checks every existing row. Tests run on an
   empty database, so query production read-only **before merging** (example below).
 - Rename or drop in two releases: first the code stops using the column, then a later migration removes it.
-- Every migration has a `Down` that undoes exactly its `Up`. The rollback test cannot catch a `Down` that
-  does nothing yet (#365).
+- Every migration has a `Down` that undoes exactly its `Up`. `TestEveryMigrationDownUndoesItsUp` compares
+  the schema before the `Up` and after the `Down` of every migration, so an incomplete `Down` fails the suite.
 - A closed set of values is a domain type with constants plus a `CHECK`, like `role`, `status` and
   `position`; `TestDomainEnumsMatchCheckConstraints` keeps them in sync.
 - After changing `sql/queries`, regenerate sqlc. CI does not check that the generated code is current.

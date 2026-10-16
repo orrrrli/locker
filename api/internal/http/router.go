@@ -15,6 +15,7 @@ type Deps struct {
 	Members       membershipService
 	Account       accountService
 	Matches       matchService
+	Charges       chargeService
 	Notifications notificationService
 	// MatchFinder resolves the team of routes on /matches/{id}.
 	MatchFinder matchFinder
@@ -65,7 +66,9 @@ func NewRouter(d Deps) http.Handler {
 	mux.HandleFunc("POST /auth/register", a.register)
 	mux.HandleFunc("POST /auth/login", a.login)
 	mux.Handle("POST /auth/logout", a.requireAuth(http.HandlerFunc(a.logout)))
-	mux.Handle("DELETE /me", a.requireAuth(http.HandlerFunc(accountHandlers{svc: d.Account}.deleteMe)))
+	acct := accountHandlers{svc: d.Account}
+	mux.Handle("GET /me", a.requireAuth(http.HandlerFunc(acct.me)))
+	mux.Handle("DELETE /me", a.requireAuth(http.HandlerFunc(acct.deleteMe)))
 
 	z := authz{memberships: d.Memberships, users: d.Users}
 	t := teamHandlers{svc: d.Teams}
@@ -99,6 +102,9 @@ func NewRouter(d Deps) http.Handler {
 	mux.Handle("PUT /matches/{id}/rsvp", a.requireAuth(z.requireActiveMember(match, http.HandlerFunc(mt.rsvp))))
 	mux.Handle("PUT /matches/{id}/attendance", a.requireAuth(z.requireRole(match, domain.RoleAdmin, http.HandlerFunc(mt.saveAttendance))))
 	mux.Handle("GET /matches/{id}/attendance", a.requireAuth(z.requireActiveMember(match, http.HandlerFunc(mt.getAttendance))))
+
+	ch := chargeHandlers{svc: d.Charges}
+	mux.Handle("POST /teams/{id}/charges", a.requireAuth(z.requireRole(team, domain.RoleAdmin, http.HandlerFunc(ch.create))))
 
 	nt := notificationHandlers{svc: d.Notifications}
 	mux.Handle("POST /teams/{id}/notifications", a.requireAuth(z.requireRole(team, domain.RoleAdmin, http.HandlerFunc(nt.send))))
