@@ -31,3 +31,11 @@ type VenueChange struct {
 	Longitude *float64
 	Timezone  *string
 }
+
+// NearbyVenue is one result of a nearby search (R15.6): the venue without
+// its courts, how many it has, and how far it is from the searched point.
+type NearbyVenue struct {
+	Venue
+	CourtCount int
+	DistanceM  float64
+}

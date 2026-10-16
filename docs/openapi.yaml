@@ -41,6 +41,7 @@ tags:
   - name: matches
   - name: fees
   - name: notifications
+  - name: venues
   - name: operator
     description: |
       Curation routes under `/operator`, only for the user whose
@@ -1789,6 +1790,56 @@ paths:
         "503":
           $ref: "#/components/responses/TeamBusy"
 
+  /venues:
+    get:
+      tags: [venues]
+      operationId: listNearbyVenues
+      summary: List venues near a location
+      description: |
+        Any signed-in user (R15.6). Venues within 25 km of `near`, nearest
+        first, at most 50. The location is used for this request only: the
+        API never stores or logs it, and nginx keeps no access log for this
+        path.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: near
+          in: query
+          required: true
+          description: |
+            `latitude,longitude` in decimal degrees, no spaces, e.g.
+            `31.8667,-116.5964`. Sent once.
+          schema:
+            type: string
+            examples: ["31.8667,-116.5964"]
+      responses:
+        "200":
+          description: The nearby venues; an empty list when none is within 25 km.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [venues]
+                properties:
+                  venues:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/NearbyVenue"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "422":
+          description: |
+            - `invalid_near`: `near` missing, sent twice, not two numbers, or out of -90..90 / -180..180.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Error"
+                  - properties:
+                      error:
+                        const: invalid_near
+        "500":
+          $ref: "#/components/responses/Internal"
   /operator/venues:
     post:
       tags: [operator]
@@ -2337,6 +2388,7 @@ components:
         - invalid_court_name
         - court_name_taken
         - last_court
+        - invalid_near
     AlreadyMemberError:
       type: object
       required: [error, status]
@@ -3048,3 +3100,29 @@ components:
         name:
           type: string
           description: 1 to 30 characters after trimming; no control or invisible characters; unique within the venue.
+    NearbyVenue:
+      type: object
+      required: [id, name, address, latitude, longitude, timezone, court_count, distance_m]
+      properties:
+        id:
+          type: integer
+          format: int64
+        name:
+          type: string
+        address:
+          type: string
+        latitude:
+          type: number
+        longitude:
+          type: number
+        timezone:
+          type: string
+          description: IANA zone, e.g. `America/Tijuana`.
+        court_count:
+          type: integer
+          minimum: 1
+        distance_m:
+          type: integer
+          minimum: 0
+          maximum: 25000
+          description: Great-circle distance from `near`, rounded to the meter.

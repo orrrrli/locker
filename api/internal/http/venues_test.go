@@ -223,3 +223,47 @@ func TestVenueWritesNeedTheOperator(t *testing.T) {
 		t.Fatalf("after rejected writes: %d venues, %d courts, name %q; want 1, 2, %q", venues, courts, name, v.Name)
 	}
 }
+
+func TestNearbyVenues(t *testing.T) {
+	api := newAPI(t, func() time.Time { return today })
+	opToken := operator(t, api)
+	v := createVenue(t, api, opToken, "Cancha 1", "Cancha 2")
+	_, token := signUp(t, api, "jugador@example.com")
+
+	rec := api.do(t, http.MethodGet, "/venues?near=31.8667,-116.5964", token, nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET /venues = %d %s", rec.Code, rec.Body)
+	}
+	var body struct{ Venues []nearbyVenueJSON }
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	want := nearbyVenueJSON{
+		ID: v.ID, Name: v.Name, Address: v.Address, Latitude: v.Latitude, Longitude: v.Longitude,
+		Timezone: v.Timezone, CourtCount: 2, DistanceM: 0,
+	}
+	if len(body.Venues) != 1 || body.Venues[0] != want {
+		t.Fatalf("venues = %+v, want [%+v]", body.Venues, want)
+	}
+
+	// Nothing within 25 km is an empty list, not null.
+	rec = api.do(t, http.MethodGet, "/venues?near=19.4326,-99.1332", token, nil)
+	if rec.Code != http.StatusOK || rec.Body.String() != "{\"venues\":[]}\n" {
+		t.Fatalf("GET /venues far away = %d %s, want 200 with []", rec.Code, rec.Body)
+	}
+
+	if rec := api.do(t, http.MethodGet, "/venues?near=31.8667,-116.5964", "", nil); rec.Code != http.StatusUnauthorized {
+		t.Fatalf("GET /venues with no token = %d, want 401", rec.Code)
+	}
+
+	for _, q := range []string{
+		"", "?near=", "?near=31.8667", "?near=31.8667,", "?near=,-116.5", "?near=a,b",
+		"?near=31.8667,-116.5964,0", "?near=31.8667%2C%20-116.5964", "?near=91,0", "?near=0,181",
+		"?near=NaN,0", "?near=1,2&near=1,2", "?lat=31.8&lng=-116.5",
+	} {
+		rec := api.do(t, http.MethodGet, "/venues"+q, token, nil)
+		if rec.Code != http.StatusUnprocessableEntity || errorCode(t, rec) != "invalid_near" {
+			t.Errorf("GET /venues%s = %d %s, want 422 invalid_near", q, rec.Code, rec.Body)
+		}
+	}
+}

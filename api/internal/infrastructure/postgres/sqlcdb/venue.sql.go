@@ -132,6 +132,82 @@ func (q *Queries) ListCourts(ctx context.Context, venueID int64) ([]ListCourtsRo
 	return items, nil
 }
 
+const listVenuesNear = `-- name: ListVenuesNear :many
+SELECT id, name, address, latitude, longitude, timezone, created_at,
+       court_count::bigint AS court_count, distance_m::float8 AS distance_m
+FROM (
+    SELECT v.id, v.name, v.address, v.latitude, v.longitude, v.timezone, v.created_at,
+           (SELECT count(*) FROM court c WHERE c.venue_id = v.id) AS court_count,
+           2 * 6371000 * asin(least(1, sqrt(
+               power(sin(radians(v.latitude - $1::float8) / 2), 2) +
+               cos(radians($1::float8)) * cos(radians(v.latitude)) *
+               power(sin(radians(v.longitude - $2::float8) / 2), 2)
+           ))) AS distance_m
+    FROM venue v
+) near
+WHERE distance_m <= $3::float8
+ORDER BY distance_m, id
+LIMIT $4
+`
+
+type ListVenuesNearParams struct {
+	Latitude   float64
+	Longitude  float64
+	RadiusM    float64
+	MaxResults int32
+}
+
+type ListVenuesNearRow struct {
+	ID         int64
+	Name       string
+	Address    string
+	Latitude   float64
+	Longitude  float64
+	Timezone   string
+	CreatedAt  pgtype.Timestamptz
+	CourtCount int64
+	DistanceM  float64
+}
+
+// Venues within @radius_m meters of the point, nearest first (R15.6). The
+// point is a parameter only: it is never written anywhere. Haversine on a
+// 6371 km sphere; least() keeps rounding from pushing asin past 1. Few
+// venues exist (the operator curates them), so a full scan is fine.
+func (q *Queries) ListVenuesNear(ctx context.Context, arg ListVenuesNearParams) ([]ListVenuesNearRow, error) {
+	rows, err := q.db.Query(ctx, listVenuesNear,
+		arg.Latitude,
+		arg.Longitude,
+		arg.RadiusM,
+		arg.MaxResults,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListVenuesNearRow
+	for rows.Next() {
+		var i ListVenuesNearRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Name,
+			&i.Address,
+			&i.Latitude,
+			&i.Longitude,
+			&i.Timezone,
+			&i.CreatedAt,
+			&i.CourtCount,
+			&i.DistanceM,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const lockVenue = `-- name: LockVenue :one
 SELECT id FROM venue
 WHERE id = $1

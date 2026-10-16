@@ -123,13 +123,15 @@ func NewRouter(d Deps) http.Handler {
 	mux.Handle("POST /me/device-tokens", a.requireAuth(limitBy(d.Limits.DeviceToken, byUser, http.HandlerFunc(nt.registerDevice))))
 	mux.Handle("DELETE /me/device-tokens/{token}", a.requireAuth(http.HandlerFunc(nt.unregisterDevice)))
 
+	v := venueHandlers{svc: d.Venues}
+	mux.Handle("GET /venues", a.requireAuth(http.HandlerFunc(v.near)))
+
 	// Every operator route registers on op. Paths under /operator are sent to
 	// the gate before mux sees them, because mux prefers any more specific
 	// pattern over a "/operator/" prefix: a route registered on mux by mistake
 	// is never reached instead of skipping the gate (rule 12). A non-operator
 	// gets 403 even on an unknown path; the operator gets the usual JSON 404.
 	op := http.NewServeMux()
-	v := venueHandlers{svc: d.Venues}
 	op.HandleFunc("POST /operator/venues", v.create)
 	op.HandleFunc("PATCH /operator/venues/{id}", v.update)
 	op.HandleFunc("POST /operator/venues/{id}/courts", v.addCourt)

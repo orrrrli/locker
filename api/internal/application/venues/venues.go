@@ -1,6 +1,6 @@
-// Package venues holds the operator's venue and court use cases (R15). The
-// router lets only the operator reach them (rule 12); they do no
-// authorization of their own.
+// Package venues holds the venue and court use cases (R15). The writes are
+// the operator's: the router lets only the operator reach them (rule 12),
+// and they do no authorization of their own. Near is for any signed-in user.
 package venues
 
 import (
@@ -21,13 +21,19 @@ var (
 	ErrCourtNameTaken     = errors.New("the venue already has a court with that name")
 	ErrLastCourt          = errors.New("a venue needs at least one court; add another before removing this one")
 	ErrNothingToUpdate    = errors.New("send at least one field to change")
+	ErrInvalidNear        = errors.New("near must be latitude,longitude, with latitude -90 to 90 and longitude -180 to 180")
 )
+
+// NearRadiusM is how far Near looks: 25 km (R15.6, R22.8).
+const NearRadiusM = 25_000
 
 const (
 	maxNameLen      = 60
 	maxAddressLen   = 160
 	maxCourtNameLen = 30
 	maxCourts       = 50
+	// maxNear caps a nearby search; a 25 km circle holds far fewer venues.
+	maxNear = 50
 )
 
 // Venues is what the use cases need from the venue and court tables.
@@ -46,6 +52,9 @@ type Venues interface {
 	CountCourts(ctx context.Context, venueID int64) (int, error)
 	UpdateCourt(ctx context.Context, venueID, id int64, name string) (domain.Court, error)
 	DeleteCourt(ctx context.Context, venueID, id int64) error
+	// ListNear returns up to limit venues within radiusM meters of the
+	// point, nearest first.
+	ListNear(ctx context.Context, latitude, longitude, radiusM float64, limit int) ([]domain.NearbyVenue, error)
 }
 
 type Deps struct {
@@ -228,6 +237,15 @@ func (s *Service) RemoveCourt(ctx context.Context, venueID, courtID int64) error
 		}
 		return nil
 	})
+}
+
+// Near returns the venues within NearRadiusM of the point, nearest first
+// (R15.6). The point is used for this call only: nothing stores or logs it.
+func (s *Service) Near(ctx context.Context, latitude, longitude float64) ([]domain.NearbyVenue, error) {
+	if !validLatitude(latitude) || !validLongitude(longitude) {
+		return nil, ErrInvalidNear
+	}
+	return s.venues.ListNear(ctx, latitude, longitude, NearRadiusM, maxNear)
 }
 
 // checkText applies application.CleanText and answers invalid with errInvalid.

@@ -45,3 +45,24 @@ RETURNING id, venue_id, name;
 -- name: DeleteCourt :execrows
 DELETE FROM court
 WHERE venue_id = $1 AND id = $2;
+
+-- name: ListVenuesNear :many
+-- Venues within @radius_m meters of the point, nearest first (R15.6). The
+-- point is a parameter only: it is never written anywhere. Haversine on a
+-- 6371 km sphere; least() keeps rounding from pushing asin past 1. Few
+-- venues exist (the operator curates them), so a full scan is fine.
+SELECT id, name, address, latitude, longitude, timezone, created_at,
+       court_count::bigint AS court_count, distance_m::float8 AS distance_m
+FROM (
+    SELECT v.*,
+           (SELECT count(*) FROM court c WHERE c.venue_id = v.id) AS court_count,
+           2 * 6371000 * asin(least(1, sqrt(
+               power(sin(radians(v.latitude - @latitude::float8) / 2), 2) +
+               cos(radians(@latitude::float8)) * cos(radians(v.latitude)) *
+               power(sin(radians(v.longitude - @longitude::float8) / 2), 2)
+           ))) AS distance_m
+    FROM venue v
+) near
+WHERE distance_m <= @radius_m::float8
+ORDER BY distance_m, id
+LIMIT @max_results;
