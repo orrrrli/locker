@@ -36,7 +36,7 @@ const (
 // runs more than one instance.
 type LoginLimiter struct {
 	now     func() time.Time
-	ip      *limiter
+	ip      *ipLimiter
 	pair    *limiter
 	account *limiter
 	success *limiter // per account
@@ -48,7 +48,7 @@ func NewLoginLimiter(now func() time.Time) *LoginLimiter {
 	}
 	return &LoginLimiter{
 		now:     now,
-		ip:      newLimiter(loginMaxPerIP, loginWindow),
+		ip:      newIPLimiter(loginMaxPerIP, loginWindow),
 		pair:    newLimiter(loginMaxPerPair, loginWindow),
 		account: newLimiter(loginMaxPerAccount, loginWindow),
 		success: newLimiter(loginMaxSuccessPerAccount, loginSuccessWindow),
@@ -62,12 +62,12 @@ func NewLoginLimiter(now func() time.Time) *LoginLimiter {
 // so every pair or account entry costs an argon2id check, which keeps memory
 // bounded by hashing throughput. When any limit is used up it returns how
 // long until the caller may retry and ok == false.
-func (l *LoginLimiter) begin(email, ip string) (attempt loginAttempt, retryAfter time.Duration, ok bool) {
+func (l *LoginLimiter) begin(email string, ip ipKey) (attempt loginAttempt, retryAfter time.Duration, ok bool) {
 	now := l.now()
 	attempt = loginAttempt{l: l, ip: ip}
 	if account, err := auth.NormalizeEmail(email); err == nil {
 		attempt.account = shortHash(account)
-		attempt.pair = shortHash(account + "\x00" + ip)
+		attempt.pair = shortHash(account + "\x00" + ip.host)
 	}
 	if wait, ok := l.ip.take(attempt.ip, now); !ok {
 		return loginAttempt{}, wait, false
@@ -107,8 +107,9 @@ func (l *LoginLimiter) Prune() {
 // loginAttempt is one reserved attempt; exactly one of failed, succeeded or
 // cancelled is called once the outcome is known.
 type loginAttempt struct {
-	l                 *LoginLimiter
-	ip, pair, account string // pair and account are empty for an invalid email
+	l             *LoginLimiter
+	ip            ipKey
+	pair, account string // empty for an invalid email
 }
 
 func (a loginAttempt) hasAccount() bool { return a.account != "" }
@@ -155,41 +156,118 @@ func (a loginAttempt) cancelled() {
 	}
 }
 
-// clientIP is the per-IP limit key: the client address, or its /64 for IPv6,
-// since one client usually controls a whole /64. X-Real-IP is trusted only
-// when the connection comes from loopback or a private network, which is how
-// nginx on the host reaches the container; any other client could set it
-// itself. Without the header the peer itself is the key, which is the case
-// for direct local calls. ok is false when an address does not parse:
-// falling back to the proxy's address would put every client in one key.
-func clientIP(r *http.Request) (key string, ok bool) {
+// ipKey identifies a client for the per-IP limits. host is the client
+// address, or its /64 for IPv6, since one client usually controls a whole
+// /64. block is the IPv6 /48, empty for IPv4: a /48 (free from a tunnel
+// broker) holds 65,536 /64s, so a limit per /64 alone does not bound one
+// holder (#330).
+type ipKey struct {
+	host, block string
+}
+
+// clientIP is the per-IP limit key. X-Real-IP is trusted only when the
+// connection comes from loopback or a private network, which is how nginx on
+// the host reaches the container; any other client could set it itself.
+// Without the header the peer itself is the key, which is the case for
+// direct local calls. ok is false when an address does not parse: falling
+// back to the proxy's address would put every client in one key.
+func clientIP(r *http.Request) (key ipKey, ok bool) {
 	ap, err := netip.ParseAddrPort(r.RemoteAddr)
 	if err != nil {
-		return "", false
+		return ipKey{}, false
 	}
 	addr := ap.Addr().Unmap()
 	if h := r.Header.Get("X-Real-IP"); h != "" && (addr.IsLoopback() || addr.IsPrivate()) {
 		if addr, err = netip.ParseAddr(strings.TrimSpace(h)); err != nil {
-			return "", false
+			return ipKey{}, false
 		}
 		addr = addr.Unmap()
 	}
 	if addr.Is6() {
-		p, _ := addr.WithZone("").Prefix(64)
-		return p.String(), true
+		addr = addr.WithZone("")
+		host, _ := addr.Prefix(64)
+		block, _ := addr.Prefix(48)
+		return ipKey{host: host.String(), block: block.String()}, true
 	}
-	return addr.String(), true
+	return ipKey{host: addr.String()}, true
 }
+
+// blockMultiplier is the /48 budget relative to the /64 budget: room for a
+// few real clients on one /48 (an ISP's customers, a campus), while one
+// holder spreading requests across its /64s meets a bound well before the
+// argon2id line fills.
+const blockMultiplier = 5
+
+// ipLimiter is a per-IP limit in two tiers: per host (IPv4 address or IPv6
+// /64) and per IPv6 /48, with blockMultiplier times the host budget.
+type ipLimiter struct {
+	host, block *limiter
+}
+
+func newIPLimiter(max int, window time.Duration) *ipLimiter {
+	return &ipLimiter{host: newLimiter(max, window), block: newLimiter(max*blockMultiplier, window)}
+}
+
+// take reserves one attempt on both tiers, the /48 first, so a used-up /48
+// creates no host entries. It returns how long until the caller may retry
+// and ok == false when either tier is used up.
+func (l *ipLimiter) take(k ipKey, now time.Time) (time.Duration, bool) {
+	if k.block != "" {
+		if wait, ok := l.block.take(k.block, now); !ok {
+			return wait, false
+		}
+	}
+	if wait, ok := l.host.take(k.host, now); !ok {
+		if k.block != "" {
+			l.block.undo(k.block)
+		}
+		return wait, false
+	}
+	return 0, true
+}
+
+func (l *ipLimiter) undo(k ipKey) {
+	l.host.undo(k.host)
+	if k.block != "" {
+		l.block.undo(k.block)
+	}
+}
+
+func (l *ipLimiter) restartIfFull(k ipKey, now time.Time) {
+	l.host.restartIfFull(k.host, now)
+	if k.block != "" {
+		l.block.restartIfFull(k.block, now)
+	}
+}
+
+func (l *ipLimiter) prune(now time.Time) {
+	l.host.prune(now)
+	l.block.prune(now)
+}
+
+// limiterMaxKeys caps the live entries of one limiter. At ~91 B per entry
+// that is ~4.5 MiB each; without a cap a flood of distinct keys (one million
+// /64s) grows the map until the 256M container is OOM-killed, which wipes
+// every lockout (#330). A full limiter first drops its expired entries in
+// place, then refuses new keys until one expires: a soft lockout for
+// strangers, while keys already counted keep working.
+const limiterMaxKeys = 50_000
 
 // limiter allows max attempts per key in a window that starts at the first
 // attempt. Once max failures are reached, the window restarts at the last
-// failure, so the key stays blocked for a full window.
+// failure, so the key stays blocked for a full window. It holds at most
+// maxKeys live keys.
 type limiter struct {
-	max    int
-	window time.Duration
+	max     int
+	window  time.Duration
+	maxKeys int
 
 	mu   sync.Mutex
 	keys map[string]*counter
+	// fullUntil is the first expiry a failed makeRoom found. Until then a
+	// full map refuses new keys without scanning again, so a flood of
+	// strangers costs O(1) each instead of a 50k-entry walk under mu.
+	fullUntil time.Time
 }
 
 type counter struct {
@@ -198,7 +276,7 @@ type counter struct {
 }
 
 func newLimiter(max int, window time.Duration) *limiter {
-	return &limiter{max: max, window: window, keys: map[string]*counter{}}
+	return &limiter{max: max, window: window, maxKeys: limiterMaxKeys, keys: map[string]*counter{}}
 }
 
 func (l *limiter) take(key string, now time.Time) (time.Duration, bool) {
@@ -206,6 +284,15 @@ func (l *limiter) take(key string, now time.Time) (time.Duration, bool) {
 	defer l.mu.Unlock()
 	c := l.keys[key]
 	if c == nil || !now.Before(c.start.Add(l.window)) {
+		if c == nil && len(l.keys) >= l.maxKeys {
+			if now.Before(l.fullUntil) {
+				return l.fullUntil.Sub(now), false
+			}
+			if wait, ok := l.makeRoom(now); !ok {
+				l.fullUntil = now.Add(wait)
+				return wait, false
+			}
+		}
 		c = &counter{start: now}
 		l.keys[key] = c
 	}
@@ -214,6 +301,28 @@ func (l *limiter) take(key string, now time.Time) (time.Duration, bool) {
 	}
 	c.n++
 	return 0, true
+}
+
+// makeRoom drops every expired entry once the map is full. ok is false when
+// none had expired; wait is then the time until the first one does, and take
+// skips further scans until then. It runs only when the map is full and
+// fullUntil has passed, so it walks the map at most once per expiry.
+// Caller holds mu.
+func (l *limiter) makeRoom(now time.Time) (wait time.Duration, ok bool) {
+	var soonest time.Time
+	for k, c := range l.keys {
+		end := c.start.Add(l.window)
+		if !now.Before(end) {
+			delete(l.keys, k)
+			ok = true
+		} else if soonest.IsZero() || end.Before(soonest) {
+			soonest = end
+		}
+	}
+	if ok {
+		return 0, true
+	}
+	return soonest.Sub(now), false
 }
 
 // restartIfFull restarts the window at now once key has used up its attempts,
@@ -303,11 +412,36 @@ func (rl *RateLimiter) Prune() {
 	}
 }
 
+// IPRateLimiter is a RateLimiter keyed by client IP, in the two tiers of
+// ipLimiter.
+type IPRateLimiter struct {
+	now func() time.Time
+	l   *ipLimiter
+}
+
+func NewIPRateLimiter(max int, window time.Duration, now func() time.Time) *IPRateLimiter {
+	if now == nil {
+		now = time.Now
+	}
+	return &IPRateLimiter{now: now, l: newIPLimiter(max, window)}
+}
+
+func (rl *IPRateLimiter) take(k ipKey) (time.Duration, bool) { return rl.l.take(k, rl.now()) }
+
+func (rl *IPRateLimiter) undo(k ipKey) { rl.l.undo(k) }
+
+// Prune drops counters whose window has passed. A nil limiter has none.
+func (rl *IPRateLimiter) Prune() {
+	if rl != nil {
+		rl.l.prune(rl.now())
+	}
+}
+
 // Limits are the request limits the router applies besides login.
 type Limits struct {
-	Register     *RateLimiter // per client IP
-	InviteCreate *RateLimiter // per user
-	InviteAccept *RateLimiter // per user
+	Register     *IPRateLimiter // per client IP
+	InviteCreate *RateLimiter   // per user
+	InviteAccept *RateLimiter   // per user
 	// JoinRequest counts new join requests per user (NFR 10).
 	//
 	// ponytail: in memory like the rest, so a deploy or restart resets every
@@ -321,7 +455,7 @@ type Limits struct {
 // NewLimits returns the production limits; now nil means the real clock.
 func NewLimits(now func() time.Time) Limits {
 	return Limits{
-		Register:     NewRateLimiter(registerMaxPerIP, registerWindow, now),
+		Register:     NewIPRateLimiter(registerMaxPerIP, registerWindow, now),
 		InviteCreate: NewRateLimiter(inviteCreateMaxPerUser, inviteCreateWindow, now),
 		InviteAccept: NewRateLimiter(inviteAcceptMaxPerUser, inviteAcceptWindow, now),
 		JoinRequest:  NewRateLimiter(joinRequestMaxPerUser, joinRequestWindow, now),

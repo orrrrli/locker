@@ -115,9 +115,10 @@ paths:
       operationId: register
       summary: Create an account with email and password and sign in
       description: |
-        Rate limited to 30 registrations per client IP per hour. Only requests
-        that reach the password hash count (a new account or a taken email).
-        The limit is checked before the body is read, so a 429 can come before
+        Rate limited to 30 registrations per client IP per hour (an IPv6
+        client counts by its /64, and its /48 holds 150). Only requests that
+        reach the password hash count (a new account or a taken email). The
+        limit is checked before the body is read, so a 429 can come before
         a 400.
       requestBody:
         required: true
