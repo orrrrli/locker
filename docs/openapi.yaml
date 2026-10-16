@@ -2095,6 +2095,204 @@ paths:
         "500":
           $ref: "#/components/responses/Internal"
 
+  /operator/leagues:
+    post:
+      tags: [operator]
+      operationId: createLeague
+      summary: Create a league at a venue
+      description: |
+        Operator only (R16.1, R16.3). The league plays one weekday, from
+        `start_time` to `end_time` in the venue's timezone, for one season.
+        Several leagues can share a venue and weekday (R16.5).
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateLeagueRequest"
+      responses:
+        "201":
+          description: The league.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/League"
+        "400":
+          $ref: "#/components/responses/InvalidRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/NotOperator"
+        "413":
+          $ref: "#/components/responses/BodyTooLarge"
+        "422":
+          description: |
+            - `invalid_name`: empty or over 60 characters after trimming, or contains control or invisible characters.
+            - `invalid_weekday`: not one of `monday` to `sunday`.
+            - `invalid_window`: a time is missing or not `HH:MM` (00:00 to 23:59), or `end_time` is not after `start_time` (R16.2).
+            - `invalid_season_name`: empty or over 40 characters after trimming, or contains control or invisible characters.
+            - `invalid_season`: a date is missing or not `YYYY-MM-DD`, or `season_ends_on` is before `season_starts_on` (R16.3).
+            - `invalid_venue`: `venue_id` missing or not a venue.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Error"
+                  - properties:
+                      error:
+                        enum: [invalid_name, invalid_weekday, invalid_window, invalid_season_name, invalid_season, invalid_venue]
+        "500":
+          $ref: "#/components/responses/Internal"
+  /operator/leagues/{id}:
+    parameters:
+      - $ref: "#/components/parameters/LeagueID"
+    patch:
+      tags: [operator]
+      operationId: updateLeague
+      summary: Change a league
+      description: |
+        Operator only. Send any field; an absent or null one keeps its value.
+        The window and season are checked on the result, so `end_time` alone
+        must still be after the stored `start_time`. The venue cannot change.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateLeagueRequest"
+      responses:
+        "200":
+          description: The updated league.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/League"
+        "400":
+          $ref: "#/components/responses/InvalidRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/NotOperator"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "413":
+          $ref: "#/components/responses/BodyTooLarge"
+        "422":
+          description: |
+            - `nothing_to_update`: no field sent.
+            - `invalid_name`: empty or over 60 characters after trimming, or contains control or invisible characters.
+            - `invalid_weekday`: not one of `monday` to `sunday`.
+            - `invalid_window`: a time is missing or not `HH:MM` (00:00 to 23:59), or `end_time` is not after `start_time` (R16.2).
+            - `invalid_season_name`: empty or over 40 characters after trimming, or contains control or invisible characters.
+            - `invalid_season`: a date is missing or not `YYYY-MM-DD`, or `season_ends_on` is before `season_starts_on` (R16.3).
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Error"
+                  - properties:
+                      error:
+                        enum: [nothing_to_update, invalid_name, invalid_weekday, invalid_window, invalid_season_name, invalid_season]
+        "500":
+          $ref: "#/components/responses/Internal"
+  /operator/leagues/{id}/teams:
+    parameters:
+      - $ref: "#/components/parameters/LeagueID"
+    post:
+      tags: [operator]
+      operationId: enrollTeam
+      summary: Enroll a team in a league
+      description: |
+        Operator only (R16.6). A team can be in several leagues (R16.9), once
+        per league (R16.7). A dissolved team cannot be enrolled (R6.10).
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/EnrollTeamRequest"
+      responses:
+        "201":
+          description: The enrollment.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Enrollment"
+        "400":
+          $ref: "#/components/responses/InvalidRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/NotOperator"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "413":
+          $ref: "#/components/responses/BodyTooLarge"
+        "409":
+          description: |
+            - `already_enrolled`: the team is already in this league.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Error"
+                  - properties:
+                      error:
+                        enum: [already_enrolled]
+        "422":
+          description: |
+            - `invalid_team`: `team_id` missing, not a team, or a dissolved team.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Error"
+                  - properties:
+                      error:
+                        enum: [invalid_team]
+        "500":
+          $ref: "#/components/responses/Internal"
+        "503":
+          $ref: "#/components/responses/TeamBusy"
+  /operator/leagues/{id}/teams/{teamId}:
+    parameters:
+      - $ref: "#/components/parameters/LeagueID"
+      - name: teamId
+        in: path
+        required: true
+        description: Team id. A team not enrolled in the league answers 404.
+        schema:
+          type: integer
+          format: int64
+          minimum: 1
+    delete:
+      tags: [operator]
+      operationId: unenrollTeam
+      summary: Remove a team from a league
+      description: |
+        Operator only (R16.8). The team can be enrolled again later. Once
+        fixtures exist (BE-VENUE-5), this also deletes the team's future
+        fixtures in the league and cancels both sides' linked matches.
+      security:
+        - bearerAuth: []
+      responses:
+        "204":
+          description: The team is no longer enrolled.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/NotOperator"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/Internal"
+
 components:
   securitySchemes:
     bearerAuth:
@@ -2130,6 +2328,15 @@ components:
       in: path
       required: true
       description: Venue id. An unknown id answers 404.
+      schema:
+        type: integer
+        format: int64
+        minimum: 1
+    LeagueID:
+      name: id
+      in: path
+      required: true
+      description: League id. An unknown id answers 404.
       schema:
         type: integer
         format: int64
@@ -2389,6 +2596,13 @@ components:
         - court_name_taken
         - last_court
         - invalid_near
+        - invalid_weekday
+        - invalid_window
+        - invalid_season_name
+        - invalid_season
+        - invalid_venue
+        - invalid_team
+        - already_enrolled
     AlreadyMemberError:
       type: object
       required: [error, status]
@@ -3126,3 +3340,107 @@ components:
           minimum: 0
           maximum: 25000
           description: Great-circle distance from `near`, rounded to the meter.
+    Weekday:
+      type: string
+      enum: [monday, tuesday, wednesday, thursday, friday, saturday, sunday]
+    TimeOfDay:
+      type: string
+      pattern: "^([01][0-9]|2[0-3]):[0-5][0-9]$"
+      description: Wall-clock `HH:MM` in the venue's timezone.
+      examples: ["20:00"]
+    League:
+      type: object
+      required: [id, venue_id, name, weekday, start_time, end_time, season_name, season_starts_on, season_ends_on, created_at]
+      properties:
+        id:
+          type: integer
+          format: int64
+        venue_id:
+          type: integer
+          format: int64
+        name:
+          type: string
+          description: 1 to 60 characters after trimming; no control or invisible characters.
+        weekday:
+          $ref: "#/components/schemas/Weekday"
+        start_time:
+          $ref: "#/components/schemas/TimeOfDay"
+        end_time:
+          $ref: "#/components/schemas/TimeOfDay"
+        season_name:
+          type: string
+          description: 1 to 40 characters after trimming; no control or invisible characters.
+        season_starts_on:
+          type: string
+          format: date
+        season_ends_on:
+          type: string
+          format: date
+        created_at:
+          $ref: "#/components/schemas/Timestamp"
+    CreateLeagueRequest:
+      type: object
+      additionalProperties: false
+      required: [venue_id, name, weekday, start_time, end_time, season_name, season_starts_on, season_ends_on]
+      description: "`end_time` after `start_time`; `season_ends_on` not before `season_starts_on`."
+      properties:
+        venue_id:
+          type: integer
+          format: int64
+        name:
+          type: string
+          description: 1 to 60 characters after trimming; no control or invisible characters.
+        weekday:
+          $ref: "#/components/schemas/Weekday"
+        start_time:
+          $ref: "#/components/schemas/TimeOfDay"
+        end_time:
+          $ref: "#/components/schemas/TimeOfDay"
+        season_name:
+          type: string
+          description: 1 to 40 characters after trimming; no control or invisible characters.
+        season_starts_on:
+          type: string
+          format: date
+        season_ends_on:
+          type: string
+          format: date
+    UpdateLeagueRequest:
+      type: object
+      additionalProperties: false
+      description: At least one field. Absent or null keeps the current value. The venue cannot change.
+      properties:
+        name:
+          type: [string, "null"]
+        weekday:
+          type: [string, "null"]
+        start_time:
+          type: [string, "null"]
+        end_time:
+          type: [string, "null"]
+        season_name:
+          type: [string, "null"]
+        season_starts_on:
+          type: [string, "null"]
+        season_ends_on:
+          type: [string, "null"]
+    EnrollTeamRequest:
+      type: object
+      additionalProperties: false
+      required: [team_id]
+      properties:
+        team_id:
+          type: integer
+          format: int64
+    Enrollment:
+      type: object
+      required: [league_id, team_id, enrolled_at]
+      properties:
+        league_id:
+          type: integer
+          format: int64
+        team_id:
+          type: integer
+          format: int64
+        enrolled_at:
+          $ref: "#/components/schemas/Timestamp"

@@ -92,6 +92,49 @@ func TestUserIsOperatorDefaultsFalse(t *testing.T) {
 	}
 }
 
+// TestLeagueChecks: the database rejects an empty or backwards window, a
+// season that ends before it starts and a weekday outside 1 to 7, even from
+// a write that skips the use case (R16.2, R16.3).
+func TestLeagueChecks(t *testing.T) {
+	pool, _ := testPool(t)
+	ctx := context.Background()
+	if err := Migrate(ctx, pool); err != nil {
+		t.Fatal(err)
+	}
+	var venueID int64
+	if err := pool.QueryRow(ctx, `
+		INSERT INTO venue (name, address, latitude, longitude, timezone)
+		VALUES ('V', 'A', 0, 0, 'America/Tijuana') RETURNING id`).Scan(&venueID); err != nil {
+		t.Fatal(err)
+	}
+	insert := func(weekday int, start, end, from, to string) error {
+		_, err := pool.Exec(ctx, `
+			INSERT INTO league (venue_id, name, weekday, start_time, end_time, season_name, season_starts_on, season_ends_on)
+			VALUES ($1, 'L', $2, $3, $4, 'S', $5, $6)`, venueID, weekday, start, end, from, to)
+		return err
+	}
+	if err := insert(2, "20:00", "23:00", "2026-09-01", "2026-09-01"); err != nil {
+		t.Fatalf("valid league: %v", err)
+	}
+	for _, tc := range []struct {
+		name                 string
+		weekday              int
+		start, end, from, to string
+	}{
+		{"end equals start", 2, "20:00", "20:00", "2026-09-01", "2026-12-15"},
+		{"end before start", 2, "20:00", "19:00", "2026-09-01", "2026-12-15"},
+		{"season backwards", 2, "20:00", "23:00", "2026-09-01", "2026-08-31"},
+		{"weekday 0", 0, "20:00", "23:00", "2026-09-01", "2026-12-15"},
+		{"weekday 8", 8, "20:00", "23:00", "2026-09-01", "2026-12-15"},
+	} {
+		err := insert(tc.weekday, tc.start, tc.end, tc.from, tc.to)
+		var pgErr *pgconn.PgError
+		if !errors.As(err, &pgErr) || pgErr.Code != "23514" {
+			t.Errorf("%s: err = %v, want check_violation", tc.name, err)
+		}
+	}
+}
+
 // TestDomainEnumsMatchCheckConstraints keeps the domain constants and the
 // CHECK constraints from drifting apart.
 func TestDomainEnumsMatchCheckConstraints(t *testing.T) {

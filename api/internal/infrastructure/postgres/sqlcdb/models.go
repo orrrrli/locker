@@ -66,6 +66,25 @@ type Invite struct {
 	RevokedAt pgtype.Timestamptz
 }
 
+type League struct {
+	ID             int64
+	VenueID        int64
+	Name           string
+	Weekday        int16
+	StartTime      pgtype.Time
+	EndTime        pgtype.Time
+	SeasonName     string
+	SeasonStartsOn pgtype.Date
+	SeasonEndsOn   pgtype.Date
+	CreatedAt      pgtype.Timestamptz
+}
+
+type LeagueTeam struct {
+	LeagueID   int64
+	TeamID     int64
+	EnrolledAt pgtype.Timestamptz
+}
+
 type Match struct {
 	ID                 int64
 	TeamID             int64
