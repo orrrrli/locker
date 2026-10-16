@@ -74,6 +74,39 @@ func (q *Queries) DeleteSessionsOfUser(ctx context.Context, userID int64) error 
 	return err
 }
 
+const getUser = `-- name: GetUser :one
+SELECT id, name, email, email_verified_at, birth_date, photo_url, created_at, is_operator
+FROM "user" WHERE id = $1 AND deleted_at IS NULL
+`
+
+type GetUserRow struct {
+	ID              int64
+	Name            pgtype.Text
+	Email           pgtype.Text
+	EmailVerifiedAt pgtype.Timestamptz
+	BirthDate       pgtype.Date
+	PhotoUrl        pgtype.Text
+	CreatedAt       pgtype.Timestamptz
+	IsOperator      bool
+}
+
+// A live account: a deleted one never authenticates, so GET /me never sees it.
+func (q *Queries) GetUser(ctx context.Context, id int64) (GetUserRow, error) {
+	row := q.db.QueryRow(ctx, getUser, id)
+	var i GetUserRow
+	err := row.Scan(
+		&i.ID,
+		&i.Name,
+		&i.Email,
+		&i.EmailVerifiedAt,
+		&i.BirthDate,
+		&i.PhotoUrl,
+		&i.CreatedAt,
+		&i.IsOperator,
+	)
+	return i, err
+}
+
 const isOperator = `-- name: IsOperator :one
 SELECT is_operator FROM "user" WHERE id = $1
 `

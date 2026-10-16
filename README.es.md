@@ -67,8 +67,9 @@ api/scripts/test.sh                                   # go vet + todos los tests
 api/scripts/test.sh -run TestUpdateTeam ./internal/http/
 ```
 
-El script levanta un contenedor desechable `postgres:17-alpine` en `127.0.0.1:55432` y lo apaga al
-terminar. Cada test tiene su propia base vacía, así que los tests nunca comparten estado. Corre uno a la vez.
+El script levanta un contenedor desechable `postgres:17-alpine` en un puerto local libre y lo apaga al
+terminar. Cada test tiene su propia base vacía, así que los tests nunca comparten estado. Cada corrida usa
+su propio contenedor, así que varias pueden ir al mismo tiempo.
 
 ## Roadmap
 

@@ -15,6 +15,7 @@ import (
 
 	"github.com/orrrrli/locker/api/internal/application/account"
 	"github.com/orrrrli/locker/api/internal/application/auth"
+	"github.com/orrrrli/locker/api/internal/application/charges"
 	"github.com/orrrrli/locker/api/internal/application/invites"
 	"github.com/orrrrli/locker/api/internal/application/leagues"
 	"github.com/orrrrli/locker/api/internal/application/matches"
@@ -94,6 +95,8 @@ func start() error {
 	notificationSvc := notifications.NewService(notifications.Deps{
 		Tx:            postgres.NewTxRunner(pool),
 		Notifications: postgres.NewNotifications(pool),
+		Memberships:   memberships,
+		Teams:         postgres.NewTeams(pool),
 	})
 	matchRepo := postgres.NewMatches(pool)
 	matchSvc := matches.NewService(matches.Deps{
@@ -102,6 +105,13 @@ func start() error {
 		Memberships: memberships,
 		Teams:       postgres.NewTeams(pool),
 		Notices:     notificationSvc,
+	})
+	chargeRepo := postgres.NewCharges(pool)
+	chargeSvc := charges.NewService(charges.Deps{
+		Tx:          postgres.NewTxRunner(pool),
+		Charges:     chargeRepo,
+		Matches:     matchRepo,
+		Memberships: memberships,
 	})
 	venueSvc := venues.NewService(venues.Deps{
 		Tx:     postgres.NewTxRunner(pool),
@@ -121,11 +131,13 @@ func start() error {
 		Members:       memberSvc,
 		Account:       accountSvc,
 		Matches:       matchSvc,
+		Charges:       chargeSvc,
 		Notifications: notificationSvc,
 		Venues:        venueSvc,
 		Leagues:       leagueSvc,
 		Pages:         pageSvc,
 		MatchFinder:   matchRepo,
+		ChargeFinder:  chargeRepo,
 		AppleAppID:    cfg.AppleAppID,
 		DownloadURL:   cfg.DownloadURL,
 		Memberships:   memberships,
