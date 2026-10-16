@@ -1,6 +1,7 @@
 package http
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -203,6 +204,43 @@ func TestCancelledFixtureMatch(t *testing.T) {
 	}
 	if rec := s.api.do(t, http.MethodDelete, fixturePath(s.league.ID, f.ID), s.op, nil); rec.Code != http.StatusNotFound {
 		t.Fatalf("DELETE twice = %d %s, want 404", rec.Code, rec.Body)
+	}
+}
+
+// TestCourtWithFixtureCannotBeRemoved: fixtures and their matches keep
+// pointing at their court, so removing it answers 409 court_in_use, even
+// once the fixture is cancelled, and the court stays. A court with no
+// fixture is still removed.
+func TestCourtWithFixtureCannotBeRemoved(t *testing.T) {
+	s := setupFixtures(t)
+	rec := s.api.do(t, http.MethodPost, venuePath(s.venue.ID)+"/courts", s.op, map[string]string{"name": "Cancha 2"})
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("POST court = %d %s", rec.Code, rec.Body)
+	}
+	var spare courtJSON
+	if err := json.Unmarshal(rec.Body.Bytes(), &spare); err != nil {
+		t.Fatal(err)
+	}
+	f := s.createFixture(t)
+	used := courtPath(s.venue.ID, f.CourtID)
+	if rec := s.api.do(t, http.MethodDelete, used, s.op, nil); rec.Code != http.StatusConflict || errorCode(t, rec) != "court_in_use" {
+		t.Fatalf("DELETE court with a fixture = %d %s, want 409 court_in_use", rec.Code, rec.Body)
+	}
+	if rec := s.api.do(t, http.MethodDelete, fixturePath(s.league.ID, f.ID), s.op, nil); rec.Code != http.StatusNoContent {
+		t.Fatalf("DELETE fixture = %d %s", rec.Code, rec.Body)
+	}
+	if rec := s.api.do(t, http.MethodDelete, used, s.op, nil); rec.Code != http.StatusConflict || errorCode(t, rec) != "court_in_use" {
+		t.Fatalf("DELETE court with a cancelled fixture = %d %s, want 409 court_in_use", rec.Code, rec.Body)
+	}
+	var left int
+	if err := s.api.pool.QueryRow(context.Background(), `SELECT count(*) FROM court WHERE id = $1`, f.CourtID).Scan(&left); err != nil {
+		t.Fatal(err)
+	}
+	if left != 1 {
+		t.Fatalf("court rows = %d, want the refused court kept", left)
+	}
+	if rec := s.api.do(t, http.MethodDelete, courtPath(s.venue.ID, spare.ID), s.op, nil); rec.Code != http.StatusNoContent {
+		t.Fatalf("DELETE court with no fixture = %d %s, want 204", rec.Code, rec.Body)
 	}
 }
 

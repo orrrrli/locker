@@ -7,6 +7,9 @@ var (
 	ErrNotFound = errors.New("not found")
 	// ErrAlreadyExists reports that a uniqueness rule rejected the write.
 	ErrAlreadyExists = errors.New("already exists")
+	// ErrInUse reports that a delete was refused because other rows still
+	// refer to the entity.
+	ErrInUse = errors.New("in use")
 	// ErrTeamBusy reports that the team lock stayed held past the lock
 	// timeout, or that account deletion found the user joined a team it had
 	// not locked. The request changed nothing and can be retried.
