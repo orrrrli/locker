@@ -14,6 +14,7 @@ import (
 
 	"github.com/orrrrli/locker/api/internal/application/account"
 	"github.com/orrrrli/locker/api/internal/application/auth"
+	"github.com/orrrrli/locker/api/internal/application/charges"
 	"github.com/orrrrli/locker/api/internal/application/invites"
 	"github.com/orrrrli/locker/api/internal/application/leads"
 	"github.com/orrrrli/locker/api/internal/application/leagues"
@@ -72,6 +73,7 @@ func newAPI(t *testing.T, now func() time.Time) apiTest {
 	})
 	notificationSvc := notifications.NewService(notifications.Deps{
 		Tx: postgres.NewTxRunner(pool), Notifications: postgres.NewNotifications(pool),
+		Memberships: memberships, Teams: postgres.NewTeams(pool), Now: now,
 	})
 	matchRepo := postgres.NewMatches(pool)
 	matchSvc := matches.NewService(matches.Deps{
@@ -81,6 +83,10 @@ func newAPI(t *testing.T, now func() time.Time) apiTest {
 		Teams:       postgres.NewTeams(pool),
 		Notices:     notificationSvc,
 		Now:         now,
+	})
+	chargeRepo := postgres.NewCharges(pool)
+	chargeSvc := charges.NewService(charges.Deps{
+		Tx: postgres.NewTxRunner(pool), Charges: chargeRepo, Matches: matchRepo, Memberships: memberships, Now: now,
 	})
 	venueSvc := venues.NewService(venues.Deps{Tx: postgres.NewTxRunner(pool), Venues: postgres.NewVenues(pool)})
 	leagueSvc := leagues.NewService(leagues.Deps{
@@ -96,11 +102,11 @@ func newAPI(t *testing.T, now func() time.Time) apiTest {
 	leadSvc := leads.NewService(leads.Deps{Tx: postgres.NewTxRunner(pool), Leads: postgres.NewVenueLeads(pool), Now: now})
 	// Limits high enough that no test of a feature trips them; the limits
 	// have their own tests in ratelimit_test.go.
-	limits := Limits{Register: NewRateLimiter(1000, time.Hour, nil)}
+	limits := Limits{Register: NewIPRateLimiter(1000, time.Hour, nil)}
 	mux.Handle("/", NewRouter(Deps{
 		Auth: svc, Teams: teamSvc, Invites: inviteSvc, Members: memberSvc, Account: accountSvc,
-		Matches: matchSvc, MatchFinder: matchRepo, Notifications: notificationSvc,
-		Venues: venueSvc, Leagues: leagueSvc, Pages: pageSvc, Leads: leadSvc, Memberships: memberships, Users: postgres.NewUsers(pool), Limits: limits,
+		Matches: matchSvc, MatchFinder: matchRepo, Charges: chargeSvc, ChargeFinder: chargeRepo, Notifications: notificationSvc,
+		Venues: venueSvc, Memberships: memberships, Users: postgres.NewUsers(pool), Limits: limits, Leagues: leagueSvc, Pages: pageSvc, Leads: leadSvc,
 	}))
 	mux.Handle("GET /test/whoami", authHandlers{svc: svc}.requireAuth(http.HandlerFunc(
 		func(w http.ResponseWriter, r *http.Request) {

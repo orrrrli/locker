@@ -4,7 +4,9 @@ import "time"
 
 // User is a person with a Locker account. After account deletion the
 // personal fields are nil and DeletedAt is set; team history stays on
-// Membership (R5.2, R5.3).
+// Membership (R5.2, R5.3). IsOperator marks the one account that runs the
+// operator console; it is set by hand in the database, never by the API
+// (rule 12).
 type User struct {
 	ID              int64
 	Name            *string
@@ -14,6 +16,7 @@ type User struct {
 	PhotoURL        *string
 	DeletedAt       *time.Time
 	CreatedAt       time.Time
+	IsOperator      bool
 }
 
 type Provider string

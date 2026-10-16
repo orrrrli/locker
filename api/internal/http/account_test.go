@@ -236,3 +236,69 @@ func TestSoleMemberDissolvesThenDeletesAccount(t *testing.T) {
 		t.Fatalf("former member = user %v, %s, %q, attendance %d", uid, status, name, attended)
 	}
 }
+
+// TestGetMe: GET /me answers the session's own account with is_operator,
+// read from the database on every call, so the console can refuse everyone
+// else before touching /operator/* (BE-CONSOLE-1).
+func TestGetMe(t *testing.T) {
+	api := newAPI(t, func() time.Time { return today })
+	id, token := signUp(t, api, "ana@example.com")
+	_, otherToken := signUp(t, api, "bob@example.com")
+
+	if rec := api.do(t, http.MethodGet, "/me", "", nil); rec.Code != http.StatusUnauthorized {
+		t.Fatalf("no token: status %d, body %s", rec.Code, rec.Body)
+	}
+
+	get := func(token string) meJSON {
+		t.Helper()
+		rec := api.do(t, http.MethodGet, "/me", token, nil)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("GET /me: status %d, body %s", rec.Code, rec.Body)
+		}
+		var raw map[string]json.RawMessage
+		if err := json.Unmarshal(rec.Body.Bytes(), &raw); err != nil {
+			t.Fatal(err)
+		}
+		want := []string{"birth_date", "created_at", "email", "id", "is_operator", "name"}
+		if keys := slices.Sorted(maps.Keys(raw)); !slices.Equal(keys, want) {
+			t.Fatalf("keys = %v, want %v", keys, want)
+		}
+		var me meJSON
+		if err := json.Unmarshal(rec.Body.Bytes(), &me); err != nil {
+			t.Fatal(err)
+		}
+		return me
+	}
+
+	me := get(token)
+	if me.ID != id || me.Name != "Ana López" || me.Email == nil || *me.Email != "ana@example.com" ||
+		me.BirthDate != "2000-01-01" || me.IsOperator || me.CreatedAt.IsZero() {
+		t.Fatalf("me = %+v, want Ana's account with is_operator false", me)
+	}
+	if loc := me.CreatedAt.Location(); loc != time.UTC || me.CreatedAt.Nanosecond() != 0 {
+		t.Fatalf("created_at = %v, want UTC whole seconds", me.CreatedAt)
+	}
+
+	// The flag is read on every call: set by hand, it shows at once, and
+	// only on that account.
+	setOperator(t, api, id, true)
+	if me := get(token); !me.IsOperator {
+		t.Fatal("is_operator stayed false after setting the flag")
+	}
+	if other := get(otherToken); other.IsOperator || other.ID == id {
+		t.Fatalf("other = %+v, want bob's account with is_operator false", other)
+	}
+	setOperator(t, api, id, false)
+	if me := get(token); me.IsOperator {
+		t.Fatal("is_operator stayed true after clearing the flag")
+	}
+
+	// A deleted account between authentication and the read is a 404; its
+	// session normally stops authenticating first, so this is a corner.
+	if rec := api.do(t, http.MethodDelete, "/me", otherToken, nil); rec.Code != http.StatusNoContent {
+		t.Fatalf("delete: status %d, body %s", rec.Code, rec.Body)
+	}
+	if rec := api.do(t, http.MethodGet, "/me", otherToken, nil); rec.Code != http.StatusUnauthorized {
+		t.Fatalf("after delete: status %d, body %s", rec.Code, rec.Body)
+	}
+}

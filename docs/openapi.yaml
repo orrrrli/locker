@@ -39,6 +39,7 @@ tags:
   - name: invites
   - name: memberships
   - name: matches
+  - name: fees
   - name: notifications
   - name: venues
   - name: public
@@ -122,9 +123,10 @@ paths:
       operationId: register
       summary: Create an account with email and password and sign in
       description: |
-        Rate limited to 30 registrations per client IP per hour. Only requests
-        that reach the password hash count (a new account or a taken email).
-        The limit is checked before the body is read, so a 429 can come before
+        Rate limited to 30 registrations per client IP per hour (an IPv6
+        client counts by its /64, and its /48 holds 150). Only requests that
+        reach the password hash count (a new account or a taken email). The
+        limit is checked before the body is read, so a 429 can come before
         a 400.
       requestBody:
         required: true
@@ -251,6 +253,39 @@ paths:
           $ref: "#/components/responses/Internal"
 
   /me:
+    get:
+      tags: [account]
+      operationId: getMe
+      summary: The caller's own account
+      description: |
+        The account behind the session, with `is_operator`: true only for the
+        account that runs the operator console. The API never sets that flag
+        (it is set by hand in the database); a client uses it to keep the
+        console closed to everyone else before calling `/operator/*`, which
+        checks it again on every request.
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: The caller's account.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Me"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          description: "`not_found`: the account was deleted by a concurrent request between authentication and the read."
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Error"
+                  - properties:
+                      error:
+                        const: not_found
+        "500":
+          $ref: "#/components/responses/Internal"
     delete:
       tags: [account]
       operationId: deleteMe
@@ -339,6 +374,72 @@ paths:
                         const: invalid_upcoming
         "500":
           $ref: "#/components/responses/Internal"
+
+  /teams/{id}/notifications:
+    parameters:
+      - $ref: "#/components/parameters/TeamID"
+    post:
+      tags: [notifications]
+      operationId: sendNotification
+      summary: Send a notice to the whole team
+      description: |
+        Admins only. The notice lands in the inbox of every active member
+        now (R11.2), the sender's copy already read, and is pushed to the
+        members who have not muted the team (R11.6). A team sends at most 10
+        manual notices between two local midnights in its timezone (R11.3);
+        automatic notices do not count. `title` is one line; `body` may span
+        lines (CRLF becomes LF).
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SendNotificationRequest"
+      responses:
+        "201":
+          description: Notice stored and sent.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Notification"
+        "400":
+          $ref: "#/components/responses/InvalidRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          description: "`daily_limit_reached`: the team already sent 10 notices since local midnight; try again tomorrow."
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Error"
+                  - properties:
+                      error:
+                        const: daily_limit_reached
+        "413":
+          $ref: "#/components/responses/BodyTooLarge"
+        "422":
+          description: |
+            - `invalid_title`: empty or over 80 characters after trimming, or contains control or invisible characters.
+            - `invalid_body`: empty or over 1000 characters after trimming, or contains control characters other than line feeds, or invisible characters.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Error"
+                  - properties:
+                      error:
+                        enum: [invalid_title, invalid_body]
+        "500":
+          $ref: "#/components/responses/Internal"
+        "503":
+          $ref: "#/components/responses/TeamBusy"
 
   /me/notifications:
     get:
@@ -1267,6 +1368,182 @@ paths:
           $ref: "#/components/responses/NotFound"
         "500":
           $ref: "#/components/responses/Internal"
+
+  /teams/{id}/charges:
+    parameters:
+      - $ref: "#/components/parameters/TeamID"
+    post:
+      tags: [fees]
+      operationId: createCharge
+      summary: Create a charge with one pending entry per targeted member
+      description: |
+        Admins only (R12.1). Locker takes no payments: a charge records who
+        owes `amount_cents` (whole MXN cents) for `concept`. `target` picks
+        who owes (R12.2): `active_members` is every active member of the team
+        right now; `match_attendees` is the saved attendance of `match_id`,
+        never its RSVPs (R10.5), so the match's attendance must be closed
+        first, and a member who left still owes. Creating the charge locks
+        that attendance for good (R10.4). Every entry starts `pending`.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateChargeRequest"
+      responses:
+        "201":
+          description: Charge created, with its entries.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Charge"
+        "400":
+          $ref: "#/components/responses/InvalidRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          description: |
+            - `attendance_open`: the match's attendance is not saved yet.
+            - `no_attendees`: the match's attendance is empty; nobody to charge.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Error"
+                  - properties:
+                      error:
+                        enum: [attendance_open, no_attendees]
+        "413":
+          $ref: "#/components/responses/BodyTooLarge"
+        "422":
+          description: |
+            - `invalid_concept`: empty or over 80 characters after trimming, or contains control or invisible characters.
+            - `invalid_amount`: not a whole number from 1 to 100000000.
+            - `invalid_target`: not `active_members` or `match_attendees`, or `match_id` present without `match_attendees` or missing with it.
+            - `invalid_match`: `match_id` is not a match of this team.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Error"
+                  - properties:
+                      error:
+                        enum: [invalid_concept, invalid_amount, invalid_target, invalid_match]
+        "500":
+          $ref: "#/components/responses/Internal"
+        "503":
+          $ref: "#/components/responses/TeamBusy"
+    get:
+      tags: [fees]
+      operationId: listCharges
+      summary: List the team's charges, newest first
+      description: |
+        Active members only. An admin gets every charge with every entry,
+        members who left included (R12.6). A player gets only the charges
+        they are in, each with only their own entry (R12.4).
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: The charges the caller may see.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [charges]
+                properties:
+                  charges:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Charge"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/Internal"
+
+  /charges/{id}/members/{membershipId}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        description: Charge id. An unknown id answers 404, the same as a charge of a team the caller is not active in.
+        schema:
+          type: integer
+          format: int64
+          minimum: 1
+      - name: membershipId
+        in: path
+        required: true
+        description: Membership id of the entry.
+        schema:
+          type: integer
+          format: int64
+          minimum: 1
+    patch:
+      tags: [fees]
+      operationId: updateChargeMember
+      summary: Mark a member's entry paid in cash, or pending again
+      description: |
+        Admins only. `paid` records the caller's membership and the time
+        (R12.3); `pending` clears both. Idempotent: an entry already in that
+        status is returned as it is, so a repeated `paid` keeps the first
+        marker. The member need not be active: one who left still pays what
+        they owe (R12.6).
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateChargeMemberRequest"
+      responses:
+        "200":
+          description: The entry.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ChargeMember"
+        "400":
+          $ref: "#/components/responses/InvalidRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          description: "`not_found`: no such charge for the caller, or the membership has no entry in it."
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Error"
+                  - properties:
+                      error:
+                        const: not_found
+        "413":
+          $ref: "#/components/responses/BodyTooLarge"
+        "422":
+          description: "`invalid_status`: not `paid` or `pending`."
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Error"
+                  - properties:
+                      error:
+                        const: invalid_status
+        "500":
+          $ref: "#/components/responses/Internal"
+        "503":
+          $ref: "#/components/responses/TeamBusy"
 
   /matches/{id}:
     parameters:
@@ -2724,6 +3001,16 @@ components:
         - invalid_attendees
         - invalid_upcoming
         - invalid_device_token
+        - invalid_concept
+        - invalid_amount
+        - invalid_target
+        - invalid_match
+        - attendance_open
+        - no_attendees
+        - invalid_status
+        - invalid_title
+        - invalid_body
+        - daily_limit_reached
         - invalid_address
         - invalid_coordinates
         - invalid_courts
@@ -2827,6 +3114,30 @@ components:
           type: string
           description: Opaque bearer token. Store it in the Keychain.
 
+    Me:
+      type: object
+      required: [id, name, email, birth_date, is_operator, created_at]
+      properties:
+        id:
+          type: integer
+          format: int64
+        name:
+          type: string
+        email:
+          type: string
+          format: email
+          nullable: true
+          description: Null for an account without an email.
+        birth_date:
+          type: string
+          format: date
+          description: "`YYYY-MM-DD`."
+        is_operator:
+          type: boolean
+          description: True only for the operator account (rule 12).
+        created_at:
+          $ref: "#/components/schemas/Timestamp"
+
     Team:
       type: object
       required: [id, name, timezone, created_at]
@@ -2920,6 +3231,131 @@ components:
             not_going_count:
               type: integer
               description: Active members of the team who answered not going.
+    ChargeTarget:
+      type: string
+      enum: [active_members, match_attendees]
+      description: Who owes the charge (R12.2).
+    ChargeStatus:
+      type: string
+      enum: [pending, paid]
+    CreateChargeRequest:
+      type: object
+      additionalProperties: false
+      required: [concept, amount_cents, target]
+      properties:
+        concept:
+          type: string
+          description: 1 to 80 characters after trimming.
+        amount_cents:
+          type: integer
+          format: int64
+          minimum: 1
+          maximum: 100000000
+          description: Whole MXN cents.
+        target:
+          $ref: "#/components/schemas/ChargeTarget"
+        match_id:
+          type: integer
+          format: int64
+          description: Required with `match_attendees`; not allowed otherwise.
+    UpdateChargeMemberRequest:
+      type: object
+      additionalProperties: false
+      required: [status]
+      properties:
+        status:
+          $ref: "#/components/schemas/ChargeStatus"
+    ChargeMember:
+      type: object
+      required: [membership_id, status, paid_marked_by, paid_marked_at]
+      description: One member's entry. `paid_marked_by` and `paid_marked_at` are set together when an admin marks it paid (R12.3).
+      properties:
+        membership_id:
+          type: integer
+          format: int64
+        status:
+          $ref: "#/components/schemas/ChargeStatus"
+        paid_marked_by:
+          type: integer
+          format: int64
+          nullable: true
+          description: The admin's membership id; null while pending.
+        paid_marked_at:
+          oneOf:
+            - $ref: "#/components/schemas/Timestamp"
+            - type: "null"
+    Charge:
+      type: object
+      required: [id, team_id, concept, amount_cents, currency, match_id, created_by, created_at, members]
+      properties:
+        id:
+          type: integer
+          format: int64
+        team_id:
+          type: integer
+          format: int64
+        concept:
+          type: string
+        amount_cents:
+          type: integer
+          format: int64
+        currency:
+          type: string
+          description: Always `MXN` in Phase 1.
+        match_id:
+          type: integer
+          format: int64
+          nullable: true
+          description: Set when the charge targets a match's attendees.
+        created_by:
+          type: integer
+          format: int64
+          description: The admin's membership id.
+        created_at:
+          $ref: "#/components/schemas/Timestamp"
+        members:
+          type: array
+          items:
+            $ref: "#/components/schemas/ChargeMember"
+    SendNotificationRequest:
+      type: object
+      additionalProperties: false
+      required: [title, body]
+      properties:
+        title:
+          type: string
+          description: 1 to 80 characters after trimming, one line.
+        body:
+          type: string
+          description: 1 to 1000 characters after trimming; may span lines.
+    Notification:
+      description: A notice as stored (R11.1). The inbox adds the team name and the caller's read state.
+      type: object
+      required: [id, team_id, kind, title, body, match_id, sent_by, created_at]
+      properties:
+        id:
+          type: integer
+          format: int64
+        team_id:
+          type: integer
+          format: int64
+        kind:
+          type: string
+          enum: [manual, match_created, match_changed, rsvp_reminder]
+        title:
+          type: string
+        body:
+          type: string
+        match_id:
+          description: The match an automatic notice is about; null otherwise.
+          type: [integer, "null"]
+          format: int64
+        sent_by:
+          description: The sending admin's membership id; null on an automatic notice.
+          type: [integer, "null"]
+          format: int64
+        created_at:
+          $ref: "#/components/schemas/Timestamp"
     InboxNotification:
       description: A notice as the caller sees it in the inbox (R11.1, R24.6).
       type: object
