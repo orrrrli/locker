@@ -99,6 +99,33 @@ func (r *Users) DeletePersonalData(ctx context.Context, userID int64) error {
 	return nil
 }
 
+// Get returns a live user with the operator flag; domain.ErrNotFound for an
+// unknown or deleted user.
+func (r *Users) Get(ctx context.Context, userID int64) (domain.User, error) {
+	row, err := sqlcdb.New(Conn(ctx, r.pool)).GetUser(ctx, userID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return domain.User{}, domain.ErrNotFound
+	}
+	if err != nil {
+		return domain.User{}, fmt.Errorf("postgres: get user: %w", err)
+	}
+	u := domain.User{
+		ID:         row.ID,
+		Name:       textPtr(row.Name),
+		Email:      textPtr(row.Email),
+		PhotoURL:   textPtr(row.PhotoUrl),
+		CreatedAt:  row.CreatedAt.Time,
+		IsOperator: row.IsOperator,
+	}
+	if row.EmailVerifiedAt.Valid {
+		u.EmailVerifiedAt = &row.EmailVerifiedAt.Time
+	}
+	if row.BirthDate.Valid {
+		u.BirthDate = &row.BirthDate.Time
+	}
+	return u, nil
+}
+
 // IsOperator reports whether the user is the operator (rule 12). It returns
 // domain.ErrNotFound for an unknown user.
 func (r *Users) IsOperator(ctx context.Context, userID int64) (bool, error) {
