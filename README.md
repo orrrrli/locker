@@ -66,8 +66,9 @@ api/scripts/test.sh                                   # go vet + every test
 api/scripts/test.sh -run TestUpdateTeam ./internal/http/
 ```
 
-The script starts a throwaway `postgres:17-alpine` container on `127.0.0.1:55432` and stops it when
-it ends. Each test gets its own empty database, so tests never share state. Run one at a time.
+The script starts a throwaway `postgres:17-alpine` container on a free local port and stops it when
+it ends. Each test gets its own empty database, so tests never share state. Each run gets its own
+container, so several runs can go at the same time.
 
 ## Roadmap
 

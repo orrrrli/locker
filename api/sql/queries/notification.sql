@@ -1,6 +1,8 @@
 -- name: InsertNotification :one
-INSERT INTO notification (team_id, kind, title, body, match_id, sent_by)
-VALUES ($1, $2, $3, $4, $5, $6)
+-- created_at comes from the caller's clock when set (a manual notice counts
+-- against its team's local day, R11.3); otherwise from the database.
+INSERT INTO notification (team_id, kind, title, body, match_id, sent_by, created_at)
+VALUES ($1, $2, $3, $4, $5, $6, coalesce(sqlc.narg(created_at)::timestamptz, now()))
 RETURNING *;
 
 -- name: InsertNotificationRecipients :exec
@@ -48,3 +50,9 @@ SET read_at = COALESCE(r.read_at, now())
 FROM membership m
 WHERE r.notification_id = sqlc.arg(notification_id) AND m.id = r.membership_id
   AND m.user_id = sqlc.arg(user_id) AND m.status = 'active';
+
+-- name: CountManualNotificationsSince :one
+-- Manual notices of the team since an instant (local midnight in the team's
+-- timezone, R11.3). Automatic notices never count.
+SELECT count(*) FROM notification
+WHERE team_id = $1 AND kind = 'manual' AND created_at >= $2;
