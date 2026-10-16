@@ -264,6 +264,10 @@ type limiter struct {
 
 	mu   sync.Mutex
 	keys map[string]*counter
+	// fullUntil is the first expiry a failed makeRoom found. Until then a
+	// full map refuses new keys without scanning again, so a flood of
+	// strangers costs O(1) each instead of a 50k-entry walk under mu.
+	fullUntil time.Time
 }
 
 type counter struct {
@@ -281,7 +285,11 @@ func (l *limiter) take(key string, now time.Time) (time.Duration, bool) {
 	c := l.keys[key]
 	if c == nil || !now.Before(c.start.Add(l.window)) {
 		if c == nil && len(l.keys) >= l.maxKeys {
+			if now.Before(l.fullUntil) {
+				return l.fullUntil.Sub(now), false
+			}
 			if wait, ok := l.makeRoom(now); !ok {
+				l.fullUntil = now.Add(wait)
 				return wait, false
 			}
 		}
@@ -296,9 +304,10 @@ func (l *limiter) take(key string, now time.Time) (time.Duration, bool) {
 }
 
 // makeRoom drops every expired entry once the map is full. ok is false when
-// none had expired; wait is then the time until the first one does. It runs
-// only when the map is full, so a flood of new keys pays for its own
-// cleanup. Caller holds mu.
+// none had expired; wait is then the time until the first one does, and take
+// skips further scans until then. It runs only when the map is full and
+// fullUntil has passed, so it walks the map at most once per expiry.
+// Caller holds mu.
 func (l *limiter) makeRoom(now time.Time) (wait time.Duration, ok bool) {
 	var soonest time.Time
 	for k, c := range l.keys {

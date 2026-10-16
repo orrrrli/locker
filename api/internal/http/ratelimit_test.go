@@ -542,6 +542,26 @@ func TestLimiterCapsLiveKeys(t *testing.T) {
 	take("b", t0.Add(2*time.Minute), 0, true)
 }
 
+func TestFullLimiterSkipsRescanUntilFirstExpiry(t *testing.T) {
+	l := newLimiter(2, time.Minute)
+	l.maxKeys = 1
+	t0 := today
+	l.take("a", t0)
+	if wait, ok := l.take("b", t0.Add(10*time.Second)); ok || wait != 50*time.Second {
+		t.Fatalf("take(b) = %v, %v; want 50s, false", wait, ok)
+	}
+	// Age a's entry by hand: a rescan would now evict it. The cached expiry
+	// must refuse c without walking the map.
+	l.keys["a"].start = t0.Add(-time.Hour)
+	if wait, ok := l.take("c", t0.Add(20*time.Second)); ok || wait != 40*time.Second {
+		t.Fatalf("take(c) = %v, %v; want 40s, false (no rescan before the first expiry)", wait, ok)
+	}
+	// At the cached expiry the map is scanned again and c gets a's slot.
+	if _, ok := l.take("c", t0.Add(time.Minute)); !ok {
+		t.Fatal("take(c) at the first expiry was refused")
+	}
+}
+
 func TestFullLoginLimiterRefusesStrangersOnly(t *testing.T) {
 	lt := newLimitTest(t)
 	lt.lim.ip.host.maxKeys = 2
