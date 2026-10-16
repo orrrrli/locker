@@ -608,6 +608,99 @@ func TestUnregisterDeviceRejectsBadTokens(t *testing.T) {
 	}
 }
 
+func getReceipts(t *testing.T, api apiTest, token string, id int64) *httptest.ResponseRecorder {
+	t.Helper()
+	return api.do(t, http.MethodGet, "/notifications/"+strconv.FormatInt(id, 10)+"/receipts", token, nil)
+}
+
+// An admin sees "opened by X of Y" and who has not opened yet, on manual and
+// automatic notices (R11.9, R11.10); the sender is left out of a manual one.
+// A player gets 403; outside the team, 404.
+func TestReceipts(t *testing.T) {
+	api := newAPI(t, func() time.Time { return today })
+	adminID, adminToken := signUp(t, api, "admin@example.com")
+	anaID, anaToken := signUp(t, api, "ana@example.com")
+	bobID, _ := signUp(t, api, "bob@example.com")
+	_, strangerToken := signUp(t, api, "stranger@example.com")
+	team := createTeam(t, api, adminToken, "Pumas", "America/Tijuana")
+	other := createTeam(t, api, strangerToken, "Otros", "America/Tijuana")
+	addMember(t, api, team.ID, anaID, "player", "active")
+	addMember(t, api, team.ID, bobID, "player", "active")
+	admin, ana, bob := membershipID(t, api, team.ID, adminID), membershipID(t, api, team.ID, anaID), membershipID(t, api, team.ID, bobID)
+
+	manual := send(t, api, domain.Notification{TeamID: team.ID, Kind: domain.NotificationManual, Title: "Cancha 3", Body: "x", SentBy: &admin})
+	automatic := notify(t, api, team.ID, "Partido")
+	otherTeam := notify(t, api, other.ID, "Ajeno")
+
+	for name, tc := range map[string]struct {
+		token  string
+		id     int64
+		status int
+		code   string
+	}{
+		"no token":       {"", manual, http.StatusUnauthorized, "unauthorized"},
+		"player":         {anaToken, manual, http.StatusForbidden, "forbidden"},
+		"stranger":       {strangerToken, manual, http.StatusNotFound, "not_found"},
+		"another team's": {adminToken, otherTeam, http.StatusNotFound, "not_found"},
+		"unknown notice": {adminToken, 999_999, http.StatusNotFound, "not_found"},
+	} {
+		rec := getReceipts(t, api, tc.token, tc.id)
+		if rec.Code != tc.status || errorCode(t, rec) != tc.code {
+			t.Fatalf("%s: status %d, body %s; want %d %s", name, rec.Code, rec.Body, tc.status, tc.code)
+		}
+	}
+
+	decode := func(rec *httptest.ResponseRecorder) receiptsJSON {
+		t.Helper()
+		if rec.Code != http.StatusOK {
+			t.Fatalf("status %d, body %s", rec.Code, rec.Body)
+		}
+		var raw map[string]json.RawMessage
+		if err := json.Unmarshal(rec.Body.Bytes(), &raw); err != nil {
+			t.Fatal(err)
+		}
+		if keys, want := slices.Sorted(maps.Keys(raw)), []string{"not_opened", "notification_id", "opened_count", "recipient_count"}; !slices.Equal(keys, want) {
+			t.Fatalf("keys = %v, want %v", keys, want)
+		}
+		var out receiptsJSON
+		if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
+			t.Fatal(err)
+		}
+		return out
+	}
+	// Nobody has opened the manual notice: 0 of 2, the sender left out. Names
+	// come from the users, by name.
+	got := decode(getReceipts(t, api, adminToken, manual))
+	if got.NotificationID != manual || got.OpenedCount != 0 || got.RecipientCount != 2 ||
+		!slices.Equal(got.NotOpened, []receiptJSON{{ana, "Ana López"}, {bob, "Ana López"}}) {
+		t.Fatalf("manual receipts = %+v", got)
+	}
+	// Ana opens it: 1 of 2, Bob still pending.
+	if rec := markRead(t, api, anaToken, manual); rec.Code != http.StatusNoContent {
+		t.Fatalf("mark read: status %d, body %s", rec.Code, rec.Body)
+	}
+	got = decode(getReceipts(t, api, adminToken, manual))
+	if got.OpenedCount != 1 || got.RecipientCount != 2 || !slices.Equal(got.NotOpened, []receiptJSON{{bob, "Ana López"}}) {
+		t.Fatalf("after Ana opened = %+v", got)
+	}
+	// An automatic notice has no sender: the admin counts too, 0 of 3.
+	got = decode(getReceipts(t, api, adminToken, automatic))
+	if got.OpenedCount != 0 || got.RecipientCount != 3 || len(got.NotOpened) != 3 || got.NotOpened[0].MembershipID != admin {
+		t.Fatalf("automatic receipts = %+v", got)
+	}
+	// Everyone opened: not_opened is [] and never null.
+	for _, m := range []int64{admin, ana, bob} {
+		if _, err := api.pool.Exec(context.Background(), `UPDATE notification_recipient SET read_at = now() WHERE notification_id = $1 AND membership_id = $2`, automatic, m); err != nil {
+			t.Fatal(err)
+		}
+	}
+	rec := getReceipts(t, api, adminToken, automatic)
+	got = decode(rec)
+	if got.OpenedCount != 3 || !strings.Contains(rec.Body.String(), `"not_opened":[]`) {
+		t.Fatalf("all opened = %+v, body %s", got, rec.Body)
+	}
+}
+
 // Admins send a notice to the team (R11.2): every active member sees it in
 // the inbox, the sender's copy read; players and strangers cannot send. The
 // 11th notice of the local day is a 409 (R11.3).
