@@ -4,9 +4,27 @@ package notifications
 
 import (
 	"context"
+	"errors"
+	"time"
 
 	"github.com/orrrrli/locker/api/internal/application"
 	"github.com/orrrrli/locker/api/internal/domain"
+)
+
+const (
+	// MaxManualPerDay caps the manual notices a team sends between two local
+	// midnights in its timezone (R11.3), so an admin cannot flood the team.
+	MaxManualPerDay = 10
+	maxTitleLen     = 80
+	maxBodyLen      = 1000
+)
+
+var (
+	ErrInvalidTitle = errors.New("title must be 1 to 80 characters, with no invisible characters")
+	ErrInvalidBody  = errors.New("body must be 1 to 1000 characters, with no invisible characters")
+	// ErrDailyLimit rejects a manual notice once the team sent
+	// MaxManualPerDay since local midnight (R11.3).
+	ErrDailyLimit = errors.New("the team already sent its 10 notices for today")
 )
 
 // Notifications is what the notice use cases need from storage.
@@ -31,6 +49,15 @@ type Notifications interface {
 	UnregisterDevice(ctx context.Context, userID int64, token string) error
 	// TrimDevices deletes the user's tokens beyond the keep most recently seen.
 	TrimDevices(ctx context.Context, userID int64, keep int) error
+	// CountManualSince counts the team's manual notices created at or after
+	// since.
+	CountManualSince(ctx context.Context, teamID int64, since time.Time) (int, error)
+}
+
+// Teams is what the notice use cases need from the team table.
+type Teams interface {
+	// GetTeam returns domain.ErrNotFound for an unknown team.
+	GetTeam(ctx context.Context, id int64) (domain.Team, error)
 }
 
 // MaxDevicesPerUser caps the device tokens one account keeps. A person has a
@@ -52,16 +79,27 @@ type Deps struct {
 	Tx            application.TxRunner
 	Notifications Notifications
 	Push          Pusher // nil means inbox only, until the APNs sender (BE-NOTIF-2)
+	// Memberships, Teams and Now serve SendManual: the admin check under the
+	// team lock, the team's timezone, and the clock (nil means time.Now).
+	Memberships application.AdminLocker
+	Teams       Teams
+	Now         func() time.Time
 }
 
 type Service struct {
 	tx            application.TxRunner
 	notifications Notifications
 	push          Pusher
+	memberships   application.AdminLocker
+	teams         Teams
+	now           func() time.Time
 }
 
 func NewService(d Deps) *Service {
-	return &Service{tx: d.Tx, notifications: d.Notifications, push: d.Push}
+	if d.Now == nil {
+		d.Now = time.Now
+	}
+	return &Service{tx: d.Tx, notifications: d.Notifications, push: d.Push, memberships: d.Memberships, teams: d.Teams, now: d.Now}
 }
 
 // Send stores the notice for every active member of n.TeamID in one
@@ -83,20 +121,76 @@ func (s *Service) Send(ctx context.Context, n domain.Notification) (domain.Notif
 	if err != nil {
 		return domain.Notification{}, err
 	}
+	s.pushStored(ctx, out)
+	return out, nil
+}
+
+// SendManual stores a manual notice from the admin callerID to every active
+// member of the team (R11.2) and pushes it after commit, like Send. The
+// team sends at most MaxManualPerDay since local midnight in its timezone
+// (R11.3); the count runs under the team lock, so parallel sends cannot
+// pass it together. The title is one line; the body may span lines.
+func (s *Service) SendManual(ctx context.Context, teamID, callerID int64, title, body string) (domain.Notification, error) {
+	title, ok := application.CleanText(title, maxTitleLen)
+	if !ok {
+		return domain.Notification{}, ErrInvalidTitle
+	}
+	body, ok = application.CleanParagraph(body, maxBodyLen)
+	if !ok {
+		return domain.Notification{}, ErrInvalidBody
+	}
+	var out domain.Notification
+	err := s.tx.InTx(ctx, func(ctx context.Context) error {
+		if _, err := application.LockTeamAsAdmin(ctx, s.memberships, teamID, callerID); err != nil {
+			return err
+		}
+		team, err := s.teams.GetTeam(ctx, teamID)
+		if err != nil {
+			return err
+		}
+		loc, err := time.LoadLocation(team.Timezone)
+		if err != nil {
+			return err
+		}
+		now := s.now()
+		local := now.In(loc)
+		midnight := time.Date(local.Year(), local.Month(), local.Day(), 0, 0, 0, 0, loc)
+		sent, err := s.notifications.CountManualSince(ctx, teamID, midnight)
+		if err != nil {
+			return err
+		}
+		if sent >= MaxManualPerDay {
+			return ErrDailyLimit
+		}
+		out, err = s.notifications.InsertNotification(ctx, domain.Notification{
+			TeamID: teamID, Kind: domain.NotificationManual, Title: title, Body: body, SentBy: &callerID, CreatedAt: now.UTC(),
+		})
+		return err
+	})
+	if err != nil {
+		return domain.Notification{}, err
+	}
+	s.pushStored(ctx, out)
+	return out, nil
+}
+
+// pushStored delivers a committed notice to the recipients who have not
+// muted the team (R11.6). It runs after the transaction, so a rollback never
+// leaves a push with no notice.
+func (s *Service) pushStored(ctx context.Context, out domain.Notification) {
 	if s.push == nil {
-		return out, nil
+		return
 	}
 	tokens, err := s.notifications.PushTokens(ctx, out.ID)
 	if err != nil {
 		// The notice is stored; only delivery is lost, so the send succeeds.
 		// ponytail: the error is dropped unlogged; the application layer has
 		// no logger. Log it here once BE-NOTIF-2 brings one for push failures.
-		return out, nil
+		return
 	}
 	if len(tokens) > 0 {
 		s.push.Push(ctx, out, tokens)
 	}
-	return out, nil
 }
 
 // Inbox returns one page of the user's notices from every team where they are
