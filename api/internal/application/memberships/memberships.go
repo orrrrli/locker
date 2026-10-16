@@ -26,6 +26,9 @@ var (
 	// ErrTargetIsAdmin rejects demoting or removing another active admin: an
 	// admin stops being one only by stepping down or leaving (R6.12).
 	ErrTargetIsAdmin = errors.New("an admin cannot demote or remove another admin")
+	// ErrNotOwnMembership rejects muting pushes on anyone else's membership:
+	// a mute is personal, so not even an admin sets it for another member.
+	ErrNotOwnMembership = errors.New("push_muted can only be set on your own membership")
 )
 
 const maxShirtNumber = 99
@@ -43,6 +46,8 @@ type Memberships interface {
 	UpdateProfile(ctx context.Context, id int64, p domain.ProfileChange) (domain.Membership, error)
 	// SetLeft returns domain.ErrNotFound when the row is not active.
 	SetLeft(ctx context.Context, id int64) error
+	// SetPushMuted returns domain.ErrNotFound when the row is not active.
+	SetPushMuted(ctx context.Context, id int64, muted bool) (domain.Membership, error)
 }
 
 type Deps struct {
@@ -202,6 +207,17 @@ func checkNotOtherAdmin(m domain.Membership, callerID int64) error {
 // approval list comes from the same call (R13.8).
 func (s *Service) Roster(ctx context.Context, caller domain.Membership) ([]domain.RosterMember, error) {
 	return s.memberships.Roster(ctx, caller.TeamID, caller.Role == domain.RoleAdmin)
+}
+
+// SetPushMuted mutes or unmutes pushes from the team for the caller's own
+// membership (R11.6). Notices still land in the inbox; only delivery stops.
+// callerID is the caller's active membership, from requireActiveMember;
+// membershipID must be the same one, or ErrNotOwnMembership.
+func (s *Service) SetPushMuted(ctx context.Context, callerID, membershipID int64, muted bool) (domain.Membership, error) {
+	if membershipID != callerID {
+		return domain.Membership{}, ErrNotOwnMembership
+	}
+	return s.memberships.SetPushMuted(ctx, callerID, muted)
 }
 
 // UpdateProfile sets the shirt number and position of an active membership

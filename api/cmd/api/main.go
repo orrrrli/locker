@@ -91,9 +91,10 @@ func start() error {
 		Users:       postgres.NewUsers(pool),
 	})
 	// Push stays nil (inbox only) until the APNs sender, BE-NOTIF-2.
+	notificationRepo := postgres.NewNotifications(pool)
 	notificationSvc := notifications.NewService(notifications.Deps{
 		Tx:            postgres.NewTxRunner(pool),
-		Notifications: postgres.NewNotifications(pool),
+		Notifications: notificationRepo,
 		Memberships:   memberships,
 		Teams:         postgres.NewTeams(pool),
 	})
@@ -123,24 +124,25 @@ func start() error {
 		Notices: notificationSvc,
 	})
 	router := apihttp.NewRouter(apihttp.Deps{
-		Auth:          authSvc,
-		Teams:         teamSvc,
-		Invites:       inviteSvc,
-		Members:       memberSvc,
-		Account:       accountSvc,
-		Matches:       matchSvc,
-		Charges:       chargeSvc,
-		Notifications: notificationSvc,
-		Venues:        venueSvc,
-		Leagues:       leagueSvc,
-		MatchFinder:   matchRepo,
-		ChargeFinder:  chargeRepo,
-		AppleAppID:    cfg.AppleAppID,
-		DownloadURL:   cfg.DownloadURL,
-		Memberships:   memberships,
-		Users:         postgres.NewUsers(pool),
-		LoginLimiter:  loginLimiter,
-		Limits:        limits,
+		Auth:               authSvc,
+		Teams:              teamSvc,
+		Invites:            inviteSvc,
+		Members:            memberSvc,
+		Account:            accountSvc,
+		Matches:            matchSvc,
+		Charges:            chargeSvc,
+		Notifications:      notificationSvc,
+		Venues:             venueSvc,
+		Leagues:            leagueSvc,
+		MatchFinder:        matchRepo,
+		ChargeFinder:       chargeRepo,
+		AppleAppID:         cfg.AppleAppID,
+		DownloadURL:        cfg.DownloadURL,
+		Memberships:        memberships,
+		Users:              postgres.NewUsers(pool),
+		LoginLimiter:       loginLimiter,
+		Limits:             limits,
+		NotificationFinder: notificationRepo,
 	})
 
 	go tick(ctx, tickEvery, func(ctx context.Context) {
