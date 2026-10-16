@@ -371,6 +371,40 @@ func (q *Queries) SetMembershipLeft(ctx context.Context, id int64) (int64, error
 	return result.RowsAffected(), nil
 }
 
+const setMembershipPushMuted = `-- name: SetMembershipPushMuted :one
+UPDATE membership
+SET push_muted = $2
+WHERE id = $1 AND status = 'active'
+RETURNING id, team_id, user_id, role, status, shirt_number, position, display_name_override, push_muted, created_at, joined_at, pending_since
+`
+
+type SetMembershipPushMutedParams struct {
+	ID        int64
+	PushMuted bool
+}
+
+// A member mutes or unmutes pushes from one team (R11.6); the inbox is not
+// affected. Only an active membership changes.
+func (q *Queries) SetMembershipPushMuted(ctx context.Context, arg SetMembershipPushMutedParams) (Membership, error) {
+	row := q.db.QueryRow(ctx, setMembershipPushMuted, arg.ID, arg.PushMuted)
+	var i Membership
+	err := row.Scan(
+		&i.ID,
+		&i.TeamID,
+		&i.UserID,
+		&i.Role,
+		&i.Status,
+		&i.ShirtNumber,
+		&i.Position,
+		&i.DisplayNameOverride,
+		&i.PushMuted,
+		&i.CreatedAt,
+		&i.JoinedAt,
+		&i.PendingSince,
+	)
+	return i, err
+}
+
 const setReturningPendingMembershipLeft = `-- name: SetReturningPendingMembershipLeft :execrows
 UPDATE membership
 SET status = 'left'
