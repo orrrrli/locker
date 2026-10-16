@@ -70,3 +70,19 @@ ORDER BY name, m.id;
 -- timezone, R11.3). Automatic notices never count.
 SELECT count(*) FROM notification
 WHERE team_id = $1 AND kind = 'manual' AND created_at >= $2;
+
+-- name: CountActiveMembersWithoutRSVP :one
+-- Active members of the team who have not answered the match (R11.5).
+SELECT count(*) FROM membership m
+WHERE m.team_id = $1 AND m.status = 'active'
+  AND NOT EXISTS (SELECT 1 FROM rsvp r WHERE r.match_id = $2 AND r.membership_id = m.id);
+
+-- name: InsertNotificationRecipientsWithoutRSVP :exec
+-- One recipient per active membership of the team that has not answered the
+-- notice's match (R11.5): the members who already answered are not nagged.
+INSERT INTO notification_recipient (notification_id, membership_id)
+SELECT n.id, m.id
+FROM notification n
+JOIN membership m ON m.team_id = n.team_id AND m.status = 'active'
+WHERE n.id = sqlc.arg(notification_id)
+  AND NOT EXISTS (SELECT 1 FROM rsvp r WHERE r.match_id = n.match_id AND r.membership_id = m.id);

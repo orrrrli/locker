@@ -205,3 +205,34 @@ func (r *Notifications) CountManualSince(ctx context.Context, teamID int64, sinc
 	}
 	return int(n), nil
 }
+
+// CountActiveWithoutRSVP counts the team's active members who have not
+// answered the match.
+func (r *Notifications) CountActiveWithoutRSVP(ctx context.Context, teamID, matchID int64) (int, error) {
+	n, err := sqlcdb.New(Conn(ctx, r.pool)).CountActiveMembersWithoutRSVP(ctx, sqlcdb.CountActiveMembersWithoutRSVPParams{TeamID: teamID, MatchID: matchID})
+	if err != nil {
+		return 0, fmt.Errorf("postgres: count active members without rsvp: %w", err)
+	}
+	return int(n), nil
+}
+
+// InsertRSVPReminder stores the reminder about n.MatchID with one recipient
+// per active member who has not answered it (R11.5). Call it inside a
+// transaction so both land together.
+func (r *Notifications) InsertRSVPReminder(ctx context.Context, n domain.Notification) (domain.Notification, error) {
+	q := sqlcdb.New(Conn(ctx, r.pool))
+	params := sqlcdb.InsertNotificationParams{
+		TeamID: n.TeamID, Kind: string(n.Kind), Title: n.Title, Body: n.Body, MatchID: optInt8(n.MatchID),
+	}
+	if !n.CreatedAt.IsZero() {
+		params.CreatedAt = timestamptz(n.CreatedAt)
+	}
+	row, err := q.InsertNotification(ctx, params)
+	if err != nil {
+		return domain.Notification{}, fmt.Errorf("postgres: insert rsvp reminder: %w", err)
+	}
+	if err := q.InsertNotificationRecipientsWithoutRSVP(ctx, row.ID); err != nil {
+		return domain.Notification{}, fmt.Errorf("postgres: insert rsvp reminder recipients: %w", err)
+	}
+	return notificationFromRow(row), nil
+}

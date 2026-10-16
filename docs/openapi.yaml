@@ -1665,7 +1665,8 @@ paths:
       description: |
         Any active member of the match's team, for themselves. A new answer
         replaces the old one until kickoff; from `starts_at` on the answer is
-        locked (R9.3-R9.5).
+        locked (R9.3-R9.5). Members who have not answered 24 hours before
+        kickoff get one `rsvp_reminder` notice (R11.5).
       security:
         - bearerAuth: []
       requestBody:

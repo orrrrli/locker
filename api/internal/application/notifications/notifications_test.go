@@ -5,6 +5,8 @@ import (
 	"errors"
 	"slices"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -381,5 +383,188 @@ func TestSendManualValidatesAndRechecksTheCaller(t *testing.T) {
 	var n int
 	if err := f.pool.QueryRow(ctx, `SELECT count(*) FROM notification`).Scan(&n); err != nil || n != 0 {
 		t.Fatalf("%d notices stored after refused sends (%v), want 0", n, err)
+	}
+}
+
+// reminderService wires SendDueReminders' dependencies on the fixture with a
+// clock the test moves.
+func (f fixture) reminderService(now *time.Time, push notifications.Pusher) *notifications.Service {
+	return notifications.NewService(notifications.Deps{
+		Tx: postgres.NewTxRunner(f.pool), Notifications: postgres.NewNotifications(f.pool), Push: push,
+		Memberships: postgres.NewMemberships(f.pool), Teams: postgres.NewTeams(f.pool), Matches: postgres.NewMatches(f.pool),
+		Now: func() time.Time { return *now },
+	})
+}
+
+// addMatch inserts a match of the team kicking off at startsAt.
+func addMatch(t *testing.T, f fixture, startsAt time.Time) int64 {
+	t.Helper()
+	var id int64
+	if err := f.pool.QueryRow(context.Background(),
+		`INSERT INTO match (team_id, starts_at, rival_name, location, created_by) VALUES ($1, $2, 'Halcones', 'Cancha 3', $3) RETURNING id`,
+		f.team, startsAt, f.admin).Scan(&id); err != nil {
+		t.Fatal(err)
+	}
+	return id
+}
+
+func rsvp(t *testing.T, f fixture, matchID, membershipID int64) {
+	t.Helper()
+	if _, err := f.pool.Exec(context.Background(), `INSERT INTO rsvp (match_id, membership_id, answer) VALUES ($1, $2, 'going')`, matchID, membershipID); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// reminders returns the reminder notices about the match, oldest first.
+func reminders(t *testing.T, f fixture, matchID int64) []int64 {
+	t.Helper()
+	rows, err := f.pool.Query(context.Background(), `SELECT id FROM notification WHERE match_id = $1 AND kind = 'rsvp_reminder' ORDER BY id`, matchID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	var ids []int64
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			t.Fatal(err)
+		}
+		ids = append(ids, id)
+	}
+	return ids
+}
+
+func reminderSentAt(t *testing.T, f fixture, matchID int64) *time.Time {
+	t.Helper()
+	var at *time.Time
+	if err := f.pool.QueryRow(context.Background(), `SELECT reminder_sent_at FROM match WHERE id = $1`, matchID).Scan(&at); err != nil {
+		t.Fatal(err)
+	}
+	return at
+}
+
+// The job reminds the active members who have not answered a match that
+// kicks off within 24 hours, once (R11.5): a second run changes nothing,
+// members who answered, pending and left members get nothing, and matches
+// further out or already started are left alone.
+func TestSendDueRemindersOnlyToMembersWithoutRSVP(t *testing.T) {
+	f := newFixture(t)
+	ctx := context.Background()
+	now := time.Date(2026, 10, 20, 12, 0, 0, 0, time.UTC)
+	answered, _ := addMember(t, f, "answered@example.com", "active")
+	silent, silentUser := addMember(t, f, "silent@example.com", "active")
+	addMember(t, f, "pending@example.com", "pending")
+	addMember(t, f, "left@example.com", "left")
+	addToken(t, f, silentUser, "tok-silent")
+	soon := addMatch(t, f, now.Add(2*time.Hour))
+	later := addMatch(t, f, now.Add(30*time.Hour))
+	started := addMatch(t, f, now.Add(-time.Minute))
+	rsvp(t, f, soon, answered)
+	push := &fakePusher{pool: f.pool}
+	svc := f.reminderService(&now, push)
+
+	n, err := svc.SendDueReminders(ctx)
+	if err != nil || n != 1 {
+		t.Fatalf("SendDueReminders = %d, %v; want 1 match", n, err)
+	}
+	ids := reminders(t, f, soon)
+	if len(ids) != 1 {
+		t.Fatalf("reminders = %v, want one", ids)
+	}
+	if got := recipients(t, f, ids[0], false); !slices.Equal(got, []int64{f.admin, silent}) {
+		t.Fatalf("recipients = %v, want the admin and the silent member, unread", got)
+	}
+	var title, body string
+	if err := f.pool.QueryRow(ctx, `SELECT title, body FROM notification WHERE id = $1`, ids[0]).Scan(&title, &body); err != nil {
+		t.Fatal(err)
+	}
+	// 12:00 UTC is 05:00 in Tijuana.
+	if title != "¿Vas al partido vs Halcones?" || body != "20/10/2026 07:00 en Cancha 3. Aún no has respondido." {
+		t.Fatalf("title = %q, body = %q", title, body)
+	}
+	if at := reminderSentAt(t, f, soon); at == nil || !at.Equal(now) {
+		t.Fatalf("reminder_sent_at = %v, want %v", at, now)
+	}
+	if push.calls != 1 || !slices.Equal(push.tokens, []string{"tok-silent"}) || !push.committed {
+		t.Fatalf("push = %+v, want one committed push to the silent member", push)
+	}
+	if reminderSentAt(t, f, later) != nil || reminderSentAt(t, f, started) != nil || len(reminders(t, f, later)) != 0 || len(reminders(t, f, started)) != 0 {
+		t.Fatal("a match more than 24 hours out, or already started, was reminded")
+	}
+
+	// A second tick, even after a new silent member joins, changes nothing.
+	addMember(t, f, "late@example.com", "active")
+	now = now.Add(time.Minute)
+	if n, err := svc.SendDueReminders(ctx); err != nil || n != 0 {
+		t.Fatalf("second run = %d, %v; want 0", n, err)
+	}
+	if len(reminders(t, f, soon)) != 1 || push.calls != 1 {
+		t.Fatal("the second run reminded again")
+	}
+	// Once inside the window, the later match is reminded too; everyone has
+	// answered it, so it is marked with no notice.
+	now = now.Add(7 * time.Hour)
+	rsvp(t, f, later, f.admin)
+	rsvp(t, f, later, answered)
+	rsvp(t, f, later, silent)
+	rsvp(t, f, later, f.lateMember(t))
+	if n, err := svc.SendDueReminders(ctx); err != nil || n != 1 {
+		t.Fatalf("later run = %d, %v; want 1", n, err)
+	}
+	if at := reminderSentAt(t, f, later); at == nil || len(reminders(t, f, later)) != 0 {
+		t.Fatalf("all-answered match: reminder_sent_at = %v, reminders = %v; want marked with no notice", at, reminders(t, f, later))
+	}
+}
+
+// lateMember returns the membership of late@example.com.
+func (f fixture) lateMember(t *testing.T) int64 {
+	t.Helper()
+	var id int64
+	if err := f.pool.QueryRow(context.Background(),
+		`SELECT m.id FROM membership m JOIN "user" u ON u.id = m.user_id WHERE m.team_id = $1 AND u.email = 'late@example.com'`, f.team).Scan(&id); err != nil {
+		t.Fatal(err)
+	}
+	return id
+}
+
+// Two runners at once (two ticks, two API instances) send exactly one
+// reminder per match: SKIP LOCKED hands each due match to one of them, and
+// the holder marks it before it commits.
+func TestSendDueRemindersExactlyOnceUnderConcurrency(t *testing.T) {
+	f := newFixture(t)
+	ctx := context.Background()
+	now := time.Date(2026, 10, 20, 12, 0, 0, 0, time.UTC)
+	addMember(t, f, "silent@example.com", "active")
+	const matches = 5
+	var due []int64
+	for i := 0; i < matches; i++ {
+		due = append(due, addMatch(t, f, now.Add(time.Duration(i+1)*time.Hour)))
+	}
+	const runners = 8
+	var wg sync.WaitGroup
+	var marked atomic.Int64
+	start := make(chan struct{})
+	for i := 0; i < runners; i++ {
+		svc := f.reminderService(&now, nil)
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			<-start
+			n, err := svc.SendDueReminders(ctx)
+			if err != nil {
+				t.Error(err)
+			}
+			marked.Add(n)
+		}()
+	}
+	close(start)
+	wg.Wait()
+	if marked.Load() != matches {
+		t.Fatalf("matches marked across runners = %d, want %d", marked.Load(), matches)
+	}
+	for _, m := range due {
+		if ids := reminders(t, f, m); len(ids) != 1 {
+			t.Fatalf("match %d has %d reminders, want exactly 1", m, len(ids))
+		}
 	}
 }

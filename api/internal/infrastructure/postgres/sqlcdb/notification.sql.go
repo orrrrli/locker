@@ -11,6 +11,25 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const countActiveMembersWithoutRSVP = `-- name: CountActiveMembersWithoutRSVP :one
+SELECT count(*) FROM membership m
+WHERE m.team_id = $1 AND m.status = 'active'
+  AND NOT EXISTS (SELECT 1 FROM rsvp r WHERE r.match_id = $2 AND r.membership_id = m.id)
+`
+
+type CountActiveMembersWithoutRSVPParams struct {
+	TeamID  int64
+	MatchID int64
+}
+
+// Active members of the team who have not answered the match (R11.5).
+func (q *Queries) CountActiveMembersWithoutRSVP(ctx context.Context, arg CountActiveMembersWithoutRSVPParams) (int64, error) {
+	row := q.db.QueryRow(ctx, countActiveMembersWithoutRSVP, arg.TeamID, arg.MatchID)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const countManualNotificationsSince = `-- name: CountManualNotificationsSince :one
 SELECT count(*) FROM notification
 WHERE team_id = $1 AND kind = 'manual' AND created_at >= $2
@@ -106,6 +125,22 @@ WHERE n.id = $1
 // inbox but never as new.
 func (q *Queries) InsertNotificationRecipients(ctx context.Context, notificationID int64) error {
 	_, err := q.db.Exec(ctx, insertNotificationRecipients, notificationID)
+	return err
+}
+
+const insertNotificationRecipientsWithoutRSVP = `-- name: InsertNotificationRecipientsWithoutRSVP :exec
+INSERT INTO notification_recipient (notification_id, membership_id)
+SELECT n.id, m.id
+FROM notification n
+JOIN membership m ON m.team_id = n.team_id AND m.status = 'active'
+WHERE n.id = $1
+  AND NOT EXISTS (SELECT 1 FROM rsvp r WHERE r.match_id = n.match_id AND r.membership_id = m.id)
+`
+
+// One recipient per active membership of the team that has not answered the
+// notice's match (R11.5): the members who already answered are not nagged.
+func (q *Queries) InsertNotificationRecipientsWithoutRSVP(ctx context.Context, notificationID int64) error {
+	_, err := q.db.Exec(ctx, insertNotificationRecipientsWithoutRSVP, notificationID)
 	return err
 }
 

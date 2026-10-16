@@ -203,6 +203,74 @@ func (q *Queries) LockMatchInTeam(ctx context.Context, arg LockMatchInTeamParams
 	return id, err
 }
 
+const lockMatchesDueForReminder = `-- name: LockMatchesDueForReminder :many
+SELECT id, team_id, starts_at, rival_name, location, reminder_sent_at, attendance_closed_at, created_by, fixture_id, court_id, cancelled_at FROM match_view
+WHERE id IN (
+    SELECT id FROM match
+    WHERE reminder_sent_at IS NULL
+      AND cancelled_at IS NULL
+      AND starts_at > $1::timestamptz
+      AND starts_at <= $1::timestamptz + interval '24 hours'
+    FOR UPDATE SKIP LOCKED
+)
+ORDER BY starts_at, id
+`
+
+// Matches kicking off within the next 24 hours whose RSVP reminder is still
+// pending, held for the transaction (R11.5). SKIP LOCKED leaves a match
+// another runner holds to that runner, so two tickers or two API instances
+// never remind twice: the holder sets reminder_sent_at before it commits.
+// The rows are locked in match (FOR UPDATE cannot lock through the view's
+// outer joins) and read from match_view, so a fixture match has its rival.
+// A cancelled match is never reminded.
+func (q *Queries) LockMatchesDueForReminder(ctx context.Context, now pgtype.Timestamptz) ([]MatchView, error) {
+	rows, err := q.db.Query(ctx, lockMatchesDueForReminder, now)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []MatchView
+	for rows.Next() {
+		var i MatchView
+		if err := rows.Scan(
+			&i.ID,
+			&i.TeamID,
+			&i.StartsAt,
+			&i.RivalName,
+			&i.Location,
+			&i.ReminderSentAt,
+			&i.AttendanceClosedAt,
+			&i.CreatedBy,
+			&i.FixtureID,
+			&i.CourtID,
+			&i.CancelledAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const setMatchReminderSent = `-- name: SetMatchReminderSent :exec
+UPDATE match
+SET reminder_sent_at = $1::timestamptz
+WHERE id = $2
+`
+
+type SetMatchReminderSentParams struct {
+	At pgtype.Timestamptz
+	ID int64
+}
+
+func (q *Queries) SetMatchReminderSent(ctx context.Context, arg SetMatchReminderSentParams) error {
+	_, err := q.db.Exec(ctx, setMatchReminderSent, arg.At, arg.ID)
+	return err
+}
+
 const updateMatch = `-- name: UpdateMatch :one
 UPDATE match
 SET starts_at  = coalesce($1, starts_at),

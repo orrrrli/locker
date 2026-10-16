@@ -59,3 +59,27 @@ GROUP BY m.id, m.team_id, m.starts_at, m.rival_name, m.location, m.reminder_sent
          m.attendance_closed_at, m.created_by, m.fixture_id, m.court_id, m.cancelled_at,
          t.id, me.id, own.answer
 ORDER BY m.starts_at, m.id;
+
+-- name: LockMatchesDueForReminder :many
+-- Matches kicking off within the next 24 hours whose RSVP reminder is still
+-- pending, held for the transaction (R11.5). SKIP LOCKED leaves a match
+-- another runner holds to that runner, so two tickers or two API instances
+-- never remind twice: the holder sets reminder_sent_at before it commits.
+-- The rows are locked in match (FOR UPDATE cannot lock through the view's
+-- outer joins) and read from match_view, so a fixture match has its rival.
+-- A cancelled match is never reminded.
+SELECT * FROM match_view
+WHERE id IN (
+    SELECT id FROM match
+    WHERE reminder_sent_at IS NULL
+      AND cancelled_at IS NULL
+      AND starts_at > sqlc.arg(now)::timestamptz
+      AND starts_at <= sqlc.arg(now)::timestamptz + interval '24 hours'
+    FOR UPDATE SKIP LOCKED
+)
+ORDER BY starts_at, id;
+
+-- name: SetMatchReminderSent :exec
+UPDATE match
+SET reminder_sent_at = sqlc.arg(at)::timestamptz
+WHERE id = sqlc.arg(id);
