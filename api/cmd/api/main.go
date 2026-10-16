@@ -88,11 +88,20 @@ func start() error {
 		Memberships: memberships,
 		Users:       postgres.NewUsers(pool),
 	})
+	// Push stays nil (inbox only) until the APNs sender, BE-NOTIF-2.
+	notificationSvc := notifications.NewService(notifications.Deps{
+		Tx:            postgres.NewTxRunner(pool),
+		Notifications: postgres.NewNotifications(pool),
+		Memberships:   memberships,
+		Teams:         postgres.NewTeams(pool),
+	})
 	matchRepo := postgres.NewMatches(pool)
 	matchSvc := matches.NewService(matches.Deps{
 		Tx:          postgres.NewTxRunner(pool),
 		Matches:     matchRepo,
 		Memberships: memberships,
+		Teams:       postgres.NewTeams(pool),
+		Notices:     notificationSvc,
 	})
 	chargeRepo := postgres.NewCharges(pool)
 	chargeSvc := charges.NewService(charges.Deps{
@@ -100,13 +109,6 @@ func start() error {
 		Charges:     chargeRepo,
 		Matches:     matchRepo,
 		Memberships: memberships,
-	})
-	// Push stays nil (inbox only) until the APNs sender, BE-NOTIF-2.
-	notificationSvc := notifications.NewService(notifications.Deps{
-		Tx:            postgres.NewTxRunner(pool),
-		Notifications: postgres.NewNotifications(pool),
-		Memberships:   memberships,
-		Teams:         postgres.NewTeams(pool),
 	})
 	router := apihttp.NewRouter(apihttp.Deps{
 		Auth:          authSvc,
