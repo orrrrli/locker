@@ -22,6 +22,9 @@ type Deps struct {
 	MatchFinder matchFinder
 	// ChargeFinder resolves the team of routes on /charges/{id}.
 	ChargeFinder chargeFinder
+	// NotificationFinder resolves the team of routes on /notifications/{id}
+	// that admins use.
+	NotificationFinder notificationFinder
 	// AppleAppID ("<team id>.<bundle id>") is the app invite links open;
 	// empty until the Apple Developer account exists.
 	AppleAppID string
@@ -116,6 +119,7 @@ func NewRouter(d Deps) http.Handler {
 	mux.Handle("POST /teams/{id}/notifications", a.requireAuth(z.requireRole(team, domain.RoleAdmin, http.HandlerFunc(nt.send))))
 	mux.Handle("GET /me/notifications", a.requireAuth(http.HandlerFunc(nt.inbox)))
 	mux.Handle("POST /notifications/{id}/read", a.requireAuth(http.HandlerFunc(nt.markRead)))
+	mux.Handle("GET /notifications/{id}/receipts", a.requireAuth(z.requireRole(teamFromNotification("id", d.NotificationFinder), domain.RoleAdmin, http.HandlerFunc(nt.receipts))))
 	mux.Handle("POST /me/device-tokens", a.requireAuth(limitBy(d.Limits.DeviceToken, byUser, http.HandlerFunc(nt.registerDevice))))
 	mux.Handle("DELETE /me/device-tokens/{token}", a.requireAuth(http.HandlerFunc(nt.unregisterDevice)))
 
