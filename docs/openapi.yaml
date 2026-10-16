@@ -1340,7 +1340,10 @@ paths:
         text, trimmed. Every active member gets a `match_created` notice
         (R11.4), stored with the match and pushed after it is saved: title
         "Partido nuevo: vs. <rival>", body like "Mar 20 · 19:00 · Cancha 3."
-        with the time in the team's timezone.
+        with the time in the team's timezone. Rate limited to 20 per user per
+        hour, shared with `PATCH /matches/{id}`. Every request counts, refused
+        ones too: the limit is checked first, so a 429 can come before any
+        other error.
       security:
         - bearerAuth: []
       requestBody:
@@ -1379,6 +1382,8 @@ paths:
                   - properties:
                       error:
                         enum: [invalid_starts_at, invalid_rival_name, invalid_location]
+        "429":
+          $ref: "#/components/responses/TooManyAttempts"
         "500":
           $ref: "#/components/responses/Internal"
         "503":
@@ -1651,7 +1656,10 @@ paths:
         cannot change: schedule a new match instead. When the time or the
         location actually changes, every active member gets a `match_changed`
         notice ("Cambio de partido: vs. <rival>", body with the new values);
-        a change of rival alone sends none (R11.4).
+        a change of rival alone sends none (R11.4). Rate limited to 20 per
+        user per hour, shared with `POST /teams/{id}/matches`. Every request
+        counts, refused ones too: the limit is checked first, so a 429 can
+        come before any other error.
       security:
         - bearerAuth: []
       requestBody:
@@ -1702,6 +1710,8 @@ paths:
                   - properties:
                       error:
                         enum: [nothing_to_update, invalid_starts_at, invalid_rival_name, invalid_location]
+        "429":
+          $ref: "#/components/responses/TooManyAttempts"
         "500":
           $ref: "#/components/responses/Internal"
         "503":

@@ -385,6 +385,12 @@ const (
 	// spare; it slows a loop that keeps moving a known token between accounts.
 	deviceTokenMaxPerUser = 20
 	deviceTokenWindow     = time.Hour
+	// Creating a match, or moving its time or place, pushes a notice to
+	// every member (R11.4). A real admin schedules a few a week; this stops
+	// one from looping edits into a push flood (#427). Create and update
+	// share one budget.
+	matchWriteMaxPerUser = 20
+	matchWriteWindow     = time.Hour
 )
 
 // RateLimiter allows max requests per key in a window. Counters live in
@@ -450,6 +456,7 @@ type Limits struct {
 	// runs more than one instance.
 	JoinRequest *RateLimiter
 	DeviceToken *RateLimiter // per user
+	MatchWrite  *RateLimiter // per user, match create and update together
 }
 
 // NewLimits returns the production limits; now nil means the real clock.
@@ -460,6 +467,7 @@ func NewLimits(now func() time.Time) Limits {
 		InviteAccept: NewRateLimiter(inviteAcceptMaxPerUser, inviteAcceptWindow, now),
 		JoinRequest:  NewRateLimiter(joinRequestMaxPerUser, joinRequestWindow, now),
 		DeviceToken:  NewRateLimiter(deviceTokenMaxPerUser, deviceTokenWindow, now),
+		MatchWrite:   NewRateLimiter(matchWriteMaxPerUser, matchWriteWindow, now),
 	}
 }
 
@@ -470,6 +478,7 @@ func (l Limits) Prune() {
 	l.InviteAccept.Prune()
 	l.JoinRequest.Prune()
 	l.DeviceToken.Prune()
+	l.MatchWrite.Prune()
 }
 
 // limitBy lets a request through while its key has requests left, and
