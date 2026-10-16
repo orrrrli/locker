@@ -24,17 +24,19 @@ func NewMatches(pool *pgxpool.Pool) *Matches {
 }
 
 func (r *Matches) CreateMatch(ctx context.Context, teamID int64, startsAt time.Time, rival, location string, createdBy int64) (domain.Match, error) {
-	row, err := sqlcdb.New(Conn(ctx, r.pool)).CreateMatch(ctx, sqlcdb.CreateMatchParams{
+	q := sqlcdb.New(Conn(ctx, r.pool))
+	id, err := q.CreateMatch(ctx, sqlcdb.CreateMatchParams{
 		TeamID:    teamID,
 		StartsAt:  timestamptz(startsAt),
-		RivalName: rival,
+		RivalName: pgtype.Text{String: rival, Valid: true},
 		Location:  location,
-		CreatedBy: createdBy,
+		CreatedBy: pgtype.Int8{Int64: createdBy, Valid: true},
 	})
 	if err != nil {
 		return domain.Match{}, fmt.Errorf("postgres: create match: %w", err)
 	}
-	return matchFromRow(row), nil
+	row, err := q.GetMatch(ctx, id)
+	return matchOrNotFound(row, err, "read created match")
 }
 
 // ListMatches returns every match of the team, soonest first.
@@ -63,7 +65,7 @@ func (r *Matches) ListUpcomingForUser(ctx context.Context, userID int64, now tim
 	out := make([]domain.UpcomingMatch, len(rows))
 	for i, row := range rows {
 		u := domain.UpcomingMatch{
-			Match:         matchFromRow(row.Match),
+			Match:         matchFromRow(row.MatchView),
 			TeamName:      row.TeamName,
 			Role:          domain.Role(row.Role),
 			GoingCount:    int(row.Going),
@@ -118,8 +120,16 @@ func (r *Matches) UpdateMatch(ctx context.Context, teamID, id int64, startsAt *t
 	if startsAt != nil {
 		arg.StartsAt = timestamptz(*startsAt)
 	}
-	row, err := sqlcdb.New(Conn(ctx, r.pool)).UpdateMatch(ctx, arg)
-	return matchOrNotFound(row, err, "update match")
+	q := sqlcdb.New(Conn(ctx, r.pool))
+	id, err := q.UpdateMatch(ctx, arg)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return domain.Match{}, domain.ErrNotFound
+	}
+	if err != nil {
+		return domain.Match{}, fmt.Errorf("postgres: update match: %w", err)
+	}
+	row, err := q.GetMatch(ctx, id)
+	return matchOrNotFound(row, err, "read updated match")
 }
 
 // CloseDueAttendance saves attendance from going RSVPs for every match that
@@ -136,8 +146,14 @@ func (r *Matches) CloseDueAttendance(ctx context.Context, now time.Time) (int64,
 // LockMatchInTeam returns the team's match with that id, holding the row
 // until the transaction ends, or domain.ErrNotFound.
 func (r *Matches) LockMatchInTeam(ctx context.Context, teamID, id int64) (domain.Match, error) {
-	row, err := sqlcdb.New(Conn(ctx, r.pool)).LockMatchInTeam(ctx, sqlcdb.LockMatchInTeamParams{TeamID: teamID, ID: id})
-	return matchOrNotFound(row, err, "lock match in team")
+	q := sqlcdb.New(Conn(ctx, r.pool))
+	if _, err := q.LockMatchInTeam(ctx, sqlcdb.LockMatchInTeamParams{TeamID: teamID, ID: id}); errors.Is(err, pgx.ErrNoRows) {
+		return domain.Match{}, domain.ErrNotFound
+	} else if err != nil {
+		return domain.Match{}, fmt.Errorf("postgres: lock match in team: %w", err)
+	}
+	row, err := q.GetMatch(ctx, id)
+	return matchOrNotFound(row, err, "read locked match")
 }
 
 // ChargeExistsForMatch reports whether any charge targets the match (R10.4).
@@ -184,7 +200,7 @@ func (r *Matches) ListAttendance(ctx context.Context, matchID int64) ([]int64, e
 	return ids, nil
 }
 
-func matchOrNotFound(row sqlcdb.Match, err error, op string) (domain.Match, error) {
+func matchOrNotFound(row sqlcdb.MatchView, err error, op string) (domain.Match, error) {
 	if errors.Is(err, pgx.ErrNoRows) {
 		return domain.Match{}, domain.ErrNotFound
 	}
@@ -195,8 +211,9 @@ func matchOrNotFound(row sqlcdb.Match, err error, op string) (domain.Match, erro
 }
 
 // matchFromRow keeps every timestamp in UTC (R9.1), whatever zone the driver
-// decoded it in.
-func matchFromRow(row sqlcdb.Match) domain.Match {
+// decoded it in. Every match query reads match_view, so every row is this
+// type.
+func matchFromRow(row sqlcdb.MatchView) domain.Match {
 	return domain.Match{
 		ID:                 row.ID,
 		TeamID:             row.TeamID,
@@ -205,8 +222,18 @@ func matchFromRow(row sqlcdb.Match) domain.Match {
 		Location:           row.Location,
 		ReminderSentAt:     utcPtr(row.ReminderSentAt),
 		AttendanceClosedAt: utcPtr(row.AttendanceClosedAt),
-		CreatedBy:          row.CreatedBy,
+		CreatedBy:          int8Ptr(row.CreatedBy),
+		FixtureID:          int8Ptr(row.FixtureID),
+		CourtID:            int8Ptr(row.CourtID),
+		CancelledAt:        utcPtr(row.CancelledAt),
 	}
+}
+
+func int8Ptr(v pgtype.Int8) *int64 {
+	if !v.Valid {
+		return nil
+	}
+	return &v.Int64
 }
 
 func utcPtr(t pgtype.Timestamptz) *time.Time {

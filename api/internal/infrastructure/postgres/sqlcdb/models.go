@@ -41,6 +41,13 @@ type ChargeMember struct {
 	PaidMarkedAt pgtype.Timestamptz
 }
 
+type Court struct {
+	ID        int64
+	VenueID   int64
+	Name      string
+	CreatedAt pgtype.Timestamptz
+}
+
 type DeviceToken struct {
 	ID         int64
 	UserID     int64
@@ -48,6 +55,17 @@ type DeviceToken struct {
 	CreatedAt  pgtype.Timestamptz
 	LastSeenAt pgtype.Timestamptz
 	SessionID  pgtype.Int8
+}
+
+type Fixture struct {
+	ID          int64
+	LeagueID    int64
+	HomeTeamID  int64
+	AwayTeamID  int64
+	CourtID     int64
+	StartsAt    pgtype.Timestamptz
+	CancelledAt pgtype.Timestamptz
+	CreatedAt   pgtype.Timestamptz
 }
 
 type Invite struct {
@@ -59,7 +77,40 @@ type Invite struct {
 	RevokedAt pgtype.Timestamptz
 }
 
+type League struct {
+	ID             int64
+	VenueID        int64
+	Name           string
+	Weekday        int16
+	StartTime      pgtype.Time
+	EndTime        pgtype.Time
+	SeasonName     string
+	SeasonStartsOn pgtype.Date
+	SeasonEndsOn   pgtype.Date
+	CreatedAt      pgtype.Timestamptz
+}
+
+type LeagueTeam struct {
+	LeagueID   int64
+	TeamID     int64
+	EnrolledAt pgtype.Timestamptz
+}
+
 type Match struct {
+	ID                 int64
+	TeamID             int64
+	StartsAt           pgtype.Timestamptz
+	RivalName          pgtype.Text
+	Location           string
+	ReminderSentAt     pgtype.Timestamptz
+	AttendanceClosedAt pgtype.Timestamptz
+	CreatedBy          pgtype.Int8
+	FixtureID          pgtype.Int8
+	CourtID            pgtype.Int8
+	CancelledAt        pgtype.Timestamptz
+}
+
+type MatchView struct {
 	ID                 int64
 	TeamID             int64
 	StartsAt           pgtype.Timestamptz
@@ -67,7 +118,10 @@ type Match struct {
 	Location           string
 	ReminderSentAt     pgtype.Timestamptz
 	AttendanceClosedAt pgtype.Timestamptz
-	CreatedBy          int64
+	CreatedBy          pgtype.Int8
+	FixtureID          pgtype.Int8
+	CourtID            pgtype.Int8
+	CancelledAt        pgtype.Timestamptz
 }
 
 type Membership struct {
@@ -135,4 +189,27 @@ type User struct {
 	DeletedAt       pgtype.Timestamptz
 	CreatedAt       pgtype.Timestamptz
 	IsOperator      bool
+}
+
+type Venue struct {
+	ID        int64
+	Name      string
+	Address   string
+	Latitude  float64
+	Longitude float64
+	Timezone  string
+	CreatedAt pgtype.Timestamptz
+}
+
+type VenueLead struct {
+	ID          int64
+	UserID      pgtype.Int8
+	ContactName string
+	VenueName   string
+	City        string
+	Phone       pgtype.Text
+	Email       pgtype.Text
+	Message     pgtype.Text
+	CreatedAt   pgtype.Timestamptz
+	HandledAt   pgtype.Timestamptz
 }

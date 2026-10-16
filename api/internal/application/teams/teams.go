@@ -4,8 +4,6 @@ package teams
 import (
 	"context"
 	"errors"
-	"regexp"
-	"time"
 
 	"github.com/orrrrli/locker/api/internal/application"
 	"github.com/orrrrli/locker/api/internal/domain"
@@ -42,20 +40,34 @@ type Memberships interface {
 	CreateMembership(ctx context.Context, teamID, userID int64, role domain.Role, status domain.MembershipStatus) (int64, error)
 }
 
+// Leagues takes a dissolving team out of its leagues (#421).
+// leagues.Service is one.
+type Leagues interface {
+	// WithdrawTeam unenrolls the team everywhere and cancels its future
+	// fixtures, inside the dissolve's transaction, after the team lock. It
+	// returns the notices to deliver once that transaction commits.
+	WithdrawTeam(ctx context.Context, teamID int64) ([]domain.Notification, error)
+	DeliverNotices(ctx context.Context, notices []domain.Notification)
+}
+
 type Deps struct {
 	Tx          application.TxRunner
 	Teams       Teams
 	Memberships Memberships
+	// Leagues may be nil only in tests that never enroll a team; the server
+	// always sets it.
+	Leagues Leagues
 }
 
 type Service struct {
 	tx          application.TxRunner
 	teams       Teams
 	memberships Memberships
+	leagues     Leagues
 }
 
 func NewService(d Deps) *Service {
-	return &Service{tx: d.Tx, teams: d.Teams, memberships: d.Memberships}
+	return &Service{tx: d.Tx, teams: d.Teams, memberships: d.Memberships, leagues: d.Leagues}
 }
 
 // Create creates a team and makes the creator an active admin of it, in one
@@ -137,9 +149,12 @@ func (s *Service) Update(ctx context.Context, teamID, callerID int64, name, time
 // caller's membership left and the team marked dissolved, in one
 // transaction. Any other active member rejects it with ErrTeamHasMembers
 // (R6.9). The team lock keeps the count true until commit: approving,
-// leaving and removing all take it.
+// leaving and removing all take it. In the same transaction the team leaves
+// every league it is enrolled in and its future fixtures are cancelled on
+// both sides; each rival gets its notice after commit (#421).
 func (s *Service) Dissolve(ctx context.Context, teamID, callerID int64) error {
-	return s.tx.InTx(ctx, func(ctx context.Context) error {
+	var notices []domain.Notification
+	err := s.tx.InTx(ctx, func(ctx context.Context) error {
 		if _, err := application.LockTeamAsAdmin(ctx, s.memberships, teamID, callerID); err != nil {
 			return err
 		}
@@ -150,8 +165,24 @@ func (s *Service) Dissolve(ctx context.Context, teamID, callerID int64) error {
 		if n > 1 {
 			return ErrTeamHasMembers
 		}
-		return s.teams.Dissolve(ctx, teamID, callerID)
+		if err := s.teams.Dissolve(ctx, teamID, callerID); err != nil {
+			return err
+		}
+		if s.leagues == nil {
+			return nil
+		}
+		// After the caller left: the dissolved team's own copy of each
+		// notice reaches nobody, only the rival's does.
+		notices, err = s.leagues.WithdrawTeam(ctx, teamID)
+		return err
 	})
+	if err != nil {
+		return err
+	}
+	if s.leagues != nil {
+		s.leagues.DeliverNotices(ctx, notices)
+	}
+	return nil
 }
 
 // checkName applies application.CleanText with the team name limit.
@@ -163,18 +194,9 @@ func checkName(raw string) (string, error) {
 	return name, nil
 }
 
-// ianaZone is the shape of a canonical zone name: Area/Location, maybe with
-// a sub-location (America/Argentina/Buenos_Aires). LoadLocation alone also
-// accepts "", "Local", "posixrules", "Factory" and uncleaned paths like
-// "America/./Tijuana", which Postgres's AT TIME ZONE rejects.
-var ianaZone = regexp.MustCompile(`^[A-Z][A-Za-z]*(/[A-Za-z0-9_+-]+){1,2}$`)
-
 // checkTimezone accepts only IANA zone names that load (R6.7).
 func checkTimezone(tz string) error {
-	if !ianaZone.MatchString(tz) {
-		return ErrInvalidTimezone
-	}
-	if _, err := time.LoadLocation(tz); err != nil {
+	if !application.ValidTimezone(tz) {
 		return ErrInvalidTimezone
 	}
 	return nil

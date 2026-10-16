@@ -82,7 +82,7 @@ func TestUpcomingAcrossTeamsWithCountsRoleAndOwnAnswer(t *testing.T) {
 		t.Fatalf("sooner = %+v", s)
 	}
 	l := got[1]
-	if l.TeamID != f.team || l.CreatedBy == 0 || l.TeamName != "Pumas" || l.Role != domain.RoleAdmin ||
+	if l.TeamID != f.team || l.CreatedBy == nil || l.TeamName != "Pumas" || l.Role != domain.RoleAdmin ||
 		l.Answer == nil || *l.Answer != domain.RSVPGoing || l.GoingCount != 2 || l.NotGoingCount != 1 {
 		t.Fatalf("later = %+v (answer %v), want admin, own going, 2 going, 1 not going", l, l.Answer)
 	}

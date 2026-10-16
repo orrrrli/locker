@@ -1,6 +1,6 @@
 -- name: GetMatchInTeam :one
 -- Scoped to the team, so an id from another team is not found.
-SELECT * FROM match
+SELECT * FROM match_view
 WHERE team_id = $1 AND id = $2;
 
 -- name: UpsertRSVP :one

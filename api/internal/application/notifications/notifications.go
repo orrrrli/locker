@@ -49,6 +49,10 @@ type Notifications interface {
 	UnregisterDevice(ctx context.Context, userID int64, token string) error
 	// TrimDevices deletes the user's tokens beyond the keep most recently seen.
 	TrimDevices(ctx context.Context, userID int64, keep int) error
+	// NotificationByID returns domain.ErrNotFound for an unknown notice.
+	NotificationByID(ctx context.Context, id int64) (domain.Notification, error)
+	// Receipts returns every recipient of the notice with their read time.
+	Receipts(ctx context.Context, notificationID int64) ([]domain.Receipt, error)
 	// CountManualSince counts the team's manual notices created at or after
 	// since.
 	CountManualSince(ctx context.Context, teamID int64, since time.Time) (int, error)
@@ -129,17 +133,19 @@ func NewService(d Deps) *Service {
 //
 // Never call Send inside another InTx: it would join that transaction and
 // push before the caller commits, so a rollback leaves a push with no notice.
+// A use case that writes a notice with other rows calls Store in its own
+// transaction and Deliver after it commits.
 func (s *Service) Send(ctx context.Context, n domain.Notification) (domain.Notification, error) {
 	var out domain.Notification
 	err := s.tx.InTx(ctx, func(ctx context.Context) error {
 		var err error
-		out, err = s.notifications.InsertNotification(ctx, n)
+		out, err = s.Store(ctx, n)
 		return err
 	})
 	if err != nil {
 		return domain.Notification{}, err
 	}
-	s.pushStored(ctx, out)
+	s.Deliver(ctx, out)
 	return out, nil
 }
 
@@ -188,43 +194,16 @@ func (s *Service) SendManual(ctx context.Context, teamID, callerID int64, title,
 	if err != nil {
 		return domain.Notification{}, err
 	}
-	s.pushStored(ctx, out)
+	s.Deliver(ctx, out)
 	return out, nil
 }
 
-// MatchCreated stores a match_created notice about m for every active member
-// of its team and pushes it (R11.4). The kickoff is written in the team's
-// timezone. Call it after the match committed, never inside its transaction.
-func (s *Service) MatchCreated(ctx context.Context, m domain.Match) error {
-	return s.sendMatchNotice(ctx, domain.NotificationMatchCreated, m)
-}
-
-// MatchChanged is MatchCreated for a match whose time or place changed.
-func (s *Service) MatchChanged(ctx context.Context, m domain.Match) error {
-	return s.sendMatchNotice(ctx, domain.NotificationMatchChanged, m)
-}
-
-func (s *Service) sendMatchNotice(ctx context.Context, kind domain.NotificationKind, m domain.Match) error {
-	team, err := s.teams.GetTeam(ctx, m.TeamID)
-	if err != nil {
-		return err
-	}
-	loc, err := time.LoadLocation(team.Timezone)
-	if err != nil {
-		return err
-	}
-	when := m.StartsAt.In(loc).Format("02/01/2006 15:04")
-	var title, body string
-	switch kind {
-	case domain.NotificationMatchCreated:
-		title = "Nuevo partido vs " + m.RivalName
-		body = when + " en " + m.Location
-	default:
-		title = "Cambio en el partido vs " + m.RivalName
-		body = "Ahora " + when + " en " + m.Location
-	}
-	_, err = s.Send(ctx, domain.Notification{TeamID: m.TeamID, Kind: kind, Title: title, Body: body, MatchID: &m.ID})
-	return err
+// Store writes the notice and one inbox copy per active member of n.TeamID.
+// It must run inside the caller's transaction, so the notice lands with the
+// rows it is about or not at all (R11.4). Pass what it returns to Deliver
+// once that transaction commits.
+func (s *Service) Store(ctx context.Context, n domain.Notification) (domain.Notification, error) {
+	return s.notifications.InsertNotification(ctx, n)
 }
 
 // SendDueReminders is the ticker job for RSVP reminders (R11.5): for every
@@ -278,7 +257,7 @@ func (s *Service) SendDueReminders(ctx context.Context) (int64, error) {
 		return 0, err
 	}
 	for _, n := range sent {
-		s.pushStored(ctx, n)
+		s.Deliver(ctx, n)
 	}
 	return marked, nil
 }
@@ -296,22 +275,22 @@ func (s *Service) reminderText(ctx context.Context, m domain.Match) (title, body
 	return "¿Vas al partido vs " + m.RivalName + "?", when + " en " + m.Location + ". Aún no has respondido.", nil
 }
 
-// pushStored delivers a committed notice to the recipients who have not
-// muted the team (R11.6). It runs after the transaction, so a rollback never
-// leaves a push with no notice.
-func (s *Service) pushStored(ctx context.Context, out domain.Notification) {
+// Deliver pushes a stored notice to the members who have not muted the team
+// (R11.6). Call it only after the transaction that stored the notice
+// commits. It never fails: the notice is already in the inbox, and a lost
+// push is only lost delivery.
+func (s *Service) Deliver(ctx context.Context, n domain.Notification) {
 	if s.push == nil {
 		return
 	}
-	tokens, err := s.notifications.PushTokens(ctx, out.ID)
+	tokens, err := s.notifications.PushTokens(ctx, n.ID)
 	if err != nil {
-		// The notice is stored; only delivery is lost, so the send succeeds.
 		// ponytail: the error is dropped unlogged; the application layer has
 		// no logger. Log it here once BE-NOTIF-2 brings one for push failures.
 		return
 	}
 	if len(tokens) > 0 {
-		s.push.Push(ctx, out, tokens)
+		s.push.Push(ctx, n, tokens)
 	}
 }
 
@@ -329,6 +308,46 @@ func (s *Service) Inbox(ctx context.Context, userID int64, before *int64) (items
 		next = &items[PageSize-1].ID
 	}
 	return items, next, nil
+}
+
+// Receipts is "opened by X of Y" plus who has not opened yet (R11.10). On a
+// manual notice the sender is left out of both: their copy is marked read
+// at send time, so it would inflate the count.
+type Receipts struct {
+	NotificationID int64
+	OpenedCount    int
+	RecipientCount int
+	NotOpened      []domain.Receipt
+}
+
+// Receipts returns the read receipts of a notice of the team, manual or
+// automatic (R11.9, R11.10). A notice of another team is domain.ErrNotFound,
+// so ids reveal nothing. Callers check the caller is an admin of teamID.
+func (s *Service) Receipts(ctx context.Context, teamID, notificationID int64) (Receipts, error) {
+	n, err := s.notifications.NotificationByID(ctx, notificationID)
+	if err != nil {
+		return Receipts{}, err
+	}
+	if n.TeamID != teamID {
+		return Receipts{}, domain.ErrNotFound
+	}
+	all, err := s.notifications.Receipts(ctx, n.ID)
+	if err != nil {
+		return Receipts{}, err
+	}
+	out := Receipts{NotificationID: n.ID, NotOpened: []domain.Receipt{}}
+	for _, r := range all {
+		if n.SentBy != nil && r.MembershipID == *n.SentBy {
+			continue
+		}
+		out.RecipientCount++
+		if r.ReadAt != nil {
+			out.OpenedCount++
+		} else {
+			out.NotOpened = append(out.NotOpened, r)
+		}
+	}
+	return out, nil
 }
 
 // MarkRead records that the user opened the notice, from the inbox or the

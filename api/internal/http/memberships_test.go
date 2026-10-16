@@ -3,10 +3,14 @@ package http
 import (
 	"context"
 	"encoding/json"
+	"maps"
 	"net/http"
+	"slices"
 	"strconv"
 	"testing"
 	"time"
+
+	"github.com/orrrrli/locker/api/internal/infrastructure/postgres"
 )
 
 func membershipID(t *testing.T, api apiTest, teamID, userID int64) int64 {
@@ -626,5 +630,81 @@ func TestRejoinReactivatesTheSameMembership(t *testing.T) {
 	}
 	if rec := api.do(t, http.MethodGet, teamPath(team.ID), playerToken, nil); rec.Code != http.StatusOK {
 		t.Fatalf("rejoined member reads team: status %d", rec.Code)
+	}
+}
+
+// A member mutes pushes from one team on their own membership (R11.6): the
+// notice still lands in their inbox, but their devices get no push. Nobody
+// sets it on someone else's membership, not even an admin.
+func TestPatchMembershipPushMuted(t *testing.T) {
+	api := newAPI(t, func() time.Time { return today })
+	adminID, adminToken := signUp(t, api, "admin@example.com")
+	playerID, playerToken := signUp(t, api, "player@example.com")
+	team := createTeam(t, api, adminToken, "Halcones", "America/Tijuana")
+	addMember(t, api, team.ID, playerID, "player", "active")
+	admin, player := membershipID(t, api, team.ID, adminID), membershipID(t, api, team.ID, playerID)
+	path := func(id int64) string { return "/memberships/" + strconv.FormatInt(id, 10) }
+	mustRegisterDevice(t, api, playerToken, devTok(1))
+	mustRegisterDevice(t, api, adminToken, devTok(2))
+
+	for _, tc := range []struct {
+		name, token string
+		id          int64
+		body        any
+		status      int
+		code        string
+	}{
+		{"admin on another member", adminToken, player, map[string]any{"push_muted": true}, http.StatusForbidden, "forbidden"},
+		{"player on another member", playerToken, admin, map[string]any{"push_muted": true}, http.StatusForbidden, "forbidden"},
+		{"with another change", playerToken, player, map[string]any{"push_muted": true, "shirt_number": 7}, http.StatusUnprocessableEntity, "one_change_at_a_time"},
+		{"not a boolean", playerToken, player, map[string]any{"push_muted": "yes"}, http.StatusBadRequest, "invalid_request"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			rec := api.do(t, http.MethodPatch, path(tc.id), tc.token, tc.body)
+			if rec.Code != tc.status || errorCode(t, rec) != tc.code {
+				t.Fatalf("status %d, body %s; want %d %s", rec.Code, rec.Body, tc.status, tc.code)
+			}
+		})
+	}
+
+	rec := api.do(t, http.MethodPatch, path(player), playerToken, map[string]any{"push_muted": true})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("mute: status %d, body %s", rec.Code, rec.Body)
+	}
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(rec.Body.Bytes(), &raw); err != nil {
+		t.Fatal(err)
+	}
+	if keys, want := slices.Sorted(maps.Keys(raw)), []string{"id", "position", "push_muted", "role", "shirt_number", "status", "team_id"}; !slices.Equal(keys, want) {
+		t.Fatalf("keys = %v, want %v", keys, want)
+	}
+	var got membershipJSON
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatal(err)
+	}
+	if got.ID != player || !got.PushMuted {
+		t.Fatalf("muted = %+v", got)
+	}
+
+	// The notice reaches the muted member's inbox; only the admin's device
+	// would be pushed.
+	id := notify(t, api, team.ID, "Cancha 3")
+	if page := getInbox(t, api, playerToken, ""); !slices.Equal(ids(t, page.Notifications), []int64{id}) {
+		t.Fatalf("muted member's inbox = %v, want the notice", page.Notifications)
+	}
+	tokens, err := postgres.NewNotifications(api.pool).PushTokens(context.Background(), id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(tokens, []string{devTok(2)}) {
+		t.Fatalf("push tokens = %v, want only the admin's", tokens)
+	}
+
+	// Unmuting puts the device back.
+	if rec := api.do(t, http.MethodPatch, path(player), playerToken, map[string]any{"push_muted": false}); rec.Code != http.StatusOK {
+		t.Fatalf("unmute: status %d, body %s", rec.Code, rec.Body)
+	}
+	if tokens, err = postgres.NewNotifications(api.pool).PushTokens(context.Background(), notify(t, api, team.ID, "Cancha 4")); err != nil || len(tokens) != 2 {
+		t.Fatalf("push tokens after unmute = %v (%v), want both devices", tokens, err)
 	}
 }

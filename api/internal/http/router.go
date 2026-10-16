@@ -17,10 +17,17 @@ type Deps struct {
 	Matches       matchService
 	Charges       chargeService
 	Notifications notificationService
+	Venues        venueService
+	Leagues       leagueService
+	Pages         pageService
+	Leads         leadService
 	// MatchFinder resolves the team of routes on /matches/{id}.
 	MatchFinder matchFinder
 	// ChargeFinder resolves the team of routes on /charges/{id}.
 	ChargeFinder chargeFinder
+	// NotificationFinder resolves the team of routes on /notifications/{id}
+	// that admins use.
+	NotificationFinder notificationFinder
 	// AppleAppID ("<team id>.<bundle id>") is the app invite links open;
 	// empty until the Apple Developer account exists.
 	AppleAppID string
@@ -115,8 +122,22 @@ func NewRouter(d Deps) http.Handler {
 	mux.Handle("POST /teams/{id}/notifications", a.requireAuth(z.requireRole(team, domain.RoleAdmin, http.HandlerFunc(nt.send))))
 	mux.Handle("GET /me/notifications", a.requireAuth(http.HandlerFunc(nt.inbox)))
 	mux.Handle("POST /notifications/{id}/read", a.requireAuth(http.HandlerFunc(nt.markRead)))
+	mux.Handle("GET /notifications/{id}/receipts", a.requireAuth(z.requireRole(teamFromNotification("id", d.NotificationFinder), domain.RoleAdmin, http.HandlerFunc(nt.receipts))))
 	mux.Handle("POST /me/device-tokens", a.requireAuth(limitBy(d.Limits.DeviceToken, byUser, http.HandlerFunc(nt.registerDevice))))
 	mux.Handle("DELETE /me/device-tokens/{token}", a.requireAuth(http.HandlerFunc(nt.unregisterDevice)))
+
+	v := venueHandlers{svc: d.Venues}
+	mux.Handle("GET /venues", a.requireAuth(http.HandlerFunc(v.near)))
+
+	ld := leadHandlers{svc: d.Leads}
+	mux.Handle("POST /venue-leads", a.requireAuth(http.HandlerFunc(ld.send)))
+
+	pg := pageHandlers{svc: d.Pages}
+	mux.Handle("GET /teams/{id}/public", a.requireAuth(http.HandlerFunc(pg.team)))
+	mux.Handle("GET /venues/{id}", a.requireAuth(http.HandlerFunc(pg.venue)))
+	mux.Handle("GET /leagues/{id}", a.requireAuth(http.HandlerFunc(pg.league)))
+	mux.Handle("GET /leagues/{id}/teams", a.requireAuth(http.HandlerFunc(pg.leagueTeams)))
+	mux.Handle("GET /leagues/{id}/fixtures", a.requireAuth(http.HandlerFunc(pg.fixtures)))
 
 	// Every operator route registers on op. Paths under /operator are sent to
 	// the gate before mux sees them, because mux prefers any more specific
@@ -124,6 +145,21 @@ func NewRouter(d Deps) http.Handler {
 	// is never reached instead of skipping the gate (rule 12). A non-operator
 	// gets 403 even on an unknown path; the operator gets the usual JSON 404.
 	op := http.NewServeMux()
+	op.HandleFunc("POST /operator/venues", v.create)
+	op.HandleFunc("PATCH /operator/venues/{id}", v.update)
+	op.HandleFunc("POST /operator/venues/{id}/courts", v.addCourt)
+	op.HandleFunc("PATCH /operator/venues/{id}/courts/{courtId}", v.renameCourt)
+	op.HandleFunc("DELETE /operator/venues/{id}/courts/{courtId}", v.removeCourt)
+	lg := leagueHandlers{svc: d.Leagues}
+	op.HandleFunc("GET /operator/venue-leads", ld.list)
+	op.HandleFunc("PATCH /operator/venue-leads/{id}", ld.setHandled)
+	op.HandleFunc("POST /operator/leagues", lg.create)
+	op.HandleFunc("PATCH /operator/leagues/{id}", lg.update)
+	op.HandleFunc("POST /operator/leagues/{id}/teams", lg.enroll)
+	op.HandleFunc("DELETE /operator/leagues/{id}/teams/{teamId}", lg.unenroll)
+	op.HandleFunc("POST /operator/leagues/{id}/fixtures", lg.createFixture)
+	op.HandleFunc("PATCH /operator/leagues/{id}/fixtures/{fixtureId}", lg.updateFixture)
+	op.HandleFunc("DELETE /operator/leagues/{id}/fixtures/{fixtureId}", lg.cancelFixture)
 	return operatorFirst(a.requireAuth(z.requireOperator(jsonMisses(op))), jsonMisses(mux))
 }
 
