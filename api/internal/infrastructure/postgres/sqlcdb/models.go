@@ -41,6 +41,13 @@ type ChargeMember struct {
 	PaidMarkedAt pgtype.Timestamptz
 }
 
+type Court struct {
+	ID        int64
+	VenueID   int64
+	Name      string
+	CreatedAt pgtype.Timestamptz
+}
+
 type DeviceToken struct {
 	ID         int64
 	UserID     int64
@@ -135,4 +142,14 @@ type User struct {
 	DeletedAt       pgtype.Timestamptz
 	CreatedAt       pgtype.Timestamptz
 	IsOperator      bool
+}
+
+type Venue struct {
+	ID        int64
+	Name      string
+	Address   string
+	Latitude  float64
+	Longitude float64
+	Timezone  string
+	CreatedAt pgtype.Timestamptz
 }

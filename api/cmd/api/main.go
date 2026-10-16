@@ -21,6 +21,7 @@ import (
 	applicationmemberships "github.com/orrrrli/locker/api/internal/application/memberships"
 	"github.com/orrrrli/locker/api/internal/application/notifications"
 	"github.com/orrrrli/locker/api/internal/application/teams"
+	"github.com/orrrrli/locker/api/internal/application/venues"
 	apihttp "github.com/orrrrli/locker/api/internal/http"
 	"github.com/orrrrli/locker/api/internal/infrastructure/password"
 	"github.com/orrrrli/locker/api/internal/infrastructure/postgres"
@@ -111,6 +112,10 @@ func start() error {
 		Matches:     matchRepo,
 		Memberships: memberships,
 	})
+	venueSvc := venues.NewService(venues.Deps{
+		Tx:     postgres.NewTxRunner(pool),
+		Venues: postgres.NewVenues(pool),
+	})
 	router := apihttp.NewRouter(apihttp.Deps{
 		Auth:               authSvc,
 		Teams:              teamSvc,
@@ -120,15 +125,16 @@ func start() error {
 		Matches:            matchSvc,
 		Charges:            chargeSvc,
 		Notifications:      notificationSvc,
+		Venues:             venueSvc,
 		MatchFinder:        matchRepo,
 		ChargeFinder:       chargeRepo,
-		NotificationFinder: notificationRepo,
 		AppleAppID:         cfg.AppleAppID,
 		DownloadURL:        cfg.DownloadURL,
 		Memberships:        memberships,
 		Users:              postgres.NewUsers(pool),
 		LoginLimiter:       loginLimiter,
 		Limits:             limits,
+		NotificationFinder: notificationRepo,
 	})
 
 	go tick(ctx, tickEvery, func(ctx context.Context) {

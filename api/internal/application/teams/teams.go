@@ -4,8 +4,6 @@ package teams
 import (
 	"context"
 	"errors"
-	"regexp"
-	"time"
 
 	"github.com/orrrrli/locker/api/internal/application"
 	"github.com/orrrrli/locker/api/internal/domain"
@@ -163,18 +161,9 @@ func checkName(raw string) (string, error) {
 	return name, nil
 }
 
-// ianaZone is the shape of a canonical zone name: Area/Location, maybe with
-// a sub-location (America/Argentina/Buenos_Aires). LoadLocation alone also
-// accepts "", "Local", "posixrules", "Factory" and uncleaned paths like
-// "America/./Tijuana", which Postgres's AT TIME ZONE rejects.
-var ianaZone = regexp.MustCompile(`^[A-Z][A-Za-z]*(/[A-Za-z0-9_+-]+){1,2}$`)
-
 // checkTimezone accepts only IANA zone names that load (R6.7).
 func checkTimezone(tz string) error {
-	if !ianaZone.MatchString(tz) {
-		return ErrInvalidTimezone
-	}
-	if _, err := time.LoadLocation(tz); err != nil {
+	if !application.ValidTimezone(tz) {
 		return ErrInvalidTimezone
 	}
 	return nil
