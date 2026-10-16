@@ -56,6 +56,7 @@ func newFixture(t *testing.T) fixture {
 	})
 	svc := charges.NewService(charges.Deps{
 		Tx: postgres.NewTxRunner(pool), Charges: postgres.NewCharges(pool), Matches: matchRepo, Memberships: members,
+		Now: func() time.Time { return now },
 	})
 	return fixture{svc: svc, matches: matchSvc, pool: pool, team: team.ID, admin: admin.ID, now: &now}
 }
@@ -266,5 +267,138 @@ func TestCreateRechecksTheCaller(t *testing.T) {
 	}
 	if n := countRows(t, f, "charge"); n != 0 {
 		t.Fatalf("%d charge rows, want 0", n)
+	}
+}
+
+// An admin marks an entry paid, which records who and when (R12.3), or
+// pending again, which clears both. Repeating a status changes nothing: the
+// first marker stays. A member who left still has an entry to mark (R12.6).
+func TestSetStatus(t *testing.T) {
+	f := newFixture(t)
+	ctx := context.Background()
+	player := addMember(t, f, "player@example.com", "player", "active")
+	gone := addMember(t, f, "gone@example.com", "player", "left")
+	m := playedMatch(t, f, player, gone)
+	c, err := f.svc.Create(ctx, f.team, f.admin, charges.Input{Concept: "Cancha", AmountCents: 100, Target: charges.TargetMatchAttendees, MatchID: &m.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	paid, err := f.svc.SetStatus(ctx, f.team, f.admin, c.ID, gone, domain.ChargePaid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := f.now.UTC()
+	if paid.ChargeID != c.ID || paid.MembershipID != gone || paid.Status != domain.ChargePaid ||
+		paid.PaidMarkedBy == nil || *paid.PaidMarkedBy != f.admin || paid.PaidMarkedAt == nil || !paid.PaidMarkedAt.Equal(want) {
+		t.Fatalf("paid = %+v, want marked by %d at %v", paid, f.admin, want)
+	}
+	// A second "paid" later, by another admin, keeps the first marker.
+	other := addMember(t, f, "other@example.com", "admin", "active")
+	*f.now = f.now.Add(time.Hour)
+	again, err := f.svc.SetStatus(ctx, f.team, other, c.ID, gone, domain.ChargePaid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if *again.PaidMarkedBy != f.admin || !again.PaidMarkedAt.Equal(want) {
+		t.Fatalf("repeated paid = %+v, want the first marker kept", again)
+	}
+	// The other entry is untouched.
+	if e, err := f.svc.SetStatus(ctx, f.team, f.admin, c.ID, player, domain.ChargePending); err != nil || e.Status != domain.ChargePending || e.PaidMarkedBy != nil {
+		t.Fatalf("pending on a pending entry = %+v, %v", e, err)
+	}
+	// Back to pending clears the marker.
+	back, err := f.svc.SetStatus(ctx, f.team, f.admin, c.ID, gone, domain.ChargePending)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if back.Status != domain.ChargePending || back.PaidMarkedBy != nil || back.PaidMarkedAt != nil {
+		t.Fatalf("pending = %+v, want cleared", back)
+	}
+
+	var otherTeam int64
+	if err := f.pool.QueryRow(ctx, `INSERT INTO team (name, timezone) VALUES ('Otros', 'America/Mexico_City') RETURNING id`).Scan(&otherTeam); err != nil {
+		t.Fatal(err)
+	}
+	var foreign int64
+	if err := f.pool.QueryRow(ctx, `INSERT INTO charge (team_id, concept, amount_cents, created_by) VALUES ($1, 'x', 1, $2) RETURNING id`, otherTeam, f.admin).Scan(&foreign); err != nil {
+		t.Fatal(err)
+	}
+	notInCharge := addMember(t, f, "late@example.com", "player", "active")
+	for _, tc := range []struct {
+		name               string
+		caller, charge, id int64
+		status             domain.ChargeStatus
+		want               error
+	}{
+		{"invalid status", f.admin, c.ID, player, "waived", charges.ErrInvalidStatus},
+		{"player caller", player, c.ID, player, domain.ChargePaid, application.ErrNotAdmin},
+		{"charge of another team", f.admin, foreign, player, domain.ChargePaid, domain.ErrNotFound},
+		{"unknown charge", f.admin, 999_999, player, domain.ChargePaid, domain.ErrNotFound},
+		{"membership not in the charge", f.admin, c.ID, notInCharge, domain.ChargePaid, domain.ErrNotFound},
+	} {
+		if _, err := f.svc.SetStatus(ctx, f.team, tc.caller, tc.charge, tc.id, tc.status); !errors.Is(err, tc.want) {
+			t.Errorf("%s: %v, want %v", tc.name, err, tc.want)
+		}
+	}
+}
+
+// An admin lists every charge with every entry, members who left included
+// (R12.6); a player lists only the charges they are in, each with only their
+// own entry (R12.4). Newest first.
+func TestListByRole(t *testing.T) {
+	f := newFixture(t)
+	ctx := context.Background()
+	player := addMember(t, f, "player@example.com", "player", "active")
+	gone := addMember(t, f, "gone@example.com", "player", "left")
+	m := playedMatch(t, f, f.admin, gone)
+	matchFee, err := f.svc.Create(ctx, f.team, f.admin, charges.Input{Concept: "Cancha", AmountCents: 100, Target: charges.TargetMatchAttendees, MatchID: &m.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	*f.now = f.now.Add(time.Minute)
+	teamFee, err := f.svc.Create(ctx, f.team, f.admin, fee)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.svc.SetStatus(ctx, f.team, f.admin, teamFee.ID, player, domain.ChargePaid); err != nil {
+		t.Fatal(err)
+	}
+	members := postgres.NewMemberships(f.pool)
+	adminM, err := members.MembershipInTeam(ctx, f.team, f.admin)
+	if err != nil {
+		t.Fatal(err)
+	}
+	playerM, err := members.MembershipInTeam(ctx, f.team, player)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	asAdmin, err := f.svc.List(ctx, adminM)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(asAdmin) != 2 || asAdmin[0].ID != teamFee.ID || asAdmin[1].ID != matchFee.ID {
+		t.Fatalf("admin list = %+v, want the team fee then the match fee", asAdmin)
+	}
+	if got, want := memberIDs(asAdmin[0].Members), []int64{f.admin, player}; !slices.Equal(got, want) {
+		t.Fatalf("team fee members = %v, want %v", got, want)
+	}
+	if got, want := memberIDs(asAdmin[1].Members), []int64{f.admin, gone}; !slices.Equal(got, want) {
+		t.Fatalf("match fee members = %v, want %v (the member who left still owes)", got, want)
+	}
+
+	asPlayer, err := f.svc.List(ctx, playerM)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(asPlayer) != 1 || asPlayer[0].ID != teamFee.ID {
+		t.Fatalf("player list = %+v, want only the team fee", asPlayer)
+	}
+	if got, want := memberIDs(asPlayer[0].Members), []int64{player}; !slices.Equal(got, want) {
+		t.Fatalf("player sees entries %v, want only own %v", got, want)
+	}
+	if e := asPlayer[0].Members[0]; e.Status != domain.ChargePaid || e.PaidMarkedBy == nil || *e.PaidMarkedBy != f.admin {
+		t.Fatalf("player's entry = %+v, want paid by the admin", e)
 	}
 }

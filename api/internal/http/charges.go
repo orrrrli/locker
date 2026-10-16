@@ -11,7 +11,32 @@ import (
 )
 
 type chargeService interface {
-	Create(ctx context.Context, teamID, callerID int64, in charges.Input) (charges.Created, error)
+	Create(ctx context.Context, teamID, callerID int64, in charges.Input) (charges.Detail, error)
+	List(ctx context.Context, caller domain.Membership) ([]charges.Detail, error)
+	SetStatus(ctx context.Context, teamID, callerID, chargeID, membershipID int64, status domain.ChargeStatus) (domain.ChargeMember, error)
+}
+
+// chargeFinder resolves the team of a charge. Routes on /charges/{id} use it.
+type chargeFinder interface {
+	// ChargeByID returns the charge in any team, or domain.ErrNotFound.
+	ChargeByID(ctx context.Context, id int64) (domain.Charge, error)
+}
+
+// teamFromCharge resolves the team of the charge in the path. An unknown
+// charge is a 404, the same answer a stranger to the team gets, so charge
+// ids from other teams reveal nothing.
+func teamFromCharge(name string, f chargeFinder) teamOf {
+	return func(r *http.Request) (int64, error) {
+		id, err := idFromPath(r, name)
+		if err != nil {
+			return 0, err
+		}
+		c, err := f.ChargeByID(r.Context(), id)
+		if err != nil {
+			return 0, err
+		}
+		return c.TeamID, nil
+	}
 }
 
 type chargeHandlers struct {
@@ -46,7 +71,16 @@ type chargeJSON struct {
 	Members     []chargeMemberJSON `json:"members"`
 }
 
-func toChargeJSON(c charges.Created) chargeJSON {
+func toChargeMemberJSON(m domain.ChargeMember) chargeMemberJSON {
+	out := chargeMemberJSON{MembershipID: m.MembershipID, Status: m.Status, PaidMarkedBy: m.PaidMarkedBy}
+	if m.PaidMarkedAt != nil {
+		t := apiTime(*m.PaidMarkedAt)
+		out.PaidMarkedAt = &t
+	}
+	return out
+}
+
+func toChargeJSON(c charges.Detail) chargeJSON {
 	out := chargeJSON{
 		ID:          c.ID,
 		TeamID:      c.TeamID,
@@ -59,11 +93,7 @@ func toChargeJSON(c charges.Created) chargeJSON {
 		Members:     make([]chargeMemberJSON, len(c.Members)), // [], never null
 	}
 	for i, m := range c.Members {
-		out.Members[i] = chargeMemberJSON{MembershipID: m.MembershipID, Status: m.Status, PaidMarkedBy: m.PaidMarkedBy}
-		if m.PaidMarkedAt != nil {
-			t := apiTime(*m.PaidMarkedAt)
-			out.Members[i].PaidMarkedAt = &t
-		}
+		out.Members[i] = toChargeMemberJSON(m)
 	}
 	return out
 }
@@ -86,7 +116,54 @@ func (h chargeHandlers) create(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, toChargeJSON(c))
 }
 
+// list runs behind requireActiveMember on the team in the path: admins get
+// every charge and entry, players only their own entries (R12.4).
+func (h chargeHandlers) list(w http.ResponseWriter, r *http.Request) {
+	caller, _ := membershipFrom(r.Context())
+	cs, err := h.svc.List(r.Context(), caller)
+	if err != nil {
+		chargeErrors.write(w, r, "charges", err)
+		return
+	}
+	out := make([]chargeJSON, len(cs))
+	for i, c := range cs {
+		out[i] = toChargeJSON(c)
+	}
+	writeJSON(w, http.StatusOK, map[string][]chargeJSON{"charges": out})
+}
+
+type updateChargeMemberRequest struct {
+	Status domain.ChargeStatus `json:"status"`
+}
+
+// updateMember runs behind requireRole(admin) on the charge's team: the
+// admin marks an entry paid in cash, or pending again (R12.3).
+func (h chargeHandlers) updateMember(w http.ResponseWriter, r *http.Request) {
+	var req updateChargeMemberRequest
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+	chargeID, err := idFromPath(r, "id")
+	if err != nil {
+		writeError(w, http.StatusNotFound, "not_found")
+		return
+	}
+	membershipID, err := idFromPath(r, "membershipId")
+	if err != nil {
+		writeError(w, http.StatusNotFound, "not_found")
+		return
+	}
+	caller, _ := membershipFrom(r.Context())
+	m, err := h.svc.SetStatus(r.Context(), caller.TeamID, caller.ID, chargeID, membershipID, req.Status)
+	if err != nil {
+		chargeErrors.write(w, r, "charges", err)
+		return
+	}
+	writeJSON(w, http.StatusOK, toChargeMemberJSON(m))
+}
+
 var chargeErrors = errorMap{
+	{charges.ErrInvalidStatus, http.StatusUnprocessableEntity, "invalid_status"},
 	{charges.ErrInvalidConcept, http.StatusUnprocessableEntity, "invalid_concept"},
 	{charges.ErrInvalidAmount, http.StatusUnprocessableEntity, "invalid_amount"},
 	{charges.ErrInvalidTarget, http.StatusUnprocessableEntity, "invalid_target"},

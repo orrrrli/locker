@@ -19,6 +19,8 @@ type Deps struct {
 	Notifications notificationService
 	// MatchFinder resolves the team of routes on /matches/{id}.
 	MatchFinder matchFinder
+	// ChargeFinder resolves the team of routes on /charges/{id}.
+	ChargeFinder chargeFinder
 	// AppleAppID ("<team id>.<bundle id>") is the app invite links open;
 	// empty until the Apple Developer account exists.
 	AppleAppID string
@@ -105,6 +107,9 @@ func NewRouter(d Deps) http.Handler {
 
 	ch := chargeHandlers{svc: d.Charges}
 	mux.Handle("POST /teams/{id}/charges", a.requireAuth(z.requireRole(team, domain.RoleAdmin, http.HandlerFunc(ch.create))))
+	mux.Handle("GET /teams/{id}/charges", a.requireAuth(z.requireActiveMember(team, http.HandlerFunc(ch.list))))
+	charge := teamFromCharge("id", d.ChargeFinder)
+	mux.Handle("PATCH /charges/{id}/members/{membershipId}", a.requireAuth(z.requireRole(charge, domain.RoleAdmin, http.HandlerFunc(ch.updateMember))))
 
 	nt := notificationHandlers{svc: d.Notifications}
 	mux.Handle("GET /me/notifications", a.requireAuth(http.HandlerFunc(nt.inbox)))
