@@ -20,6 +20,7 @@ type Deps struct {
 	Venues        venueService
 	Leagues       leagueService
 	Pages         pageService
+	Leads         leadService
 	// MatchFinder resolves the team of routes on /matches/{id}.
 	MatchFinder matchFinder
 	// ChargeFinder resolves the team of routes on /charges/{id}.
@@ -128,6 +129,9 @@ func NewRouter(d Deps) http.Handler {
 	v := venueHandlers{svc: d.Venues}
 	mux.Handle("GET /venues", a.requireAuth(http.HandlerFunc(v.near)))
 
+	ld := leadHandlers{svc: d.Leads}
+	mux.Handle("POST /venue-leads", a.requireAuth(http.HandlerFunc(ld.send)))
+
 	pg := pageHandlers{svc: d.Pages}
 	mux.Handle("GET /teams/{id}/public", a.requireAuth(http.HandlerFunc(pg.team)))
 	mux.Handle("GET /venues/{id}", a.requireAuth(http.HandlerFunc(pg.venue)))
@@ -147,6 +151,8 @@ func NewRouter(d Deps) http.Handler {
 	op.HandleFunc("PATCH /operator/venues/{id}/courts/{courtId}", v.renameCourt)
 	op.HandleFunc("DELETE /operator/venues/{id}/courts/{courtId}", v.removeCourt)
 	lg := leagueHandlers{svc: d.Leagues}
+	op.HandleFunc("GET /operator/venue-leads", ld.list)
+	op.HandleFunc("PATCH /operator/venue-leads/{id}", ld.setHandled)
 	op.HandleFunc("POST /operator/leagues", lg.create)
 	op.HandleFunc("PATCH /operator/leagues/{id}", lg.update)
 	op.HandleFunc("POST /operator/leagues/{id}/teams", lg.enroll)

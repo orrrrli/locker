@@ -1985,6 +1985,149 @@ paths:
           $ref: "#/components/responses/NotFound"
         "500":
           $ref: "#/components/responses/Internal"
+  /venue-leads:
+    post:
+      tags: [venues]
+      operationId: sendVenueLead
+      summary: Ask to run a venue's leagues on Locker
+      description: |
+        Any signed-in user (R25.1, R25.2). Contact name, venue name and city
+        are required, and a phone or an email (R25.3); the message is
+        optional and may span lines. At most 3 per user in any 24 hours
+        (R25.4). The lead keeps the sender's id until they delete their
+        account; then `user_id` becomes null and the lead stays (R25.8).
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SendVenueLeadRequest"
+      responses:
+        "201":
+          description: The stored lead.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VenueLead"
+        "400":
+          $ref: "#/components/responses/InvalidRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "413":
+          $ref: "#/components/responses/BodyTooLarge"
+        "422":
+          description: |
+            - `invalid_contact_name`, `invalid_venue_name`, `invalid_city`: missing, over 60 characters after trimming, or with control or invisible characters.
+            - `contact_required`: neither phone nor email.
+            - `invalid_phone`: not 7 to 20 of digits, spaces, `+`, `-`, `(` and `)`.
+            - `invalid_email`: not a valid address.
+            - `invalid_message`: over 1000 characters, or with control (other than line breaks) or invisible characters.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Error"
+                  - properties:
+                      error:
+                        enum: [invalid_contact_name, invalid_venue_name, invalid_city, contact_required, invalid_phone, invalid_email, invalid_message]
+        "429":
+          description: "`too_many_leads`: 3 leads already sent in the last 24 hours."
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Error"
+                  - properties:
+                      error:
+                        const: too_many_leads
+        "500":
+          $ref: "#/components/responses/Internal"
+  /operator/venue-leads:
+    get:
+      tags: [operator]
+      operationId: listVenueLeads
+      summary: List venue leads
+      description: Operator only (R25.5, R25.7). Unhandled first, then newest first; at most 500.
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: The leads.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [leads]
+                properties:
+                  leads:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/VenueLead"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/NotOperator"
+        "500":
+          $ref: "#/components/responses/Internal"
+  /operator/venue-leads/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        description: Lead id. An unknown id answers 404.
+        schema:
+          type: integer
+          format: int64
+          minimum: 1
+    patch:
+      tags: [operator]
+      operationId: setVenueLeadHandled
+      summary: Mark a venue lead handled
+      description: |
+        Operator only (R25.6, R25.7). `handled: true` sets `handled_at`,
+        keeping the first time if it was already set; `false` clears it.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [handled]
+              properties:
+                handled:
+                  type: boolean
+      responses:
+        "200":
+          description: The lead.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VenueLead"
+        "400":
+          $ref: "#/components/responses/InvalidRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/NotOperator"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          description: "`nothing_to_update`: `handled` missing or null."
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Error"
+                  - properties:
+                      error:
+                        const: nothing_to_update
+        "500":
+          $ref: "#/components/responses/Internal"
   /operator/venues:
     post:
       tags: [operator]
@@ -2927,6 +3070,13 @@ components:
         - fixture_cancelled
         - match_cancelled
         - fixture_match
+        - invalid_contact_name
+        - invalid_venue_name
+        - invalid_city
+        - contact_required
+        - invalid_phone
+        - invalid_message
+        - too_many_leads
     AlreadyMemberError:
       type: object
       required: [error, status]
@@ -4022,3 +4172,51 @@ components:
                 $ref: "#/components/schemas/Ref"
               away:
                 $ref: "#/components/schemas/Ref"
+    SendVenueLeadRequest:
+      type: object
+      additionalProperties: false
+      required: [contact_name, venue_name, city]
+      description: "`phone`, `email` or both. An empty string counts as absent."
+      properties:
+        contact_name:
+          type: string
+        venue_name:
+          type: string
+        city:
+          type: string
+        phone:
+          type: string
+        email:
+          type: string
+        message:
+          type: string
+    VenueLead:
+      type: object
+      required: [id, user_id, contact_name, venue_name, city, phone, email, message, created_at, handled_at]
+      properties:
+        id:
+          type: integer
+          format: int64
+        user_id:
+          type: [integer, "null"]
+          format: int64
+          description: The sender; null once they delete their account (R25.8).
+        contact_name:
+          type: string
+        venue_name:
+          type: string
+        city:
+          type: string
+        phone:
+          type: [string, "null"]
+        email:
+          type: [string, "null"]
+          description: Lowercased.
+        message:
+          type: [string, "null"]
+        created_at:
+          $ref: "#/components/schemas/Timestamp"
+        handled_at:
+          oneOf:
+            - $ref: "#/components/schemas/Timestamp"
+            - type: "null"

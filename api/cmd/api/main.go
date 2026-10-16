@@ -17,6 +17,7 @@ import (
 	"github.com/orrrrli/locker/api/internal/application/auth"
 	"github.com/orrrrli/locker/api/internal/application/charges"
 	"github.com/orrrrli/locker/api/internal/application/invites"
+	"github.com/orrrrli/locker/api/internal/application/leads"
 	"github.com/orrrrli/locker/api/internal/application/leagues"
 	"github.com/orrrrli/locker/api/internal/application/matches"
 	applicationmemberships "github.com/orrrrli/locker/api/internal/application/memberships"
@@ -125,6 +126,7 @@ func start() error {
 		Notices: notificationSvc,
 	})
 	pageSvc := pages.NewService(pages.Deps{Pages: postgres.NewPages(pool), Memberships: memberships})
+	leadSvc := leads.NewService(leads.Deps{Tx: postgres.NewTxRunner(pool), Leads: postgres.NewVenueLeads(pool)})
 	router := apihttp.NewRouter(apihttp.Deps{
 		Auth:               authSvc,
 		Teams:              teamSvc,
@@ -137,6 +139,7 @@ func start() error {
 		Venues:             venueSvc,
 		Leagues:            leagueSvc,
 		Pages:              pageSvc,
+		Leads:              leadSvc,
 		MatchFinder:        matchRepo,
 		ChargeFinder:       chargeRepo,
 		AppleAppID:         cfg.AppleAppID,
