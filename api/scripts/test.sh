@@ -4,21 +4,24 @@
 # tests ./..., e.g.:
 #   api/scripts/test.sh -count=1
 #   api/scripts/test.sh -run TestUpdateTeam ./internal/http/
-# Reuses locker-test-pg if it is already running; otherwise starts it and
-# stops it on exit (--rm also deletes leftover test_* databases).
-# One run at a time: the run that started the container stops it when it
-# ends, even if another run is still using it.
+# Each run starts its own container (locker-test-pg-<pid>) on a free port and
+# stops it on exit (--rm also deletes it and its test_* databases), so several
+# runs can go at the same time without stopping each other's Postgres (#195).
 set -euo pipefail
 
-name=locker-test-pg
-port=55432
+name="locker-test-pg-$$"
 api="$(cd "$(dirname "$0")/.." && pwd)"
 
-if [ "$(docker inspect -f '{{.State.Running}}' "$name" 2>/dev/null)" != "true" ]; then
-  docker run -d --rm --name "$name" -e POSTGRES_PASSWORD=test -e POSTGRES_DB=locker_test \
-    -p "127.0.0.1:$port:5432" postgres:17-alpine >/dev/null
-  trap 'docker stop "$name" >/dev/null' EXIT
+# -p 127.0.0.1::5432 lets Docker pick a free host port; `docker port` reads it back.
+docker run -d --rm --name "$name" -e POSTGRES_PASSWORD=test -e POSTGRES_DB=locker_test \
+  -p "127.0.0.1::5432" postgres:17-alpine >/dev/null
+trap 'docker stop "$name" >/dev/null' EXIT
+port="$(docker port "$name" 5432/tcp | head -n 1 | sed 's/.*://')"
+if [ -z "$port" ]; then
+  echo "could not read the host port of $name; check: docker port $name" >&2
+  exit 1
 fi
+
 # -h 127.0.0.1: TCP, not the socket, which is up during first-boot init.
 tries=0
 until docker exec "$name" pg_isready -q -h 127.0.0.1 -U postgres -d locker_test 2>/dev/null; do
