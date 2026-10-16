@@ -311,3 +311,10 @@ func textPtr(t pgtype.Text) *string {
 func positionPtr(t pgtype.Text) *domain.Position {
 	return (*domain.Position)(textPtr(t))
 }
+
+// SetPushMuted mutes or unmutes pushes for an active membership and returns
+// the updated row, or domain.ErrNotFound when it is not active.
+func (r *Memberships) SetPushMuted(ctx context.Context, id int64, muted bool) (domain.Membership, error) {
+	row, err := sqlcdb.New(Conn(ctx, r.pool)).SetMembershipPushMuted(ctx, sqlcdb.SetMembershipPushMutedParams{ID: id, PushMuted: muted})
+	return membershipOrNotFound(row, err, "set membership push muted")
+}

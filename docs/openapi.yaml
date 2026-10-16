@@ -1172,6 +1172,9 @@ paths:
         - `shirt_number` and/or `position`: edit the profile. Any active member
           can edit their own; editing someone else's is admin only. Answers 200
           with the Membership.
+        - `push_muted`: mute or unmute pushes from this team (R11.6). Own
+          membership only, for anyone, admins included; another member's is
+          403. Notices still land in the inbox. Answers 200 with the Membership.
 
         Any active member of the team passes the route check; the admin check
         runs in the use case and answers 403 `forbidden`. Body validation
@@ -1322,7 +1325,10 @@ paths:
       description: |
         Admins only. `starts_at` is any RFC 3339 time within years 1 to 9999
         in UTC; it is stored and returned in UTC. Rival and location are free
-        text, trimmed.
+        text, trimmed. Every active member gets a `match_created` notice
+        (R11.4), stored with the match and pushed after it is saved: title
+        "Partido nuevo: vs. <rival>", body like "Mar 20 · 19:00 · Cancha 3."
+        with the time in the team's timezone.
       security:
         - bearerAuth: []
       requestBody:
@@ -1578,7 +1584,10 @@ paths:
       description: |
         Admins of the match's team only. Send any of the fields; an absent or
         null field keeps its value. Once attendance is saved, `starts_at`
-        cannot change: schedule a new match instead.
+        cannot change: schedule a new match instead. When the time or the
+        location actually changes, every active member gets a `match_changed`
+        notice ("Cambio de partido: vs. <rival>", body with the new values);
+        a change of rival alone sends none (R11.4).
       security:
         - bearerAuth: []
       requestBody:
@@ -2552,7 +2561,7 @@ components:
     Membership:
       type: object
       description: Returned by PATCH /memberships/{id}.
-      required: [id, team_id, role, status, shirt_number, position]
+      required: [id, team_id, role, status, shirt_number, position, push_muted]
       properties:
         id:
           type: integer
@@ -2574,6 +2583,9 @@ components:
           oneOf:
             - $ref: "#/components/schemas/Position"
             - type: "null"
+        push_muted:
+          type: boolean
+          description: True when this member muted pushes from the team (R11.6).
     RosterMember:
       type: object
       required: [id, name, role, status, shirt_number, position]
@@ -2606,6 +2618,14 @@ components:
         - $ref: "#/components/schemas/RoleChange"
         - $ref: "#/components/schemas/DecisionChange"
         - $ref: "#/components/schemas/ProfileChange"
+        - $ref: "#/components/schemas/PushMutedChange"
+    PushMutedChange:
+      type: object
+      additionalProperties: false
+      required: [push_muted]
+      properties:
+        push_muted:
+          type: boolean
     RoleChange:
       type: object
       additionalProperties: false

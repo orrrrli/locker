@@ -115,17 +115,19 @@ func NewService(d Deps) *Service {
 //
 // Never call Send inside another InTx: it would join that transaction and
 // push before the caller commits, so a rollback leaves a push with no notice.
+// A use case that writes a notice with other rows calls Store in its own
+// transaction and Deliver after it commits.
 func (s *Service) Send(ctx context.Context, n domain.Notification) (domain.Notification, error) {
 	var out domain.Notification
 	err := s.tx.InTx(ctx, func(ctx context.Context) error {
 		var err error
-		out, err = s.notifications.InsertNotification(ctx, n)
+		out, err = s.Store(ctx, n)
 		return err
 	})
 	if err != nil {
 		return domain.Notification{}, err
 	}
-	s.pushStored(ctx, out)
+	s.Deliver(ctx, out)
 	return out, nil
 }
 
@@ -174,26 +176,34 @@ func (s *Service) SendManual(ctx context.Context, teamID, callerID int64, title,
 	if err != nil {
 		return domain.Notification{}, err
 	}
-	s.pushStored(ctx, out)
+	s.Deliver(ctx, out)
 	return out, nil
 }
 
-// pushStored delivers a committed notice to the recipients who have not
-// muted the team (R11.6). It runs after the transaction, so a rollback never
-// leaves a push with no notice.
-func (s *Service) pushStored(ctx context.Context, out domain.Notification) {
+// Store writes the notice and one inbox copy per active member of n.TeamID.
+// It must run inside the caller's transaction, so the notice lands with the
+// rows it is about or not at all (R11.4). Pass what it returns to Deliver
+// once that transaction commits.
+func (s *Service) Store(ctx context.Context, n domain.Notification) (domain.Notification, error) {
+	return s.notifications.InsertNotification(ctx, n)
+}
+
+// Deliver pushes a stored notice to the members who have not muted the team
+// (R11.6). Call it only after the transaction that stored the notice
+// commits. It never fails: the notice is already in the inbox, and a lost
+// push is only lost delivery.
+func (s *Service) Deliver(ctx context.Context, n domain.Notification) {
 	if s.push == nil {
 		return
 	}
-	tokens, err := s.notifications.PushTokens(ctx, out.ID)
+	tokens, err := s.notifications.PushTokens(ctx, n.ID)
 	if err != nil {
-		// The notice is stored; only delivery is lost, so the send succeeds.
 		// ponytail: the error is dropped unlogged; the application layer has
 		// no logger. Log it here once BE-NOTIF-2 brings one for push failures.
 		return
 	}
 	if len(tokens) > 0 {
-		s.push.Push(ctx, out, tokens)
+		s.push.Push(ctx, n, tokens)
 	}
 }
 

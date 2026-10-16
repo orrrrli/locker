@@ -72,17 +72,19 @@ func newAPI(t *testing.T, now func() time.Time) apiTest {
 		Memberships: memberships,
 		Users:       postgres.NewUsers(pool),
 	})
+	notificationRepo := postgres.NewNotifications(pool)
+	notificationSvc := notifications.NewService(notifications.Deps{
+		Tx: postgres.NewTxRunner(pool), Notifications: notificationRepo,
+		Memberships: memberships, Teams: postgres.NewTeams(pool), Now: now,
+	})
 	matchRepo := postgres.NewMatches(pool)
 	matchSvc := matches.NewService(matches.Deps{
 		Tx:          postgres.NewTxRunner(pool),
 		Matches:     matchRepo,
 		Memberships: memberships,
+		Teams:       postgres.NewTeams(pool),
+		Notices:     notificationSvc,
 		Now:         now,
-	})
-	notificationRepo := postgres.NewNotifications(pool)
-	notificationSvc := notifications.NewService(notifications.Deps{
-		Tx: postgres.NewTxRunner(pool), Notifications: notificationRepo,
-		Memberships: memberships, Teams: postgres.NewTeams(pool), Now: now,
 	})
 	chargeRepo := postgres.NewCharges(pool)
 	chargeSvc := charges.NewService(charges.Deps{

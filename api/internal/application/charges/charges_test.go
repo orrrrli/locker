@@ -12,6 +12,7 @@ import (
 	"github.com/orrrrli/locker/api/internal/application"
 	"github.com/orrrrli/locker/api/internal/application/charges"
 	"github.com/orrrrli/locker/api/internal/application/matches"
+	"github.com/orrrrli/locker/api/internal/application/notifications"
 	"github.com/orrrrli/locker/api/internal/application/teams"
 	"github.com/orrrrli/locker/api/internal/domain"
 	"github.com/orrrrli/locker/api/internal/infrastructure/postgres"
@@ -52,6 +53,10 @@ func newFixture(t *testing.T) fixture {
 	matchRepo := postgres.NewMatches(pool)
 	matchSvc := matches.NewService(matches.Deps{
 		Tx: postgres.NewTxRunner(pool), Matches: matchRepo, Memberships: members,
+		Teams: postgres.NewTeams(pool),
+		Notices: notifications.NewService(notifications.Deps{
+			Tx: postgres.NewTxRunner(pool), Notifications: postgres.NewNotifications(pool),
+		}),
 		Now: func() time.Time { return now },
 	})
 	svc := charges.NewService(charges.Deps{
