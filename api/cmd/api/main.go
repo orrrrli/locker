@@ -72,9 +72,10 @@ func start() error {
 	limits := apihttp.NewLimits(nil)
 	memberships := postgres.NewMemberships(pool)
 	// Push stays nil (inbox only) until the APNs sender, BE-NOTIF-2.
+	notificationRepo := postgres.NewNotifications(pool)
 	notificationSvc := notifications.NewService(notifications.Deps{
 		Tx:            postgres.NewTxRunner(pool),
-		Notifications: postgres.NewNotifications(pool),
+		Notifications: notificationRepo,
 		Memberships:   memberships,
 		Teams:         postgres.NewTeams(pool),
 	})
@@ -128,26 +129,27 @@ func start() error {
 	pageSvc := pages.NewService(pages.Deps{Pages: postgres.NewPages(pool), Memberships: memberships})
 	leadSvc := leads.NewService(leads.Deps{Tx: postgres.NewTxRunner(pool), Leads: postgres.NewVenueLeads(pool)})
 	router := apihttp.NewRouter(apihttp.Deps{
-		Auth:          authSvc,
-		Teams:         teamSvc,
-		Invites:       inviteSvc,
-		Members:       memberSvc,
-		Account:       accountSvc,
-		Matches:       matchSvc,
-		Charges:       chargeSvc,
-		Notifications: notificationSvc,
-		Venues:        venueSvc,
-		Leagues:       leagueSvc,
-		Pages:         pageSvc,
-		Leads:         leadSvc,
-		MatchFinder:   matchRepo,
-		ChargeFinder:  chargeRepo,
-		AppleAppID:    cfg.AppleAppID,
-		DownloadURL:   cfg.DownloadURL,
-		Memberships:   memberships,
-		Users:         postgres.NewUsers(pool),
-		LoginLimiter:  loginLimiter,
-		Limits:        limits,
+		Auth:               authSvc,
+		Teams:              teamSvc,
+		Invites:            inviteSvc,
+		Members:            memberSvc,
+		Account:            accountSvc,
+		Matches:            matchSvc,
+		Charges:            chargeSvc,
+		Notifications:      notificationSvc,
+		Venues:             venueSvc,
+		Leagues:            leagueSvc,
+		Pages:              pageSvc,
+		Leads:              leadSvc,
+		MatchFinder:        matchRepo,
+		ChargeFinder:       chargeRepo,
+		AppleAppID:         cfg.AppleAppID,
+		DownloadURL:        cfg.DownloadURL,
+		Memberships:        memberships,
+		Users:              postgres.NewUsers(pool),
+		LoginLimiter:       loginLimiter,
+		Limits:             limits,
+		NotificationFinder: notificationRepo,
 	})
 
 	go tick(ctx, tickEvery, func(ctx context.Context) {

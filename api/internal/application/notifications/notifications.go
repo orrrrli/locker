@@ -49,6 +49,10 @@ type Notifications interface {
 	UnregisterDevice(ctx context.Context, userID int64, token string) error
 	// TrimDevices deletes the user's tokens beyond the keep most recently seen.
 	TrimDevices(ctx context.Context, userID int64, keep int) error
+	// NotificationByID returns domain.ErrNotFound for an unknown notice.
+	NotificationByID(ctx context.Context, id int64) (domain.Notification, error)
+	// Receipts returns every recipient of the notice with their read time.
+	Receipts(ctx context.Context, notificationID int64) ([]domain.Receipt, error)
 	// CountManualSince counts the team's manual notices created at or after
 	// since.
 	CountManualSince(ctx context.Context, teamID int64, since time.Time) (int, error)
@@ -217,6 +221,46 @@ func (s *Service) Inbox(ctx context.Context, userID int64, before *int64) (items
 		next = &items[PageSize-1].ID
 	}
 	return items, next, nil
+}
+
+// Receipts is "opened by X of Y" plus who has not opened yet (R11.10). On a
+// manual notice the sender is left out of both: their copy is marked read
+// at send time, so it would inflate the count.
+type Receipts struct {
+	NotificationID int64
+	OpenedCount    int
+	RecipientCount int
+	NotOpened      []domain.Receipt
+}
+
+// Receipts returns the read receipts of a notice of the team, manual or
+// automatic (R11.9, R11.10). A notice of another team is domain.ErrNotFound,
+// so ids reveal nothing. Callers check the caller is an admin of teamID.
+func (s *Service) Receipts(ctx context.Context, teamID, notificationID int64) (Receipts, error) {
+	n, err := s.notifications.NotificationByID(ctx, notificationID)
+	if err != nil {
+		return Receipts{}, err
+	}
+	if n.TeamID != teamID {
+		return Receipts{}, domain.ErrNotFound
+	}
+	all, err := s.notifications.Receipts(ctx, n.ID)
+	if err != nil {
+		return Receipts{}, err
+	}
+	out := Receipts{NotificationID: n.ID, NotOpened: []domain.Receipt{}}
+	for _, r := range all {
+		if n.SentBy != nil && r.MembershipID == *n.SentBy {
+			continue
+		}
+		out.RecipientCount++
+		if r.ReadAt != nil {
+			out.OpenedCount++
+		} else {
+			out.NotOpened = append(out.NotOpened, r)
+		}
+	}
+	return out, nil
 }
 
 // MarkRead records that the user opened the notice, from the inbox or the

@@ -130,3 +130,11 @@ FROM membership m
 JOIN team t ON t.id = m.team_id
 WHERE m.user_id = $1 AND m.status = 'pending'
 ORDER BY coalesce(m.pending_since, m.created_at) DESC, m.id DESC;
+
+-- name: SetMembershipPushMuted :one
+-- A member mutes or unmutes pushes from one team (R11.6); the inbox is not
+-- affected. Only an active membership changes.
+UPDATE membership
+SET push_muted = $2
+WHERE id = $1 AND status = 'active'
+RETURNING *;
