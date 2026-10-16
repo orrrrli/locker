@@ -4,11 +4,13 @@ import (
 	"context"
 	"errors"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/orrrrli/locker/api/internal/application"
 	"github.com/orrrrli/locker/api/internal/application/notifications"
 	"github.com/orrrrli/locker/api/internal/application/teams"
 	"github.com/orrrrli/locker/api/internal/domain"
@@ -260,5 +262,124 @@ func TestSendAutomaticNotice(t *testing.T) {
 	}
 	if want := []string{"ana-iphone"}; !slices.Equal(push.tokens, want) {
 		t.Fatalf("tokens = %v, want %v", push.tokens, want)
+	}
+}
+
+// manualService wires SendManual's extra dependencies on the fixture with a
+// clock the test moves.
+func (f fixture) manualService(now *time.Time, push notifications.Pusher) *notifications.Service {
+	return notifications.NewService(notifications.Deps{
+		Tx: postgres.NewTxRunner(f.pool), Notifications: postgres.NewNotifications(f.pool), Push: push,
+		Memberships: postgres.NewMemberships(f.pool), Teams: postgres.NewTeams(f.pool),
+		Now: func() time.Time { return *now },
+	})
+}
+
+// A manual notice from an admin reaches every active member, the sender's
+// copy read, and is pushed after commit like any notice (R11.2, R11.6).
+func TestSendManualGoesToActiveMembers(t *testing.T) {
+	f := newFixture(t)
+	player, playerUser := addMember(t, f, "player@example.com", "active")
+	addMember(t, f, "pending@example.com", "pending")
+	addToken(t, f, playerUser, "tok-player")
+	now := time.Date(2026, 10, 20, 12, 0, 0, 0, time.UTC)
+	push := &fakePusher{pool: f.pool}
+
+	n, err := f.manualService(&now, push).SendManual(context.Background(), f.team, f.admin, "  Cancha 3 ", "Hoy cambiamos\r\nde cancha")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n.TeamID != f.team || n.Kind != domain.NotificationManual || n.Title != "Cancha 3" || n.Body != "Hoy cambiamos\nde cancha" ||
+		n.SentBy == nil || *n.SentBy != f.admin || n.MatchID != nil {
+		t.Fatalf("notice = %+v", n)
+	}
+	if got := recipients(t, f, n.ID, false); !slices.Equal(got, []int64{player}) {
+		t.Fatalf("unread recipients = %v, want the player only", got)
+	}
+	if got := recipients(t, f, n.ID, true); !slices.Equal(got, []int64{f.admin}) {
+		t.Fatalf("read recipients = %v, want the sender only", got)
+	}
+	if push.calls != 1 || !slices.Equal(push.tokens, []string{"tok-player"}) || !push.committed || push.err != nil {
+		t.Fatalf("push = %+v, want one committed push to the player", push)
+	}
+}
+
+// The team sends 10 manual notices per local day in its timezone (R11.3).
+// Pumas is in America/Tijuana (UTC-7 in October): at 23:30 local the day's
+// budget is spent, and at 00:30 local, still the same UTC day, it is new.
+// Automatic notices never count.
+func TestSendManualDailyLimitInTeamTimezone(t *testing.T) {
+	f := newFixture(t)
+	ctx := context.Background()
+	// 2026-10-20 06:30 UTC is 2026-10-19 23:30 in Tijuana.
+	now := time.Date(2026, 10, 20, 6, 30, 0, 0, time.UTC)
+	svc := f.manualService(&now, nil)
+	if _, err := svc.Send(ctx, domain.Notification{TeamID: f.team, Kind: domain.NotificationMatchCreated, Title: "Partido", Body: "vs Halcones"}); err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < notifications.MaxManualPerDay; i++ {
+		if _, err := svc.SendManual(ctx, f.team, f.admin, "Aviso", "x"); err != nil {
+			t.Fatalf("notice %d: %v", i+1, err)
+		}
+	}
+	if _, err := svc.SendManual(ctx, f.team, f.admin, "Aviso", "x"); !errors.Is(err, notifications.ErrDailyLimit) {
+		t.Fatalf("11th notice: %v, want ErrDailyLimit", err)
+	}
+	// 23:59:59 local: still today.
+	now = time.Date(2026, 10, 20, 6, 59, 59, 0, time.UTC)
+	if _, err := svc.SendManual(ctx, f.team, f.admin, "Aviso", "x"); !errors.Is(err, notifications.ErrDailyLimit) {
+		t.Fatalf("at 23:59:59 local: %v, want ErrDailyLimit", err)
+	}
+	// 00:00 local: a new day, though the UTC date has not changed.
+	now = time.Date(2026, 10, 20, 7, 0, 0, 0, time.UTC)
+	if _, err := svc.SendManual(ctx, f.team, f.admin, "Aviso", "x"); err != nil {
+		t.Fatalf("at 00:00 local: %v, want a new day's budget", err)
+	}
+	// The limit is per team: another team is untouched.
+	otherUser := newUser(t, f.pool, "bob@example.com")
+	other, err := teams.NewService(teams.Deps{Tx: postgres.NewTxRunner(f.pool), Teams: postgres.NewTeams(f.pool), Memberships: postgres.NewMemberships(f.pool)}).
+		Create(ctx, otherUser, "Otros", "America/Tijuana")
+	if err != nil {
+		t.Fatal(err)
+	}
+	otherAdmin, err := postgres.NewMemberships(f.pool).MembershipByTeamAndUser(ctx, other.ID, otherUser)
+	if err != nil {
+		t.Fatal(err)
+	}
+	now = time.Date(2026, 10, 20, 6, 30, 0, 0, time.UTC)
+	if _, err := svc.SendManual(ctx, other.ID, otherAdmin.ID, "Aviso", "x"); err != nil {
+		t.Fatalf("other team: %v", err)
+	}
+}
+
+func TestSendManualValidatesAndRechecksTheCaller(t *testing.T) {
+	f := newFixture(t)
+	ctx := context.Background()
+	player, _ := addMember(t, f, "player@example.com", "active")
+	now := time.Date(2026, 10, 20, 12, 0, 0, 0, time.UTC)
+	svc := f.manualService(&now, nil)
+	long := strings.Repeat("a", 1001)
+	for _, tc := range []struct {
+		name, title, body string
+		caller            int64
+		want              error
+	}{
+		{"empty title", " ", "x", f.admin, notifications.ErrInvalidTitle},
+		{"long title", strings.Repeat("a", 81), "x", f.admin, notifications.ErrInvalidTitle},
+		{"title with a line break", "a\nb", "x", f.admin, notifications.ErrInvalidTitle},
+		{"empty body", "x", "\n\n", f.admin, notifications.ErrInvalidBody},
+		{"long body", "x", long, f.admin, notifications.ErrInvalidBody},
+		{"body with a control character", "x", "a\x00b", f.admin, notifications.ErrInvalidBody},
+		{"body with an invisible character", "x", "a​b", f.admin, notifications.ErrInvalidBody},
+		{"player caller", "x", "x", player, application.ErrNotAdmin},
+		{"unknown caller", "x", "x", 999_999, domain.ErrNotFound},
+	} {
+		if _, err := svc.SendManual(ctx, f.team, tc.caller, tc.title, tc.body); !errors.Is(err, tc.want) {
+			t.Errorf("%s: %v, want %v", tc.name, err, tc.want)
+		}
+	}
+	var n int
+	if err := f.pool.QueryRow(ctx, `SELECT count(*) FROM notification`).Scan(&n); err != nil || n != 0 {
+		t.Fatalf("%d notices stored after refused sends (%v), want 0", n, err)
 	}
 }
