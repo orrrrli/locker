@@ -20,6 +20,7 @@ var (
 	ErrInvalidCourtName   = errors.New("court name must be 1 to 30 characters, with no invisible characters")
 	ErrCourtNameTaken     = errors.New("the venue already has a court with that name")
 	ErrLastCourt          = errors.New("a venue needs at least one court; add another before removing this one")
+	ErrCourtInUse         = errors.New("the court has league fixtures, cancelled ones included, and cannot be removed")
 	ErrNothingToUpdate    = errors.New("send at least one field to change")
 	ErrInvalidNear        = errors.New("near must be latitude,longitude, with latitude -90 to 90 and longitude -180 to 180")
 )
@@ -46,7 +47,8 @@ type Venues interface {
 	LockVenue(ctx context.Context, id int64) error
 	// CreateCourt and UpdateCourt return domain.ErrAlreadyExists when the
 	// name is taken in the venue. UpdateCourt and DeleteCourt return
-	// domain.ErrNotFound when the venue has no such court.
+	// domain.ErrNotFound when the venue has no such court. DeleteCourt
+	// returns domain.ErrInUse when a fixture or match refers to the court.
 	CreateCourt(ctx context.Context, venueID int64, name string) (domain.Court, error)
 	ListCourts(ctx context.Context, venueID int64) ([]domain.Court, error)
 	CountCourts(ctx context.Context, venueID int64) (int, error)
@@ -215,7 +217,8 @@ func (s *Service) RenameCourt(ctx context.Context, venueID, courtID int64, name 
 }
 
 // RemoveCourt deletes a court of the venue, unless it is the venue's last
-// one (R15.3). The check runs in the delete's transaction under the venue
+// one (R15.3) or a fixture was ever set on it: fixtures and their matches,
+// cancelled ones included, keep pointing at their court (ErrCourtInUse). The check runs in the delete's transaction under the venue
 // lock, which every court write takes first: two deletes of a venue's last
 // two courts run one after the other, and the second sees the first's.
 func (s *Service) RemoveCourt(ctx context.Context, venueID, courtID int64) error {
@@ -224,6 +227,9 @@ func (s *Service) RemoveCourt(ctx context.Context, venueID, courtID int64) error
 			return err
 		}
 		if err := s.venues.DeleteCourt(ctx, venueID, courtID); err != nil {
+			if errors.Is(err, domain.ErrInUse) {
+				return ErrCourtInUse
+			}
 			return err
 		}
 		// Counted after the delete, so an unknown court is a 404 above, not

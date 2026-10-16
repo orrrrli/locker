@@ -127,9 +127,14 @@ func (r *Venues) UpdateCourt(ctx context.Context, venueID, id int64, name string
 	return domain.Court{ID: row.ID, VenueID: row.VenueID, Name: row.Name}, nil
 }
 
-// DeleteCourt returns domain.ErrNotFound when the venue has no such court.
+// DeleteCourt returns domain.ErrNotFound when the venue has no such court,
+// and domain.ErrInUse when a fixture or match still refers to it.
 func (r *Venues) DeleteCourt(ctx context.Context, venueID, id int64) error {
 	n, err := sqlcdb.New(Conn(ctx, r.pool)).DeleteCourt(ctx, sqlcdb.DeleteCourtParams{VenueID: venueID, ID: id})
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) && pgErr.Code == foreignKeyViolationCode {
+		return domain.ErrInUse
+	}
 	if err != nil {
 		return fmt.Errorf("postgres: delete court: %w", err)
 	}

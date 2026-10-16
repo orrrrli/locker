@@ -99,6 +99,32 @@ func TestPublicTeamPage(t *testing.T) {
 }
 
 // TestVenuePageGroupsLeaguesByWeekday (R17.7): Monday first, then by start.
+// TestTeamWithNoEnrollmentHasNoVenue (R16.10): a team reaches a venue only
+// through a league enrollment. One never enrolled, and one whose enrollment
+// was removed, list no league and so no venue: [] on the page, not null.
+func TestTeamWithNoEnrollmentHasNoVenue(t *testing.T) {
+	s := setupFixtures(t)
+	_, loneToken := signUp(t, s.api, "solos@example.com")
+	lone := createTeam(t, s.api, loneToken, "Solos", "America/Tijuana")
+	unenroll := fmt.Sprintf("%s/teams/%d", leaguePath(s.league.ID), s.away.ID)
+	if rec := s.api.do(t, http.MethodDelete, unenroll, s.op, nil); rec.Code != http.StatusNoContent {
+		t.Fatalf("DELETE enrollment = %d %s", rec.Code, rec.Body)
+	}
+	for _, team := range []teamJSON{lone, s.away} {
+		var got map[string]json.RawMessage
+		getJSON(t, s.api, fmt.Sprintf("/teams/%d/public", team.ID), loneToken, &got)
+		if string(got["leagues"]) != "[]" {
+			t.Errorf("%s: leagues = %s, want [] (no enrollment, no venue)", team.Name, got["leagues"])
+		}
+	}
+	// The enrolled team still shows its league's venue.
+	var home publicTeamJSON
+	getJSON(t, s.api, fmt.Sprintf("/teams/%d/public", s.home.ID), loneToken, &home)
+	if len(home.Leagues) != 1 || home.Leagues[0].Venue.ID != s.venue.ID {
+		t.Fatalf("enrolled team leagues = %+v, want its one league at venue %d", home.Leagues, s.venue.ID)
+	}
+}
+
 func TestVenuePageGroupsLeaguesByWeekday(t *testing.T) {
 	s := setupFixtures(t) // a Tuesday 20:00 league
 	for _, l := range []map[string]any{

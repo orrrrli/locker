@@ -256,6 +256,7 @@ var venueErrors = errorMap{
 	{venues.ErrNothingToUpdate, http.StatusUnprocessableEntity, "nothing_to_update"},
 	{venues.ErrCourtNameTaken, http.StatusConflict, "court_name_taken"},
 	{venues.ErrLastCourt, http.StatusConflict, "last_court"},
+	{venues.ErrCourtInUse, http.StatusConflict, "court_in_use"},
 	{venues.ErrInvalidNear, http.StatusUnprocessableEntity, "invalid_near"},
 	{domain.ErrNotFound, http.StatusNotFound, "not_found"},
 }

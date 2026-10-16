@@ -2362,7 +2362,9 @@ paths:
         Operator only. A venue keeps at least one court (R15.3): removing the
         last one answers 409 `last_court`, checked in the delete's
         transaction under the venue lock, so two removals at once cannot
-        both pass.
+        both pass. A court that any fixture used, cancelled ones included,
+        answers 409 `court_in_use`: its fixtures and matches keep pointing
+        at it.
       security:
         - bearerAuth: []
       responses:
@@ -2377,6 +2379,7 @@ paths:
         "409":
           description: |
             - `last_court`: it is the venue's only court; add another first.
+            - `court_in_use`: a fixture was set on this court, even a cancelled one.
           content:
             application/json:
               schema:
@@ -2384,7 +2387,7 @@ paths:
                   - $ref: "#/components/schemas/Error"
                   - properties:
                       error:
-                        enum: [last_court]
+                        enum: [last_court, court_in_use]
         "500":
           $ref: "#/components/responses/Internal"
 
@@ -3059,6 +3062,7 @@ components:
         - invalid_court_name
         - court_name_taken
         - last_court
+        - court_in_use
         - invalid_near
         - invalid_weekday
         - invalid_window
