@@ -59,3 +59,26 @@ type Enrollment struct {
 	TeamID     int64
 	EnrolledAt time.Time
 }
+
+// Fixture is a league game between two enrolled teams on a court of the
+// league's venue. Creating it creates one Match per team, linked by
+// FixtureID; changing or cancelling it changes or cancels both (design.md
+// fixture creation flow).
+type Fixture struct {
+	ID          int64
+	LeagueID    int64
+	HomeTeamID  int64
+	AwayTeamID  int64
+	CourtID     int64
+	StartsAt    time.Time // UTC
+	CancelledAt *time.Time
+	CreatedAt   time.Time
+}
+
+// FixtureCourt is a court as a fixture needs it: the place text of its
+// matches and the venue's timezone, which the league window is in.
+type FixtureCourt struct {
+	CourtName string
+	VenueName string
+	Timezone  string
+}

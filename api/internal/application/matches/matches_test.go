@@ -95,7 +95,7 @@ func TestCreateStoresUTC(t *testing.T) {
 	if !m.StartsAt.Equal(want) || m.StartsAt.Location() != time.UTC {
 		t.Fatalf("starts_at = %v, want %v in UTC", m.StartsAt, want)
 	}
-	if m.RivalName != "Halcones" || m.Location != "Cancha 3" || m.CreatedBy != f.admin || m.TeamID != f.team {
+	if m.RivalName != "Halcones" || m.Location != "Cancha 3" || m.CreatedBy == nil || *m.CreatedBy != f.admin || m.TeamID != f.team {
 		t.Fatalf("match = %+v", m)
 	}
 	list, err := f.svc.List(ctx, f.team)

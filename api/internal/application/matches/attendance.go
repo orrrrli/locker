@@ -59,6 +59,9 @@ func (s *Service) SaveAttendance(ctx context.Context, teamID, callerID, matchID 
 		if err != nil {
 			return err
 		}
+		if m.CancelledAt != nil {
+			return ErrMatchCancelled
+		}
 		now := s.now().UTC()
 		if now.Before(m.StartsAt) {
 			return ErrMatchNotStarted

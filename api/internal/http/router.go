@@ -143,6 +143,9 @@ func NewRouter(d Deps) http.Handler {
 	op.HandleFunc("PATCH /operator/leagues/{id}", lg.update)
 	op.HandleFunc("POST /operator/leagues/{id}/teams", lg.enroll)
 	op.HandleFunc("DELETE /operator/leagues/{id}/teams/{teamId}", lg.unenroll)
+	op.HandleFunc("POST /operator/leagues/{id}/fixtures", lg.createFixture)
+	op.HandleFunc("PATCH /operator/leagues/{id}/fixtures/{fixtureId}", lg.updateFixture)
+	op.HandleFunc("DELETE /operator/leagues/{id}/fixtures/{fixtureId}", lg.cancelFixture)
 	return operatorFirst(a.requireAuth(z.requireOperator(jsonMisses(op))), jsonMisses(mux))
 }
 

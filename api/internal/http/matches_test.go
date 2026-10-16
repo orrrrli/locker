@@ -20,7 +20,7 @@ func unmarshalMatch(t *testing.T, b []byte) matchJSON {
 	if err := json.Unmarshal(b, &raw); err != nil {
 		t.Fatal(err)
 	}
-	if keys, want := slices.Sorted(maps.Keys(raw)), []string{"id", "location", "rival_name", "starts_at", "team_id"}; !slices.Equal(keys, want) {
+	if keys, want := slices.Sorted(maps.Keys(raw)), []string{"cancelled_at", "court_id", "fixture_id", "id", "location", "rival_name", "starts_at", "team_id"}; !slices.Equal(keys, want) {
 		t.Fatalf("match keys = %v, want %v", keys, want)
 	}
 	var m matchJSON
@@ -419,7 +419,7 @@ func TestUpcomingMatchesShapeAndQuery(t *testing.T) {
 			t.Fatalf("matches = %s, want one", rec.Body)
 		}
 		got := body.Matches[0]
-		want := []string{"answer", "going_count", "id", "location", "not_going_count", "rival_name", "role", "starts_at", "team_id", "team_name"}
+		want := []string{"answer", "cancelled_at", "court_id", "fixture_id", "going_count", "id", "location", "not_going_count", "rival_name", "role", "starts_at", "team_id", "team_name"}
 		if keys := slices.Sorted(maps.Keys(got)); !slices.Equal(keys, want) {
 			t.Fatalf("keys = %v, want %v", keys, want)
 		}

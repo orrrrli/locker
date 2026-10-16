@@ -44,6 +44,7 @@ type Leagues interface {
 	// league; UnenrollTeam returns domain.ErrNotFound for one that is not.
 	EnrollTeam(ctx context.Context, leagueID, teamID int64) (domain.Enrollment, error)
 	UnenrollTeam(ctx context.Context, leagueID, teamID int64) error
+	Fixtures
 }
 
 // Teams is what enrollment needs to see a team and keep it from being
@@ -59,16 +60,23 @@ type Deps struct {
 	Tx      application.TxRunner
 	Leagues Leagues
 	Teams   Teams
+	Notices Notices
+	Now     func() time.Time // nil means time.Now
 }
 
 type Service struct {
 	tx      application.TxRunner
 	leagues Leagues
 	teams   Teams
+	notices Notices
+	now     func() time.Time
 }
 
 func NewService(d Deps) *Service {
-	return &Service{tx: d.Tx, leagues: d.Leagues, teams: d.Teams}
+	if d.Now == nil {
+		d.Now = time.Now
+	}
+	return &Service{tx: d.Tx, leagues: d.Leagues, teams: d.Teams, notices: d.Notices, now: d.Now}
 }
 
 // NewLeague is a league to create, as the client sent it: the weekday is
@@ -171,14 +179,40 @@ func (s *Service) Enroll(ctx context.Context, leagueID, teamID int64) (domain.En
 	return e, nil
 }
 
-// Unenroll takes the team out of the league (R16.8). Fixtures do not exist
-// yet; once BE-VENUE-5 adds them, the team's future fixtures in the league
-// and both sides' linked matches are cancelled here, in this transaction
-// (BE-VENUE-4-T5). Past matches keep their attendance and fees.
+// Unenroll takes the team out of the league (R16.8). In the same
+// transaction, the team's future fixtures in the league are deleted and
+// their linked matches on both sides cancelled, each team getting a notice
+// pushed after commit (open question 27). Past matches keep their
+// attendance and fees. The league lock keeps a fixture for the team from
+// being created meanwhile.
 func (s *Service) Unenroll(ctx context.Context, leagueID, teamID int64) error {
-	return s.tx.InTx(ctx, func(ctx context.Context) error {
-		return s.leagues.UnenrollTeam(ctx, leagueID, teamID)
+	var notices []domain.Notification
+	err := s.tx.InTx(ctx, func(ctx context.Context) error {
+		league, err := s.leagues.LockLeague(ctx, leagueID)
+		if err != nil {
+			return err
+		}
+		if err := s.leagues.UnenrollTeam(ctx, leagueID, teamID); err != nil {
+			return err
+		}
+		fixtures, err := s.leagues.FutureFixturesOfTeam(ctx, leagueID, teamID, s.now().UTC())
+		if err != nil {
+			return err
+		}
+		for _, f := range fixtures {
+			n, err := s.cancel(ctx, league, f)
+			if err != nil {
+				return err
+			}
+			notices = append(notices, n...)
+		}
+		return nil
 	})
+	if err != nil {
+		return err
+	}
+	s.deliver(ctx, notices)
+	return nil
 }
 
 // apply validates every non-nil field of c and sets it on l, then checks the

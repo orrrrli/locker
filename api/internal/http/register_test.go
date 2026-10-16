@@ -93,7 +93,9 @@ func newAPI(t *testing.T, now func() time.Time) apiTest {
 		Tx: postgres.NewTxRunner(pool), Charges: chargeRepo, Matches: matchRepo, Memberships: memberships, Now: now,
 	})
 	venueSvc := venues.NewService(venues.Deps{Tx: postgres.NewTxRunner(pool), Venues: postgres.NewVenues(pool)})
-	leagueSvc := leagues.NewService(leagues.Deps{Tx: postgres.NewTxRunner(pool), Leagues: postgres.NewLeagues(pool), Teams: memberships})
+	leagueSvc := leagues.NewService(leagues.Deps{
+		Tx: postgres.NewTxRunner(pool), Leagues: postgres.NewLeagues(pool), Teams: memberships, Notices: notificationSvc, Now: now,
+	})
 	// Limits high enough that no test of a feature trips them; the limits
 	// have their own tests in ratelimit_test.go.
 	limits := Limits{Register: NewIPRateLimiter(1000, time.Hour, nil)}

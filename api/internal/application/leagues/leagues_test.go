@@ -10,6 +10,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/orrrrli/locker/api/internal/application/leagues"
+	"github.com/orrrrli/locker/api/internal/application/notifications"
 	"github.com/orrrrli/locker/api/internal/application/teams"
 	"github.com/orrrrli/locker/api/internal/application/venues"
 	"github.com/orrrrli/locker/api/internal/domain"
@@ -22,6 +23,9 @@ type fixture struct {
 	teams *teams.Service
 	pool  *pgxpool.Pool
 	venue int64
+	court int64 // the venue's only court
+	// now is the service's clock; tests move it.
+	now *time.Time
 }
 
 func setup(t *testing.T) fixture {
@@ -37,13 +41,20 @@ func setup(t *testing.T) fixture {
 		t.Fatal(err)
 	}
 	memberships := postgres.NewMemberships(pool)
+	now := time.Date(2026, 10, 15, 12, 0, 0, 0, time.UTC)
 	return fixture{
-		svc: leagues.NewService(leagues.Deps{Tx: postgres.NewTxRunner(pool), Leagues: postgres.NewLeagues(pool), Teams: memberships}),
+		svc: leagues.NewService(leagues.Deps{
+			Tx: postgres.NewTxRunner(pool), Leagues: postgres.NewLeagues(pool), Teams: memberships,
+			Notices: notifications.NewService(notifications.Deps{Tx: postgres.NewTxRunner(pool), Notifications: postgres.NewNotifications(pool)}),
+			Now:     func() time.Time { return now },
+		}),
 		teams: teams.NewService(teams.Deps{
 			Tx: postgres.NewTxRunner(pool), Teams: postgres.NewTeams(pool), Memberships: memberships,
 		}),
 		pool:  pool,
 		venue: v.ID,
+		court: v.Courts[0].ID,
+		now:   &now,
 	}
 }
 

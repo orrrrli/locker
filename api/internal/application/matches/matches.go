@@ -20,6 +20,12 @@ var (
 	// saved: the list would belong to a date that no longer exists and the
 	// auto-save would never run again for the new one (R10.1).
 	ErrAttendanceClosed = errors.New("attendance is already saved; schedule a new match instead of moving this one")
+	// ErrMatchCancelled rejects any change to a cancelled match: its RSVPs,
+	// attendance and details stay as they were.
+	ErrMatchCancelled = errors.New("the match is cancelled")
+	// ErrFixtureMatch rejects a team admin's change to a league match: the
+	// operator owns its date, time, court and rival (open question 26).
+	ErrFixtureMatch = errors.New("this is a league match; only the league can change it")
 )
 
 const (
@@ -140,7 +146,9 @@ func (s *Service) Upcoming(ctx context.Context, userID int64) ([]domain.Upcoming
 
 // Update lets the admin callerID change the time, the rival, the place or
 // any of them. A nil field keeps its value. Once attendance is saved the
-// time cannot move (ErrAttendanceClosed); the rest still can. When the time
+// time cannot move (ErrAttendanceClosed); the rest still can. A cancelled
+// match (ErrMatchCancelled) and a league match (ErrFixtureMatch) take no
+// change here. When the time
 // or the place actually changes, a match_changed notice is stored with the
 // change and pushed after commit (R11.4); the rival alone sends none.
 func (s *Service) Update(ctx context.Context, teamID, callerID, matchID int64, startsAt *time.Time, rival, location *string) (domain.Match, error) {
@@ -178,6 +186,12 @@ func (s *Service) Update(ctx context.Context, teamID, callerID, matchID int64, s
 		if err != nil {
 			return err
 		}
+		if cur.CancelledAt != nil {
+			return ErrMatchCancelled
+		}
+		if cur.FixtureID != nil {
+			return ErrFixtureMatch
+		}
 		if startsAt != nil && cur.AttendanceClosedAt != nil && !cur.StartsAt.Equal(*startsAt) {
 			return ErrAttendanceClosed
 		}
@@ -209,7 +223,11 @@ func (s *Service) storeNotice(ctx context.Context, kind domain.NotificationKind,
 	if err != nil {
 		return domain.Notification{}, err
 	}
-	return s.notices.Store(ctx, matchNotice(kind, m, team.Timezone))
+	title := application.MatchCreatedTitle
+	if kind == domain.NotificationMatchChanged {
+		title = application.MatchChangedTitle
+	}
+	return s.notices.Store(ctx, application.MatchNotice(kind, title, m, team.Timezone))
 }
 
 // validStartsAt rejects a zero time and one outside years 1 to 9999: Postgres
