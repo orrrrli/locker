@@ -15,6 +15,7 @@ import (
 
 	"github.com/orrrrli/locker/api/internal/application/account"
 	"github.com/orrrrli/locker/api/internal/application/auth"
+	"github.com/orrrrli/locker/api/internal/application/charges"
 	"github.com/orrrrli/locker/api/internal/application/invites"
 	"github.com/orrrrli/locker/api/internal/application/matches"
 	applicationmemberships "github.com/orrrrli/locker/api/internal/application/memberships"
@@ -88,16 +89,27 @@ func start() error {
 		Memberships: memberships,
 		Users:       postgres.NewUsers(pool),
 	})
+	// Push stays nil (inbox only) until the APNs sender, BE-NOTIF-2.
+	notificationSvc := notifications.NewService(notifications.Deps{
+		Tx:            postgres.NewTxRunner(pool),
+		Notifications: postgres.NewNotifications(pool),
+		Memberships:   memberships,
+		Teams:         postgres.NewTeams(pool),
+	})
 	matchRepo := postgres.NewMatches(pool)
 	matchSvc := matches.NewService(matches.Deps{
 		Tx:          postgres.NewTxRunner(pool),
 		Matches:     matchRepo,
 		Memberships: memberships,
+		Teams:       postgres.NewTeams(pool),
+		Notices:     notificationSvc,
 	})
-	// Push stays nil (inbox only) until the APNs sender, BE-NOTIF-2.
-	notificationSvc := notifications.NewService(notifications.Deps{
-		Tx:            postgres.NewTxRunner(pool),
-		Notifications: postgres.NewNotifications(pool),
+	chargeRepo := postgres.NewCharges(pool)
+	chargeSvc := charges.NewService(charges.Deps{
+		Tx:          postgres.NewTxRunner(pool),
+		Charges:     chargeRepo,
+		Matches:     matchRepo,
+		Memberships: memberships,
 	})
 	venueSvc := venues.NewService(venues.Deps{
 		Tx:     postgres.NewTxRunner(pool),
@@ -110,9 +122,11 @@ func start() error {
 		Members:       memberSvc,
 		Account:       accountSvc,
 		Matches:       matchSvc,
+		Charges:       chargeSvc,
 		Notifications: notificationSvc,
 		Venues:        venueSvc,
 		MatchFinder:   matchRepo,
+		ChargeFinder:  chargeRepo,
 		AppleAppID:    cfg.AppleAppID,
 		DownloadURL:   cfg.DownloadURL,
 		Memberships:   memberships,
