@@ -8,10 +8,13 @@ import (
 	"strings"
 	"time"
 
+	"github.com/orrrrli/locker/api/internal/application"
+	"github.com/orrrrli/locker/api/internal/application/notifications"
 	"github.com/orrrrli/locker/api/internal/domain"
 )
 
 type notificationService interface {
+	SendManual(ctx context.Context, teamID, callerID int64, title, body string) (domain.Notification, error)
 	Inbox(ctx context.Context, userID int64, before *int64) ([]domain.InboxItem, *int64, error)
 	MarkRead(ctx context.Context, userID, notificationID int64) error
 	RegisterDevice(ctx context.Context, userID, sessionID int64, token string) error
@@ -23,7 +26,49 @@ type notificationService interface {
 const maxDeviceTokenLen = 200
 
 var notificationErrors = errorMap{
+	{notifications.ErrInvalidTitle, http.StatusUnprocessableEntity, "invalid_title"},
+	{notifications.ErrInvalidBody, http.StatusUnprocessableEntity, "invalid_body"},
+	{notifications.ErrDailyLimit, http.StatusConflict, "daily_limit_reached"},
+	{application.ErrNotAdmin, http.StatusForbidden, "forbidden"},
+	{domain.ErrTeamBusy, http.StatusServiceUnavailable, "team_busy"},
 	{domain.ErrNotFound, http.StatusNotFound, "not_found"},
+}
+
+type sendNotificationRequest struct {
+	Title string `json:"title"`
+	Body  string `json:"body"`
+}
+
+type notificationJSON struct {
+	ID        int64                   `json:"id"`
+	TeamID    int64                   `json:"team_id"`
+	Kind      domain.NotificationKind `json:"kind"`
+	Title     string                  `json:"title"`
+	Body      string                  `json:"body"`
+	MatchID   *int64                  `json:"match_id"`
+	SentBy    *int64                  `json:"sent_by"`
+	CreatedAt time.Time               `json:"created_at"`
+}
+
+// send stores a manual notice for every active member of the team in the
+// path and pushes it (R11.2). It runs behind requireRole(admin), which puts
+// the caller's membership in the context. The team's daily limit answers
+// 409 (R11.3).
+func (h notificationHandlers) send(w http.ResponseWriter, r *http.Request) {
+	var req sendNotificationRequest
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+	caller, _ := membershipFrom(r.Context())
+	n, err := h.svc.SendManual(r.Context(), caller.TeamID, caller.ID, req.Title, req.Body)
+	if err != nil {
+		notificationErrors.write(w, r, "notifications", err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, notificationJSON{
+		ID: n.ID, TeamID: n.TeamID, Kind: n.Kind, Title: n.Title, Body: n.Body,
+		MatchID: n.MatchID, SentBy: n.SentBy, CreatedAt: apiTime(n.CreatedAt),
+	})
 }
 
 type notificationHandlers struct {
