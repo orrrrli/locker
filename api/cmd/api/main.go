@@ -122,6 +122,7 @@ func start() error {
 		Charges:     chargeRepo,
 		Matches:     matchRepo,
 		Memberships: memberships,
+		Notifier:    notificationSvc,
 	})
 	venueSvc := venues.NewService(venues.Deps{
 		Tx:     postgres.NewTxRunner(pool),

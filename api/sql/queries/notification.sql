@@ -71,6 +71,25 @@ ORDER BY name, m.id;
 SELECT count(*) FROM notification
 WHERE team_id = $1 AND kind = 'manual' AND created_at >= $2;
 
+-- name: CountPendingChargeRecipients :one
+-- Active members with a pending entry in the charge, other than the sender:
+-- who a fee reminder would reach (R12.5).
+SELECT count(*) FROM charge_member cm
+JOIN membership m ON m.id = cm.membership_id AND m.status = 'active'
+WHERE cm.charge_id = sqlc.arg(charge_id) AND cm.status = 'pending'
+  AND m.id <> sqlc.arg(sender_id);
+
+-- name: InsertNotificationRecipientsPendingCharge :exec
+-- A fee reminder goes only to the active members with a pending entry in the
+-- charge (R12.5); members who paid, and members who left, get nothing. The
+-- sender's copy, when they owe too, starts read like any manual notice.
+INSERT INTO notification_recipient (notification_id, membership_id, read_at)
+SELECT n.id, m.id, CASE WHEN m.id = n.sent_by THEN now() END
+FROM notification n
+JOIN charge_member cm ON cm.charge_id = sqlc.arg(charge_id) AND cm.status = 'pending'
+JOIN membership m ON m.id = cm.membership_id AND m.team_id = n.team_id AND m.status = 'active'
+WHERE n.id = sqlc.arg(notification_id);
+
 -- name: CountActiveMembersWithoutRSVP :one
 -- Active members of the team who have not answered the match (R11.5).
 SELECT count(*) FROM membership m

@@ -25,6 +25,9 @@ var (
 	// ErrDailyLimit rejects a manual notice once the team sent
 	// MaxManualPerDay since local midnight (R11.3).
 	ErrDailyLimit = errors.New("the team already sent its 10 notices for today")
+	// ErrNoRecipients rejects a fee reminder nobody would receive: every
+	// active member with an entry already paid (R12.5).
+	ErrNoRecipients = errors.New("no active member has a pending entry in this charge")
 )
 
 // Notifications is what the notice use cases need from storage.
@@ -56,6 +59,12 @@ type Notifications interface {
 	// CountManualSince counts the team's manual notices created at or after
 	// since.
 	CountManualSince(ctx context.Context, teamID int64, since time.Time) (int, error)
+	// CountPendingChargeRecipients counts the active members with a pending
+	// entry in the charge, other than senderID.
+	CountPendingChargeRecipients(ctx context.Context, chargeID, senderID int64) (int, error)
+	// InsertChargeReminder stores the notice plus one recipient per active
+	// member with a pending entry in the charge.
+	InsertChargeReminder(ctx context.Context, n domain.Notification, chargeID int64) (domain.Notification, error)
 	// CountActiveWithoutRSVP counts the team's active members who have not
 	// answered the match.
 	CountActiveWithoutRSVP(ctx context.Context, teamID, matchID int64) (int, error)
@@ -155,6 +164,22 @@ func (s *Service) Send(ctx context.Context, n domain.Notification) (domain.Notif
 // (R11.3); the count runs under the team lock, so parallel sends cannot
 // pass it together. The title is one line; the body may span lines.
 func (s *Service) SendManual(ctx context.Context, teamID, callerID int64, title, body string) (domain.Notification, error) {
+	return s.sendManual(ctx, teamID, callerID, title, body, nil)
+}
+
+// SendChargeReminder is SendManual for a fee reminder (R12.5): it reaches
+// only the active members with a pending entry in chargeID, and counts
+// against the team's daily limit like any manual notice. The recipients are
+// picked under the team lock, which marking an entry paid also takes, so an
+// entry paid meanwhile is never reminded. Callers check chargeID belongs to
+// teamID. ErrNoRecipients when nobody besides the sender still owes.
+func (s *Service) SendChargeReminder(ctx context.Context, teamID, callerID, chargeID int64, title, body string) (domain.Notification, error) {
+	return s.sendManual(ctx, teamID, callerID, title, body, &chargeID)
+}
+
+// sendManual stores a manual notice for the whole team, or, with chargeID,
+// for the members who still owe that charge.
+func (s *Service) sendManual(ctx context.Context, teamID, callerID int64, title, body string, chargeID *int64) (domain.Notification, error) {
 	title, ok := application.CleanText(title, maxTitleLen)
 	if !ok {
 		return domain.Notification{}, ErrInvalidTitle
@@ -183,12 +208,26 @@ func (s *Service) SendManual(ctx context.Context, teamID, callerID int64, title,
 		if err != nil {
 			return err
 		}
+		if chargeID != nil {
+			owing, err := s.notifications.CountPendingChargeRecipients(ctx, *chargeID, callerID)
+			if err != nil {
+				return err
+			}
+			if owing == 0 {
+				return ErrNoRecipients
+			}
+		}
 		if sent >= MaxManualPerDay {
 			return ErrDailyLimit
 		}
-		out, err = s.notifications.InsertNotification(ctx, domain.Notification{
+		n := domain.Notification{
 			TeamID: teamID, Kind: domain.NotificationManual, Title: title, Body: body, SentBy: &callerID, CreatedAt: now.UTC(),
-		})
+		}
+		if chargeID != nil {
+			out, err = s.notifications.InsertChargeReminder(ctx, n, *chargeID)
+		} else {
+			out, err = s.notifications.InsertNotification(ctx, n)
+		}
 		return err
 	})
 	if err != nil {
