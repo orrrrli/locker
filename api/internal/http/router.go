@@ -19,6 +19,7 @@ type Deps struct {
 	Notifications notificationService
 	Venues        venueService
 	Leagues       leagueService
+	Pages         pageService
 	// MatchFinder resolves the team of routes on /matches/{id}.
 	MatchFinder matchFinder
 	// ChargeFinder resolves the team of routes on /charges/{id}.
@@ -126,6 +127,13 @@ func NewRouter(d Deps) http.Handler {
 
 	v := venueHandlers{svc: d.Venues}
 	mux.Handle("GET /venues", a.requireAuth(http.HandlerFunc(v.near)))
+
+	pg := pageHandlers{svc: d.Pages}
+	mux.Handle("GET /teams/{id}/public", a.requireAuth(http.HandlerFunc(pg.team)))
+	mux.Handle("GET /venues/{id}", a.requireAuth(http.HandlerFunc(pg.venue)))
+	mux.Handle("GET /leagues/{id}", a.requireAuth(http.HandlerFunc(pg.league)))
+	mux.Handle("GET /leagues/{id}/teams", a.requireAuth(http.HandlerFunc(pg.leagueTeams)))
+	mux.Handle("GET /leagues/{id}/fixtures", a.requireAuth(http.HandlerFunc(pg.fixtures)))
 
 	// Every operator route registers on op. Paths under /operator are sent to
 	// the gate before mux sees them, because mux prefers any more specific

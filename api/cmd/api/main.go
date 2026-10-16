@@ -21,6 +21,7 @@ import (
 	"github.com/orrrrli/locker/api/internal/application/matches"
 	applicationmemberships "github.com/orrrrli/locker/api/internal/application/memberships"
 	"github.com/orrrrli/locker/api/internal/application/notifications"
+	"github.com/orrrrli/locker/api/internal/application/pages"
 	"github.com/orrrrli/locker/api/internal/application/teams"
 	"github.com/orrrrli/locker/api/internal/application/venues"
 	apihttp "github.com/orrrrli/locker/api/internal/http"
@@ -123,6 +124,7 @@ func start() error {
 		Teams:   memberships,
 		Notices: notificationSvc,
 	})
+	pageSvc := pages.NewService(pages.Deps{Pages: postgres.NewPages(pool), Memberships: memberships})
 	router := apihttp.NewRouter(apihttp.Deps{
 		Auth:               authSvc,
 		Teams:              teamSvc,
@@ -134,6 +136,7 @@ func start() error {
 		Notifications:      notificationSvc,
 		Venues:             venueSvc,
 		Leagues:            leagueSvc,
+		Pages:              pageSvc,
 		MatchFinder:        matchRepo,
 		ChargeFinder:       chargeRepo,
 		AppleAppID:         cfg.AppleAppID,
