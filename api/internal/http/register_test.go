@@ -73,8 +73,9 @@ func newAPI(t *testing.T, now func() time.Time) apiTest {
 		Memberships: memberships,
 		Users:       postgres.NewUsers(pool),
 	})
+	notificationRepo := postgres.NewNotifications(pool)
 	notificationSvc := notifications.NewService(notifications.Deps{
-		Tx: postgres.NewTxRunner(pool), Notifications: postgres.NewNotifications(pool),
+		Tx: postgres.NewTxRunner(pool), Notifications: notificationRepo,
 		Memberships: memberships, Teams: postgres.NewTeams(pool), Now: now,
 	})
 	matchRepo := postgres.NewMatches(pool)
@@ -98,6 +99,7 @@ func newAPI(t *testing.T, now func() time.Time) apiTest {
 		Auth: svc, Teams: teamSvc, Invites: inviteSvc, Members: memberSvc, Account: accountSvc,
 		Matches: matchSvc, MatchFinder: matchRepo, Charges: chargeSvc, ChargeFinder: chargeRepo, Notifications: notificationSvc,
 		Venues: venueSvc, Memberships: memberships, Users: postgres.NewUsers(pool), Limits: limits,
+		NotificationFinder: notificationRepo,
 	}))
 	mux.Handle("GET /test/whoami", authHandlers{svc: svc}.requireAuth(http.HandlerFunc(
 		func(w http.ResponseWriter, r *http.Request) {
