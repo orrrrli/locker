@@ -1,5 +1,5 @@
-// Package account holds the use cases on the caller's own account: deleting
-// it (R5).
+// Package account holds the use cases on the caller's own account: reading
+// it and deleting it (R5).
 package account
 
 import (
@@ -56,6 +56,9 @@ type Memberships interface {
 
 // Users is what the account use cases need from the user table.
 type Users interface {
+	// Get returns a live user with the operator flag; domain.ErrNotFound for
+	// an unknown or deleted user.
+	Get(ctx context.Context, userID int64) (domain.User, error)
 	// DeletePersonalData deletes identities, device tokens and sessions and
 	// nulls the personal fields; domain.ErrNotFound when already deleted.
 	DeletePersonalData(ctx context.Context, userID int64) error
@@ -77,6 +80,14 @@ type Service struct {
 
 func NewService(d Deps) *Service {
 	return &Service{tx: d.Tx, teams: d.Teams, memberships: d.Memberships, users: d.Users}
+}
+
+// Me returns the caller's own account, including whether they are the
+// operator, so a client can keep the operator console closed to everyone
+// else before calling /operator/* (BE-CONSOLE-1). domain.ErrNotFound when
+// the account was deleted since the request authenticated.
+func (s *Service) Me(ctx context.Context, userID int64) (domain.User, error) {
+	return s.users.Get(ctx, userID)
 }
 
 // Delete deletes the user's account in one transaction (R5). It is rejected
