@@ -7,6 +7,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -31,7 +32,38 @@ type Client struct {
 	http  *http.Client
 	host  string
 	topic string
-	auth  func() (string, error)
+	jwt   *providerToken
+}
+
+// Config is what New needs. TeamID and Topic are the Apple team and bundle
+// ids; KeyID and Key are the .p8 key Apple issues for token auth.
+type Config struct {
+	Host   string // ProductionHost or SandboxHost
+	TeamID string
+	KeyID  string
+	Key    []byte
+	Topic  string
+	// HTTP is the client pushes go through; nil means one with
+	// requestTimeout. Tests pass the fake server's.
+	HTTP *http.Client
+}
+
+// New returns a Client, or an error when Key is not a P-256 .p8 key.
+func New(cfg Config) (*Client, error) {
+	key, err := parseKey(cfg.Key)
+	if err != nil {
+		return nil, err
+	}
+	hc := cfg.HTTP
+	if hc == nil {
+		hc = &http.Client{Timeout: requestTimeout}
+	}
+	return &Client{
+		http:  hc,
+		host:  cfg.Host,
+		topic: cfg.Topic,
+		jwt:   &providerToken{key: key, keyID: cfg.KeyID, teamID: cfg.TeamID, now: time.Now},
+	}, nil
 }
 
 // Push sends n to every token in the background and returns at once: the
@@ -70,8 +102,20 @@ func (e *Error) Error() string {
 	return "apns: status " + strconv.Itoa(e.Status) + " " + e.Reason
 }
 
+// sendOne pushes body to one device. A provider token APNs calls expired is
+// replaced and the push retried once, so a clock skew or an early expiry
+// costs one round trip, not the notice.
 func (c *Client) sendOne(ctx context.Context, token string, body []byte) error {
-	bearer, err := c.auth()
+	err := c.post(ctx, token, body)
+	var apnsErr *Error
+	if errors.As(err, &apnsErr) && apnsErr.Reason == "ExpiredProviderToken" {
+		err = c.post(ctx, token, body)
+	}
+	return err
+}
+
+func (c *Client) post(ctx context.Context, token string, body []byte) error {
+	bearer, err := c.jwt.get()
 	if err != nil {
 		return err
 	}
@@ -97,6 +141,9 @@ func (c *Client) sendOne(ctx context.Context, token string, body []byte) error {
 	}
 	// The reason is best effort: a body that does not parse leaves it empty.
 	_ = json.NewDecoder(io.LimitReader(resp.Body, 4<<10)).Decode(&r)
+	if r.Reason == "ExpiredProviderToken" {
+		c.jwt.expire(bearer)
+	}
 	return &Error{Status: resp.StatusCode, Reason: r.Reason}
 }
 
