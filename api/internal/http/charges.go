@@ -7,6 +7,7 @@ import (
 
 	"github.com/orrrrli/locker/api/internal/application"
 	"github.com/orrrrli/locker/api/internal/application/charges"
+	"github.com/orrrrli/locker/api/internal/application/notifications"
 	"github.com/orrrrli/locker/api/internal/domain"
 )
 
@@ -14,6 +15,7 @@ type chargeService interface {
 	Create(ctx context.Context, teamID, callerID int64, in charges.Input) (charges.Detail, error)
 	List(ctx context.Context, caller domain.Membership) ([]charges.Detail, error)
 	SetStatus(ctx context.Context, teamID, callerID, chargeID, membershipID int64, status domain.ChargeStatus) (domain.ChargeMember, error)
+	Remind(ctx context.Context, teamID, callerID, chargeID int64) (domain.Notification, error)
 }
 
 // chargeFinder resolves the team of a charge. Routes on /charges/{id} use it.
@@ -162,7 +164,26 @@ func (h chargeHandlers) updateMember(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, toChargeMemberJSON(m))
 }
 
+// remind runs behind requireRole(admin) on the charge's team: the members
+// who still owe it get a manual notice (R12.5). It answers the notice, 201.
+func (h chargeHandlers) remind(w http.ResponseWriter, r *http.Request) {
+	id, err := idFromPath(r, "id")
+	if err != nil {
+		writeError(w, http.StatusNotFound, "not_found")
+		return
+	}
+	caller, _ := membershipFrom(r.Context())
+	n, err := h.svc.Remind(r.Context(), caller.TeamID, caller.ID, id)
+	if err != nil {
+		chargeErrors.write(w, r, "charges", err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, toNotificationJSON(n))
+}
+
 var chargeErrors = errorMap{
+	{notifications.ErrNoRecipients, http.StatusConflict, "nothing_pending"},
+	{notifications.ErrDailyLimit, http.StatusConflict, "daily_limit_reached"},
 	{charges.ErrInvalidStatus, http.StatusUnprocessableEntity, "invalid_status"},
 	{charges.ErrInvalidConcept, http.StatusUnprocessableEntity, "invalid_concept"},
 	{charges.ErrInvalidAmount, http.StatusUnprocessableEntity, "invalid_amount"},

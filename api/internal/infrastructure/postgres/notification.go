@@ -245,3 +245,36 @@ func (r *Notifications) InsertRSVPReminder(ctx context.Context, n domain.Notific
 	}
 	return notificationFromRow(row), nil
 }
+
+// CountPendingChargeRecipients counts the active members with a pending entry
+// in the charge, other than senderID.
+func (r *Notifications) CountPendingChargeRecipients(ctx context.Context, chargeID, senderID int64) (int, error) {
+	n, err := sqlcdb.New(Conn(ctx, r.pool)).CountPendingChargeRecipients(ctx, sqlcdb.CountPendingChargeRecipientsParams{ChargeID: chargeID, SenderID: senderID})
+	if err != nil {
+		return 0, fmt.Errorf("postgres: count pending charge recipients: %w", err)
+	}
+	return int(n), nil
+}
+
+// InsertChargeReminder stores the notice with one recipient per active
+// member who has a pending entry in the charge (R12.5). Call it inside a
+// transaction so both land together. A zero CreatedAt takes the database's
+// clock.
+func (r *Notifications) InsertChargeReminder(ctx context.Context, n domain.Notification, chargeID int64) (domain.Notification, error) {
+	q := sqlcdb.New(Conn(ctx, r.pool))
+	params := sqlcdb.InsertNotificationParams{
+		TeamID: n.TeamID, Kind: string(n.Kind), Title: n.Title, Body: n.Body,
+		MatchID: optInt8(n.MatchID), SentBy: optInt8(n.SentBy),
+	}
+	if !n.CreatedAt.IsZero() {
+		params.CreatedAt = timestamptz(n.CreatedAt)
+	}
+	row, err := q.InsertNotification(ctx, params)
+	if err != nil {
+		return domain.Notification{}, fmt.Errorf("postgres: insert charge reminder: %w", err)
+	}
+	if err := q.InsertNotificationRecipientsPendingCharge(ctx, sqlcdb.InsertNotificationRecipientsPendingChargeParams{ChargeID: chargeID, NotificationID: row.ID}); err != nil {
+		return domain.Notification{}, fmt.Errorf("postgres: insert charge reminder recipients: %w", err)
+	}
+	return notificationFromRow(row), nil
+}

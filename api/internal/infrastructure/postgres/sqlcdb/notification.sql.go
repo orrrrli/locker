@@ -49,6 +49,27 @@ func (q *Queries) CountManualNotificationsSince(ctx context.Context, arg CountMa
 	return count, err
 }
 
+const countPendingChargeRecipients = `-- name: CountPendingChargeRecipients :one
+SELECT count(*) FROM charge_member cm
+JOIN membership m ON m.id = cm.membership_id AND m.status = 'active'
+WHERE cm.charge_id = $1 AND cm.status = 'pending'
+  AND m.id <> $2
+`
+
+type CountPendingChargeRecipientsParams struct {
+	ChargeID int64
+	SenderID int64
+}
+
+// Active members with a pending entry in the charge, other than the sender:
+// who a fee reminder would reach (R12.5).
+func (q *Queries) CountPendingChargeRecipients(ctx context.Context, arg CountPendingChargeRecipientsParams) (int64, error) {
+	row := q.db.QueryRow(ctx, countPendingChargeRecipients, arg.ChargeID, arg.SenderID)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const getNotification = `-- name: GetNotification :one
 SELECT id, team_id, kind, title, body, match_id, sent_by, created_at FROM notification
 WHERE id = $1
@@ -125,6 +146,28 @@ WHERE n.id = $1
 // inbox but never as new.
 func (q *Queries) InsertNotificationRecipients(ctx context.Context, notificationID int64) error {
 	_, err := q.db.Exec(ctx, insertNotificationRecipients, notificationID)
+	return err
+}
+
+const insertNotificationRecipientsPendingCharge = `-- name: InsertNotificationRecipientsPendingCharge :exec
+INSERT INTO notification_recipient (notification_id, membership_id, read_at)
+SELECT n.id, m.id, CASE WHEN m.id = n.sent_by THEN now() END
+FROM notification n
+JOIN charge_member cm ON cm.charge_id = $1 AND cm.status = 'pending'
+JOIN membership m ON m.id = cm.membership_id AND m.team_id = n.team_id AND m.status = 'active'
+WHERE n.id = $2
+`
+
+type InsertNotificationRecipientsPendingChargeParams struct {
+	ChargeID       int64
+	NotificationID int64
+}
+
+// A fee reminder goes only to the active members with a pending entry in the
+// charge (R12.5); members who paid, and members who left, get nothing. The
+// sender's copy, when they owe too, starts read like any manual notice.
+func (q *Queries) InsertNotificationRecipientsPendingCharge(ctx context.Context, arg InsertNotificationRecipientsPendingChargeParams) error {
+	_, err := q.db.Exec(ctx, insertNotificationRecipientsPendingCharge, arg.ChargeID, arg.NotificationID)
 	return err
 }
 

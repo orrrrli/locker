@@ -5,6 +5,7 @@ package charges
 import (
 	"context"
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/orrrrli/locker/api/internal/application"
@@ -70,6 +71,13 @@ type Charges interface {
 	SetMemberStatus(ctx context.Context, chargeID, membershipID int64, status domain.ChargeStatus, markedBy *int64, markedAt *time.Time) (domain.ChargeMember, error)
 }
 
+// Notifier sends the fee reminder as a manual notice (R12.5).
+type Notifier interface {
+	// SendChargeReminder reaches only the active members with a pending
+	// entry in chargeID and counts against the team's daily limit.
+	SendChargeReminder(ctx context.Context, teamID, callerID, chargeID int64, title, body string) (domain.Notification, error)
+}
+
 // Matches is what the fee use cases need from the match table.
 type Matches interface {
 	// LockMatchInTeam returns the team's match, holding the row until the
@@ -82,6 +90,7 @@ type Deps struct {
 	Charges     Charges
 	Matches     Matches
 	Memberships application.AdminLocker
+	Notifier    Notifier         // serves Remind
 	Now         func() time.Time // nil means time.Now
 }
 
@@ -90,6 +99,7 @@ type Service struct {
 	charges     Charges
 	matches     Matches
 	memberships application.AdminLocker
+	notifier    Notifier
 	now         func() time.Time
 }
 
@@ -97,7 +107,21 @@ func NewService(d Deps) *Service {
 	if d.Now == nil {
 		d.Now = time.Now
 	}
-	return &Service{tx: d.Tx, charges: d.Charges, matches: d.Matches, memberships: d.Memberships, now: d.Now}
+	return &Service{tx: d.Tx, charges: d.Charges, matches: d.Matches, memberships: d.Memberships, notifier: d.Notifier, now: d.Now}
+}
+
+// Remind sends the members who still owe the charge a manual notice (R12.5):
+// "Tienes pendiente Arbitraje: $50.00 MXN." Only active members with a
+// pending entry receive it; the admin check, the team's daily limit and the
+// push are the manual notice's. A charge of another team is
+// domain.ErrNotFound.
+func (s *Service) Remind(ctx context.Context, teamID, callerID, chargeID int64) (domain.Notification, error) {
+	c, err := s.charges.ChargeInTeam(ctx, teamID, chargeID)
+	if err != nil {
+		return domain.Notification{}, err
+	}
+	body := fmt.Sprintf("Tienes pendiente %s: $%d.%02d %s.", c.Concept, c.AmountCents/100, c.AmountCents%100, c.Currency)
+	return s.notifier.SendChargeReminder(ctx, teamID, callerID, c.ID, "Recordatorio de pago", body)
 }
 
 // Input is a new charge. MatchID is required with TargetMatchAttendees and

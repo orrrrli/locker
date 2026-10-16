@@ -87,7 +87,7 @@ func newAPI(t *testing.T, now func() time.Time) apiTest {
 	})
 	chargeRepo := postgres.NewCharges(pool)
 	chargeSvc := charges.NewService(charges.Deps{
-		Tx: postgres.NewTxRunner(pool), Charges: chargeRepo, Matches: matchRepo, Memberships: memberships, Now: now,
+		Tx: postgres.NewTxRunner(pool), Charges: chargeRepo, Matches: matchRepo, Memberships: memberships, Notifier: notificationSvc, Now: now,
 	})
 	venueSvc := venues.NewService(venues.Deps{Tx: postgres.NewTxRunner(pool), Venues: postgres.NewVenues(pool)})
 	leagueSvc := leagues.NewService(leagues.Deps{

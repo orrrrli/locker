@@ -283,3 +283,71 @@ func TestListAndMarkCharges(t *testing.T) {
 		t.Fatalf("entry = %+v, want pending and cleared", e)
 	}
 }
+
+// An admin reminds the members who still owe a charge (R12.5): it answers
+// the notice, and only they see it in their inbox. Players get 403, others
+// 404, and a charge everyone paid is a 409.
+func TestRemindCharge(t *testing.T) {
+	api := newAPI(t, func() time.Time { return today })
+	adminID, adminToken := signUp(t, api, "admin@example.com")
+	owesID, owesToken := signUp(t, api, "owes@example.com")
+	paidID, paidToken := signUp(t, api, "paid@example.com")
+	_, strangerToken := signUp(t, api, "stranger@example.com")
+	team := createTeam(t, api, adminToken, "Pumas", "America/Tijuana")
+	addMember(t, api, team.ID, owesID, "player", "active")
+	addMember(t, api, team.ID, paidID, "player", "active")
+	admin, owes, paid := membershipID(t, api, team.ID, adminID), membershipID(t, api, team.ID, owesID), membershipID(t, api, team.ID, paidID)
+	rec := api.do(t, http.MethodPost, "/teams/"+strconv.FormatInt(team.ID, 10)+"/charges", adminToken, feeBody)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create charge: status %d, body %s", rec.Code, rec.Body)
+	}
+	c := decodeCharge(t, rec)
+	base := "/charges/" + strconv.FormatInt(c.ID, 10)
+	for _, m := range []int64{paid, admin} {
+		if rec := api.do(t, http.MethodPatch, base+"/members/"+strconv.FormatInt(m, 10), adminToken, map[string]string{"status": "paid"}); rec.Code != http.StatusOK {
+			t.Fatalf("mark paid: status %d, body %s", rec.Code, rec.Body)
+		}
+	}
+
+	for name, tc := range map[string]struct {
+		token, path string
+		status      int
+		code        string
+	}{
+		"no token":       {"", base + "/remind", http.StatusUnauthorized, "unauthorized"},
+		"player":         {owesToken, base + "/remind", http.StatusForbidden, "forbidden"},
+		"stranger":       {strangerToken, base + "/remind", http.StatusNotFound, "not_found"},
+		"unknown charge": {adminToken, "/charges/999999/remind", http.StatusNotFound, "not_found"},
+	} {
+		rec := api.do(t, http.MethodPost, tc.path, tc.token, nil)
+		if rec.Code != tc.status || errorCode(t, rec) != tc.code {
+			t.Fatalf("%s: status %d, body %s; want %d %s", name, rec.Code, rec.Body, tc.status, tc.code)
+		}
+	}
+
+	rec = api.do(t, http.MethodPost, base+"/remind", adminToken, nil)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("remind: status %d, body %s", rec.Code, rec.Body)
+	}
+	var n notificationJSON
+	if err := json.Unmarshal(rec.Body.Bytes(), &n); err != nil {
+		t.Fatal(err)
+	}
+	if n.TeamID != team.ID || n.Kind != "manual" || n.Title != "Recordatorio de pago" || n.Body != "Tienes pendiente Arbitraje: $50.00 MXN." ||
+		n.SentBy == nil || *n.SentBy != admin {
+		t.Fatalf("notice = %+v", n)
+	}
+	if page := getInbox(t, api, owesToken, ""); !slices.Equal(ids(t, page.Notifications), []int64{n.ID}) {
+		t.Fatalf("owing member's inbox = %v, want the reminder", page.Notifications)
+	}
+	if page := getInbox(t, api, paidToken, ""); len(page.Notifications) != 0 {
+		t.Fatalf("paid member's inbox = %v, want empty", page.Notifications)
+	}
+
+	if rec := api.do(t, http.MethodPatch, base+"/members/"+strconv.FormatInt(owes, 10), adminToken, map[string]string{"status": "paid"}); rec.Code != http.StatusOK {
+		t.Fatalf("mark paid: status %d, body %s", rec.Code, rec.Body)
+	}
+	if rec := api.do(t, http.MethodPost, base+"/remind", adminToken, nil); rec.Code != http.StatusConflict || errorCode(t, rec) != "nothing_pending" {
+		t.Fatalf("all paid: status %d, body %s; want 409 nothing_pending", rec.Code, rec.Body)
+	}
+}

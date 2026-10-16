@@ -117,6 +117,7 @@ func NewRouter(d Deps) http.Handler {
 	mux.Handle("GET /teams/{id}/charges", a.requireAuth(z.requireActiveMember(team, http.HandlerFunc(ch.list))))
 	charge := teamFromCharge("id", d.ChargeFinder)
 	mux.Handle("PATCH /charges/{id}/members/{membershipId}", a.requireAuth(z.requireRole(charge, domain.RoleAdmin, http.HandlerFunc(ch.updateMember))))
+	mux.Handle("POST /charges/{id}/remind", a.requireAuth(z.requireRole(charge, domain.RoleAdmin, http.HandlerFunc(ch.remind))))
 
 	nt := notificationHandlers{svc: d.Notifications}
 	mux.Handle("POST /teams/{id}/notifications", a.requireAuth(z.requireRole(team, domain.RoleAdmin, http.HandlerFunc(nt.send))))

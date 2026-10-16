@@ -59,9 +59,13 @@ func newFixture(t *testing.T) fixture {
 		}),
 		Now: func() time.Time { return now },
 	})
+	notifier := notifications.NewService(notifications.Deps{
+		Tx: postgres.NewTxRunner(pool), Notifications: postgres.NewNotifications(pool),
+		Memberships: members, Teams: postgres.NewTeams(pool), Now: func() time.Time { return now },
+	})
 	svc := charges.NewService(charges.Deps{
 		Tx: postgres.NewTxRunner(pool), Charges: postgres.NewCharges(pool), Matches: matchRepo, Memberships: members,
-		Now: func() time.Time { return now },
+		Notifier: notifier, Now: func() time.Time { return now },
 	})
 	return fixture{svc: svc, matches: matchSvc, pool: pool, team: team.ID, admin: admin.ID, now: &now}
 }
@@ -405,5 +409,105 @@ func TestListByRole(t *testing.T) {
 	}
 	if e := asPlayer[0].Members[0]; e.Status != domain.ChargePaid || e.PaidMarkedBy == nil || *e.PaidMarkedBy != f.admin {
 		t.Fatalf("player's entry = %+v, want paid by the admin", e)
+	}
+}
+
+// reminderRecipients returns the membership ids with a copy of the notice.
+func reminderRecipients(t *testing.T, f fixture, notificationID int64) []int64 {
+	t.Helper()
+	rows, err := f.pool.Query(context.Background(), `SELECT membership_id FROM notification_recipient WHERE notification_id = $1 ORDER BY membership_id`, notificationID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	var ids []int64
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			t.Fatal(err)
+		}
+		ids = append(ids, id)
+	}
+	return ids
+}
+
+// A reminder reaches only the active members with a pending entry (R12.5):
+// not the one who paid, not the one who left, not a member outside the
+// charge. Once everyone paid there is nobody to remind.
+func TestRemindOnlyPendingMembers(t *testing.T) {
+	f := newFixture(t)
+	ctx := context.Background()
+	owes := addMember(t, f, "owes@example.com", "player", "active")
+	paid := addMember(t, f, "paid@example.com", "player", "active")
+	gone := addMember(t, f, "gone@example.com", "player", "active")
+	c, err := f.svc.Create(ctx, f.team, f.admin, charges.Input{Concept: "Arbitraje", AmountCents: 5050, Target: charges.TargetActiveMembers})
+	if err != nil {
+		t.Fatal(err)
+	}
+	addMember(t, f, "late@example.com", "player", "active") // joined after the charge
+	if _, err := f.svc.SetStatus(ctx, f.team, f.admin, c.ID, paid, domain.ChargePaid); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.svc.SetStatus(ctx, f.team, f.admin, c.ID, f.admin, domain.ChargePaid); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.pool.Exec(ctx, `UPDATE membership SET status = 'left' WHERE id = $1`, gone); err != nil {
+		t.Fatal(err)
+	}
+
+	n, err := f.svc.Remind(ctx, f.team, f.admin, c.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n.Kind != domain.NotificationManual || n.SentBy == nil || *n.SentBy != f.admin ||
+		n.Title != "Recordatorio de pago" || n.Body != "Tienes pendiente Arbitraje: $50.50 MXN." {
+		t.Fatalf("notice = %+v", n)
+	}
+	if got := reminderRecipients(t, f, n.ID); !slices.Equal(got, []int64{owes}) {
+		t.Fatalf("recipients = %v, want only the member who still owes", got)
+	}
+
+	if _, err := f.svc.SetStatus(ctx, f.team, f.admin, c.ID, owes, domain.ChargePaid); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.svc.Remind(ctx, f.team, f.admin, c.ID); !errors.Is(err, notifications.ErrNoRecipients) {
+		t.Fatalf("all paid: %v, want ErrNoRecipients", err)
+	}
+	// The admin owing alone is nobody to remind either.
+	if _, err := f.svc.SetStatus(ctx, f.team, f.admin, c.ID, f.admin, domain.ChargePending); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.svc.Remind(ctx, f.team, f.admin, c.ID); !errors.Is(err, notifications.ErrNoRecipients) {
+		t.Fatalf("only the sender owes: %v, want ErrNoRecipients", err)
+	}
+}
+
+// A reminder is a manual notice: it counts against the team's daily limit
+// (R11.3), and a refused one counts nothing. Players and other teams'
+// charges are refused.
+func TestRemindCountsAgainstTheDailyLimit(t *testing.T) {
+	f := newFixture(t)
+	ctx := context.Background()
+	player := addMember(t, f, "player@example.com", "player", "active")
+	c, err := f.svc.Create(ctx, f.team, f.admin, fee)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < notifications.MaxManualPerDay; i++ {
+		if _, err := f.svc.Remind(ctx, f.team, f.admin, c.ID); err != nil {
+			t.Fatalf("reminder %d: %v", i+1, err)
+		}
+	}
+	if _, err := f.svc.Remind(ctx, f.team, f.admin, c.ID); !errors.Is(err, notifications.ErrDailyLimit) {
+		t.Fatalf("11th reminder: %v, want ErrDailyLimit", err)
+	}
+	if _, err := f.svc.Remind(ctx, f.team, player, c.ID); !errors.Is(err, application.ErrNotAdmin) {
+		t.Fatalf("player: %v, want ErrNotAdmin", err)
+	}
+	if _, err := f.svc.Remind(ctx, f.team, f.admin, 999_999); !errors.Is(err, domain.ErrNotFound) {
+		t.Fatalf("unknown charge: %v, want ErrNotFound", err)
+	}
+	if n := countRows(t, f, "notification"); n != notifications.MaxManualPerDay {
+		t.Fatalf("%d notices stored, want %d", n, notifications.MaxManualPerDay)
 	}
 }
