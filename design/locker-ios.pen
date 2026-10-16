@@ -29313,81 +29313,518 @@
                 },
                 {
                   "type": "frame",
-                  "id": "V938ui",
-                  "name": "falta · Mis equipos · solicitud pendiente",
-                  "width": 417,
+                  "id": "dxFco",
+                  "name": "view · Jugador / Capitán",
                   "layout": "vertical",
                   "gap": 20,
                   "children": [
                     {
-                      "id": "T5ZQ0V",
+                      "id": "sCafB",
                       "type": "ref",
                       "ref": "zLMR0",
                       "name": "role",
+                      "fill": "#FFFFFF",
+                      "stroke": "#D4D4D8",
+                      "strokeWidth": 1,
                       "descendants": {
                         "KKC1z": {
                           "enabled": false
                         },
                         "UNwwQ": {
                           "enabled": true,
-                          "fill": "#F1EEDD"
+                          "icon": "users"
                         },
                         "bwl4G": {
-                          "content": "Jugador / Capitán"
+                          "content": "Jugador / Capitán",
+                          "fill": "#18181B"
                         }
                       }
                     },
                     {
                       "type": "frame",
-                      "id": "qemPu",
-                      "name": "Falta · Mis equipos · solicitud pendiente",
+                      "id": "jNByK",
+                      "name": "iPhone · Mis equipos — solo solicitud pendiente",
                       "width": 417,
                       "height": 876,
-                      "fill": "#E4E4E7",
-                      "cornerRadius": 56,
-                      "stroke": "#A1A1AA",
-                      "strokeWidth": 2,
-                      "layout": "vertical",
-                      "gap": 12,
-                      "padding": 40,
-                      "justifyContent": "center",
-                      "alignItems": "center",
+                      "fill": "#1C1C1E",
+                      "cornerRadius": 60,
+                      "stroke": "#48484A",
+                      "strokeWidth": 1.5,
+                      "strokeAlignment": "inner",
+                      "effect": {
+                        "type": "shadow",
+                        "shadowType": "outer",
+                        "color": "#0000002E",
+                        "offset": {
+                          "x": 0,
+                          "y": 12
+                        },
+                        "blur": 32
+                      },
+                      "layout": "none",
                       "children": [
                         {
-                          "type": "text",
-                          "id": "WhjuE",
-                          "name": "tag",
-                          "fill": "#B4532A",
-                          "content": "FALTA",
-                          "fontFamily": "$font",
-                          "fontSize": 15,
-                          "fontWeight": "700",
-                          "letterSpacing": 1.5
-                        },
-                        {
-                          "type": "text",
-                          "id": "NplAZ",
-                          "name": "screen",
-                          "fill": "#27272A",
-                          "textGrowth": "fixed-width",
-                          "width": "fill_container",
-                          "content": "Mis equipos · solicitud pendiente",
-                          "textAlign": "center",
-                          "fontFamily": "$fontTitle",
-                          "fontSize": 30,
-                          "fontWeight": "700",
-                          "letterSpacing": -0.9
-                        },
-                        {
-                          "type": "text",
-                          "id": "GPFUn",
-                          "name": "req",
-                          "fill": "#71717A",
-                          "content": "R24.5",
-                          "textAlign": "center",
-                          "fontFamily": "$font",
-                          "fontSize": 17,
-                          "fontWeight": "normal"
+                          "type": "frame",
+                          "id": "aJa3q",
+                          "x": 12,
+                          "y": 12,
+                          "name": "Mis equipos — solo solicitud pendiente",
+                          "clip": true,
+                          "width": 393,
+                          "height": 852,
+                          "fill": "#08180F",
+                          "cornerRadius": 48,
+                          "layout": "none",
+                          "children": [
+                            {
+                              "id": "V7ltO",
+                              "type": "ref",
+                              "ref": "mqPCF",
+                              "x": 0,
+                              "y": 0,
+                              "name": "StatusBar",
+                              "descendants": {
+                                "2FGm5": {
+                                  "fill": "#F1EEDD"
+                                },
+                                "MzV9b": {
+                                  "fill": "#F1EEDD"
+                                },
+                                "zdsqc": {
+                                  "fill": "#F1EEDD"
+                                },
+                                "ACYgf": {
+                                  "fill": "#F1EEDD"
+                                }
+                              }
+                            },
+                            {
+                              "type": "frame",
+                              "id": "JvtUE",
+                              "x": 133.5,
+                              "y": 11,
+                              "name": "DynamicIsland",
+                              "width": 126,
+                              "height": 37,
+                              "fill": "#000000",
+                              "cornerRadius": 24
+                            },
+                            {
+                              "type": "frame",
+                              "id": "GNUeQ",
+                              "x": 127,
+                              "y": 839,
+                              "name": "HomeIndicator",
+                              "width": 139,
+                              "height": 5,
+                              "fill": "#F1EEDD",
+                              "cornerRadius": 100
+                            },
+                            {
+                              "type": "frame",
+                              "id": "QqU4h",
+                              "x": 16,
+                              "y": 112,
+                              "name": "content",
+                              "width": 361,
+                              "layout": "vertical",
+                              "gap": 10,
+                              "children": [
+                                {
+                                  "type": "text",
+                                  "id": "QNNP0",
+                                  "name": "Large title",
+                                  "fill": "#F1EEDD",
+                                  "content": "Mis equipos",
+                                  "fontFamily": "$fontTitle",
+                                  "fontSize": 34,
+                                  "fontWeight": "600",
+                                  "letterSpacing": -1.19
+                                },
+                                {
+                                  "type": "frame",
+                                  "id": "SvjEJ",
+                                  "name": "Intro",
+                                  "width": "fill_container",
+                                  "layout": "vertical",
+                                  "gap": 6,
+                                  "padding": [
+                                    4,
+                                    0,
+                                    14,
+                                    0
+                                  ],
+                                  "children": [
+                                    {
+                                      "type": "text",
+                                      "id": "Ve5lX",
+                                      "name": "Intro title",
+                                      "fill": "#F1EEDD",
+                                      "textGrowth": "fixed-width",
+                                      "width": "fill_container",
+                                      "content": "Aún no estás en un equipo",
+                                      "fontFamily": "$fontTitle",
+                                      "fontSize": 22,
+                                      "fontWeight": "600",
+                                      "letterSpacing": -0.77
+                                    },
+                                    {
+                                      "type": "text",
+                                      "id": "V6cIm",
+                                      "name": "Intro body",
+                                      "fill": "#F1EEDD9E",
+                                      "textGrowth": "fixed-width",
+                                      "width": "fill_container",
+                                      "content": "Cuando el Capitán apruebe tu solicitud, aquí verás el equipo y sus partidos.",
+                                      "lineHeight": 1.35,
+                                      "fontFamily": "$font",
+                                      "fontSize": 15,
+                                      "fontWeight": "normal"
+                                    }
+                                  ]
+                                },
+                                {
+                                  "type": "text",
+                                  "id": "d9E1Fq",
+                                  "name": "Section label",
+                                  "fill": "#F1EEDD9E",
+                                  "content": "Esperando aprobación",
+                                  "fontFamily": "$font",
+                                  "fontSize": 13,
+                                  "fontWeight": "600"
+                                },
+                                {
+                                  "type": "frame",
+                                  "id": "DunBF",
+                                  "name": "Pending · Leones del Valle",
+                                  "opacity": 0.75,
+                                  "width": "fill_container",
+                                  "fill": "#11281B",
+                                  "cornerRadius": 24,
+                                  "gap": 14,
+                                  "padding": 16,
+                                  "alignItems": "center",
+                                  "children": [
+                                    {
+                                      "type": "frame",
+                                      "id": "kvTcF",
+                                      "name": "Initials",
+                                      "width": 44,
+                                      "height": 44,
+                                      "fill": "#F1EEDD14",
+                                      "cornerRadius": 100,
+                                      "justifyContent": "center",
+                                      "alignItems": "center",
+                                      "children": [
+                                        {
+                                          "type": "text",
+                                          "id": "E9H6y",
+                                          "name": "Initials text",
+                                          "fill": "#F1EEDD9E",
+                                          "content": "LV",
+                                          "fontFamily": "$fontTitle",
+                                          "fontSize": 16,
+                                          "fontWeight": "600"
+                                        }
+                                      ]
+                                    },
+                                    {
+                                      "type": "frame",
+                                      "id": "mcCcj",
+                                      "name": "text",
+                                      "width": "fill_container",
+                                      "layout": "vertical",
+                                      "gap": 3,
+                                      "children": [
+                                        {
+                                          "type": "text",
+                                          "id": "iozmS",
+                                          "name": "Title",
+                                          "fill": "#F1EEDD",
+                                          "content": "Leones del Valle",
+                                          "fontFamily": "$font",
+                                          "fontSize": 17,
+                                          "fontWeight": "600"
+                                        },
+                                        {
+                                          "type": "frame",
+                                          "id": "xxW93",
+                                          "name": "detail",
+                                          "gap": 6,
+                                          "alignItems": "center",
+                                          "children": [
+                                            {
+                                              "type": "text",
+                                              "id": "oHXr4",
+                                              "name": "Detail",
+                                              "fill": "#F1EEDD9E",
+                                              "content": "Te uniste por link hace 2 h",
+                                              "fontFamily": "$font",
+                                              "fontSize": 15,
+                                              "fontWeight": "normal"
+                                            }
+                                          ]
+                                        }
+                                      ]
+                                    },
+                                    {
+                                      "type": "icon",
+                                      "id": "t8JXnM",
+                                      "name": "icon",
+                                      "width": 18,
+                                      "height": 18,
+                                      "icon": "hourglass-medium",
+                                      "library": "phosphor",
+                                      "fill": "#F1EEDD9E"
+                                    }
+                                  ]
+                                },
+                                {
+                                  "type": "frame",
+                                  "id": "I0BlNQ",
+                                  "name": "Pending · Real Ensenada",
+                                  "opacity": 0.75,
+                                  "width": "fill_container",
+                                  "fill": "#11281B",
+                                  "cornerRadius": 24,
+                                  "gap": 14,
+                                  "padding": 16,
+                                  "alignItems": "center",
+                                  "children": [
+                                    {
+                                      "type": "frame",
+                                      "id": "AsPtw",
+                                      "name": "Initials",
+                                      "width": 44,
+                                      "height": 44,
+                                      "fill": "#F1EEDD14",
+                                      "cornerRadius": 100,
+                                      "justifyContent": "center",
+                                      "alignItems": "center",
+                                      "children": [
+                                        {
+                                          "type": "text",
+                                          "id": "sBx63",
+                                          "name": "Initials text",
+                                          "fill": "#F1EEDD9E",
+                                          "content": "RE",
+                                          "fontFamily": "$fontTitle",
+                                          "fontSize": 16,
+                                          "fontWeight": "600"
+                                        }
+                                      ]
+                                    },
+                                    {
+                                      "type": "frame",
+                                      "id": "aOFGh",
+                                      "name": "text",
+                                      "width": "fill_container",
+                                      "layout": "vertical",
+                                      "gap": 3,
+                                      "children": [
+                                        {
+                                          "type": "text",
+                                          "id": "B6wwWB",
+                                          "name": "Title",
+                                          "fill": "#F1EEDD",
+                                          "content": "Real Ensenada",
+                                          "fontFamily": "$font",
+                                          "fontSize": 17,
+                                          "fontWeight": "600"
+                                        },
+                                        {
+                                          "type": "frame",
+                                          "id": "StP2K",
+                                          "name": "detail",
+                                          "gap": 6,
+                                          "alignItems": "center",
+                                          "children": [
+                                            {
+                                              "type": "text",
+                                              "id": "nYCSP",
+                                              "name": "Detail",
+                                              "fill": "#F1EEDD9E",
+                                              "content": "Pediste unirte hace 1 día",
+                                              "fontFamily": "$font",
+                                              "fontSize": 15,
+                                              "fontWeight": "normal"
+                                            }
+                                          ]
+                                        }
+                                      ]
+                                    },
+                                    {
+                                      "type": "icon",
+                                      "id": "ROWAH",
+                                      "name": "icon",
+                                      "width": 18,
+                                      "height": 18,
+                                      "icon": "hourglass-medium",
+                                      "library": "phosphor",
+                                      "fill": "#F1EEDD9E"
+                                    }
+                                  ]
+                                },
+                                {
+                                  "type": "frame",
+                                  "id": "AtGBy",
+                                  "name": "actions",
+                                  "width": "fill_container",
+                                  "gap": 10,
+                                  "padding": [
+                                    8,
+                                    0,
+                                    0,
+                                    0
+                                  ],
+                                  "children": [
+                                    {
+                                      "type": "frame",
+                                      "id": "xeoT9",
+                                      "name": "Button · Crear equipo",
+                                      "width": "fill_container",
+                                      "height": 48,
+                                      "cornerRadius": 100,
+                                      "stroke": "#F1EEDD38",
+                                      "strokeWidth": 1.5,
+                                      "strokeAlignment": "inner",
+                                      "gap": 8,
+                                      "justifyContent": "center",
+                                      "alignItems": "center",
+                                      "children": [
+                                        {
+                                          "type": "icon",
+                                          "id": "fSMY5",
+                                          "name": "icon",
+                                          "width": 18,
+                                          "height": 18,
+                                          "icon": "plus",
+                                          "library": "phosphor",
+                                          "fill": "#F1EEDD"
+                                        },
+                                        {
+                                          "type": "text",
+                                          "id": "pqKcs",
+                                          "name": "Label",
+                                          "fill": "#F1EEDD",
+                                          "content": "Crear equipo",
+                                          "fontFamily": "$font",
+                                          "fontSize": 15,
+                                          "fontWeight": "600"
+                                        }
+                                      ]
+                                    },
+                                    {
+                                      "type": "frame",
+                                      "id": "UXtXE",
+                                      "name": "Button · Unirme con link",
+                                      "width": "fill_container",
+                                      "height": 48,
+                                      "cornerRadius": 100,
+                                      "stroke": "#F1EEDD38",
+                                      "strokeWidth": 1.5,
+                                      "strokeAlignment": "inner",
+                                      "gap": 8,
+                                      "justifyContent": "center",
+                                      "alignItems": "center",
+                                      "children": [
+                                        {
+                                          "type": "icon",
+                                          "id": "g8nei",
+                                          "name": "icon",
+                                          "width": 18,
+                                          "height": 18,
+                                          "icon": "link",
+                                          "library": "phosphor",
+                                          "fill": "#F1EEDD"
+                                        },
+                                        {
+                                          "type": "text",
+                                          "id": "y7tRN",
+                                          "name": "Label",
+                                          "fill": "#F1EEDD",
+                                          "content": "Unirme con link",
+                                          "fontFamily": "$font",
+                                          "fontSize": 15,
+                                          "fontWeight": "600"
+                                        }
+                                      ]
+                                    }
+                                  ]
+                                }
+                              ]
+                            },
+                            {
+                              "type": "frame",
+                              "id": "KPgLl",
+                              "x": 16,
+                              "y": 58,
+                              "name": "Perfil",
+                              "width": 44,
+                              "height": 44,
+                              "fill": "#11281B",
+                              "cornerRadius": 100,
+                              "effect": {
+                                "type": "shadow",
+                                "shadowType": "outer",
+                                "color": "#0E46281A",
+                                "offset": {
+                                  "x": 0,
+                                  "y": 2
+                                },
+                                "blur": 8
+                              },
+                              "justifyContent": "center",
+                              "alignItems": "center",
+                              "children": [
+                                {
+                                  "type": "frame",
+                                  "id": "pWJ0W",
+                                  "name": "Initials",
+                                  "width": 44,
+                                  "height": 44,
+                                  "fill": "$brandGreen",
+                                  "cornerRadius": 100,
+                                  "justifyContent": "center",
+                                  "alignItems": "center",
+                                  "children": [
+                                    {
+                                      "type": "text",
+                                      "id": "SPVsp",
+                                      "name": "Initials text",
+                                      "fill": "$brandCream",
+                                      "content": "DR",
+                                      "fontFamily": "$fontTitle",
+                                      "fontSize": 16,
+                                      "fontWeight": "600"
+                                    }
+                                  ]
+                                }
+                              ]
+                            },
+                            {
+                              "id": "yzDP3",
+                              "type": "ref",
+                              "ref": "X18zs",
+                              "name": "Nav/AppTabBar",
+                              "x": 16,
+                              "y": 756,
+                              "descendants": {
+                                "MeGnq": {
+                                  "fill": "#F1EEDD1A"
+                                },
+                                "bQURg": {
+                                  "fill": "#F1EEDD"
+                                },
+                                "oqZ1i": {
+                                  "fill": "#F1EEDD"
+                                },
+                                "F22rw": {
+                                  "content": "3"
+                                }
+                              }
+                            }
+                          ]
                         }
                       ]
                     }
@@ -29395,81 +29832,367 @@
                 },
                 {
                   "type": "frame",
-                  "id": "XweNl",
-                  "name": "falta · Mis equipos · sin equipos",
-                  "width": 417,
+                  "id": "RQ0Qz",
+                  "name": "view · Jugador / Capitán",
                   "layout": "vertical",
                   "gap": 20,
                   "children": [
                     {
-                      "id": "wSpkc",
+                      "id": "B0Gt9H",
                       "type": "ref",
                       "ref": "zLMR0",
                       "name": "role",
+                      "fill": "#FFFFFF",
+                      "stroke": "#D4D4D8",
+                      "strokeWidth": 1,
                       "descendants": {
                         "KKC1z": {
                           "enabled": false
                         },
                         "UNwwQ": {
                           "enabled": true,
-                          "fill": "#F1EEDD"
+                          "icon": "users"
                         },
                         "bwl4G": {
-                          "content": "Jugador / Capitán"
+                          "content": "Jugador / Capitán",
+                          "fill": "#18181B"
                         }
                       }
                     },
                     {
                       "type": "frame",
-                      "id": "pY66N",
-                      "name": "Falta · Mis equipos · sin equipos",
+                      "id": "GPhVc",
+                      "name": "iPhone · Mis equipos — sin equipos",
                       "width": 417,
                       "height": 876,
-                      "fill": "#E4E4E7",
-                      "cornerRadius": 56,
-                      "stroke": "#A1A1AA",
-                      "strokeWidth": 2,
-                      "layout": "vertical",
-                      "gap": 12,
-                      "padding": 40,
-                      "justifyContent": "center",
-                      "alignItems": "center",
+                      "fill": "#1C1C1E",
+                      "cornerRadius": 60,
+                      "stroke": "#48484A",
+                      "strokeWidth": 1.5,
+                      "strokeAlignment": "inner",
+                      "effect": {
+                        "type": "shadow",
+                        "shadowType": "outer",
+                        "color": "#0000002E",
+                        "offset": {
+                          "x": 0,
+                          "y": 12
+                        },
+                        "blur": 32
+                      },
+                      "layout": "none",
                       "children": [
                         {
-                          "type": "text",
-                          "id": "ndm8P",
-                          "name": "tag",
-                          "fill": "#B4532A",
-                          "content": "FALTA",
-                          "fontFamily": "$font",
-                          "fontSize": 15,
-                          "fontWeight": "700",
-                          "letterSpacing": 1.5
-                        },
-                        {
-                          "type": "text",
-                          "id": "jq4vF",
-                          "name": "screen",
-                          "fill": "#27272A",
-                          "textGrowth": "fixed-width",
-                          "width": "fill_container",
-                          "content": "Mis equipos · sin equipos",
-                          "textAlign": "center",
-                          "fontFamily": "$fontTitle",
-                          "fontSize": 30,
-                          "fontWeight": "700",
-                          "letterSpacing": -0.9
-                        },
-                        {
-                          "type": "text",
-                          "id": "JEVJk",
-                          "name": "req",
-                          "fill": "#71717A",
-                          "content": "R24.5",
-                          "textAlign": "center",
-                          "fontFamily": "$font",
-                          "fontSize": 17,
-                          "fontWeight": "normal"
+                          "type": "frame",
+                          "id": "kJHTS",
+                          "x": 12,
+                          "y": 12,
+                          "name": "Mis equipos — sin equipos",
+                          "clip": true,
+                          "width": 393,
+                          "height": 852,
+                          "fill": "#08180F",
+                          "cornerRadius": 48,
+                          "layout": "none",
+                          "children": [
+                            {
+                              "id": "jdVKf",
+                              "type": "ref",
+                              "ref": "mqPCF",
+                              "x": 0,
+                              "y": 0,
+                              "name": "StatusBar",
+                              "descendants": {
+                                "2FGm5": {
+                                  "fill": "#F1EEDD"
+                                },
+                                "MzV9b": {
+                                  "fill": "#F1EEDD"
+                                },
+                                "zdsqc": {
+                                  "fill": "#F1EEDD"
+                                },
+                                "ACYgf": {
+                                  "fill": "#F1EEDD"
+                                }
+                              }
+                            },
+                            {
+                              "type": "frame",
+                              "id": "L0Gq0A",
+                              "x": 133.5,
+                              "y": 11,
+                              "name": "DynamicIsland",
+                              "width": 126,
+                              "height": 37,
+                              "fill": "#000000",
+                              "cornerRadius": 24
+                            },
+                            {
+                              "type": "frame",
+                              "id": "HywaJ",
+                              "x": 127,
+                              "y": 839,
+                              "name": "HomeIndicator",
+                              "width": 139,
+                              "height": 5,
+                              "fill": "#F1EEDD",
+                              "cornerRadius": 100
+                            },
+                            {
+                              "type": "frame",
+                              "id": "dAyTn",
+                              "x": 16,
+                              "y": 112,
+                              "name": "content",
+                              "width": 361,
+                              "height": 614,
+                              "layout": "vertical",
+                              "gap": 10,
+                              "children": [
+                                {
+                                  "type": "text",
+                                  "id": "nt0jy",
+                                  "name": "Large title",
+                                  "fill": "#F1EEDD",
+                                  "content": "Mis equipos",
+                                  "fontFamily": "$fontTitle",
+                                  "fontSize": 34,
+                                  "fontWeight": "600",
+                                  "letterSpacing": -1.19
+                                },
+                                {
+                                  "type": "frame",
+                                  "id": "T3CVp",
+                                  "name": "Empty state",
+                                  "width": "fill_container",
+                                  "height": "fill_container",
+                                  "layout": "vertical",
+                                  "gap": 10,
+                                  "padding": [
+                                    0,
+                                    24
+                                  ],
+                                  "justifyContent": "center",
+                                  "alignItems": "center",
+                                  "children": [
+                                    {
+                                      "type": "frame",
+                                      "id": "bokMA",
+                                      "name": "Icon disc",
+                                      "width": 72,
+                                      "height": 72,
+                                      "fill": "#11281B",
+                                      "cornerRadius": 100,
+                                      "justifyContent": "center",
+                                      "alignItems": "center",
+                                      "children": [
+                                        {
+                                          "type": "icon",
+                                          "id": "Kw9fU",
+                                          "name": "icon",
+                                          "width": 32,
+                                          "height": 32,
+                                          "icon": "shield",
+                                          "library": "phosphor",
+                                          "fill": "#2E9A5C"
+                                        }
+                                      ]
+                                    },
+                                    {
+                                      "type": "frame",
+                                      "id": "DkaZo",
+                                      "name": "gap",
+                                      "width": 1,
+                                      "height": 6
+                                    },
+                                    {
+                                      "type": "text",
+                                      "id": "vOLJz",
+                                      "name": "Empty title",
+                                      "fill": "#F1EEDD",
+                                      "content": "Aún no tienes equipo",
+                                      "fontFamily": "$fontTitle",
+                                      "fontSize": 22,
+                                      "fontWeight": "600",
+                                      "letterSpacing": -0.77
+                                    },
+                                    {
+                                      "type": "text",
+                                      "id": "vCpDT",
+                                      "name": "Empty body",
+                                      "fill": "#F1EEDD9E",
+                                      "textGrowth": "fixed-width",
+                                      "width": "fill_container",
+                                      "content": "Arma el tuyo e invita a tus jugadores, o entra con el link que te mandó tu Capitán.",
+                                      "lineHeight": 1.35,
+                                      "textAlign": "center",
+                                      "fontFamily": "$font",
+                                      "fontSize": 15,
+                                      "fontWeight": "normal"
+                                    }
+                                  ]
+                                },
+                                {
+                                  "type": "frame",
+                                  "id": "yN27a",
+                                  "name": "actions",
+                                  "width": "fill_container",
+                                  "gap": 10,
+                                  "padding": [
+                                    8,
+                                    0,
+                                    0,
+                                    0
+                                  ],
+                                  "children": [
+                                    {
+                                      "type": "frame",
+                                      "id": "NWwEW",
+                                      "name": "Button · Crear equipo",
+                                      "width": "fill_container",
+                                      "height": 48,
+                                      "fill": "#F1EEDD",
+                                      "cornerRadius": 100,
+                                      "stroke": "#F1EEDD38",
+                                      "strokeAlignment": "inner",
+                                      "gap": 8,
+                                      "justifyContent": "center",
+                                      "alignItems": "center",
+                                      "children": [
+                                        {
+                                          "type": "icon",
+                                          "id": "AXBAE",
+                                          "name": "icon",
+                                          "width": 18,
+                                          "height": 18,
+                                          "icon": "plus",
+                                          "library": "phosphor",
+                                          "fill": "#08180F"
+                                        },
+                                        {
+                                          "type": "text",
+                                          "id": "o6YENj",
+                                          "name": "Label",
+                                          "fill": "#08180F",
+                                          "content": "Crear equipo",
+                                          "fontFamily": "$font",
+                                          "fontSize": 15,
+                                          "fontWeight": "600"
+                                        }
+                                      ]
+                                    },
+                                    {
+                                      "type": "frame",
+                                      "id": "cLI2J",
+                                      "name": "Button · Unirme con link",
+                                      "width": "fill_container",
+                                      "height": 48,
+                                      "cornerRadius": 100,
+                                      "stroke": "#F1EEDD38",
+                                      "strokeWidth": 1.5,
+                                      "strokeAlignment": "inner",
+                                      "gap": 8,
+                                      "justifyContent": "center",
+                                      "alignItems": "center",
+                                      "children": [
+                                        {
+                                          "type": "icon",
+                                          "id": "n5LQg",
+                                          "name": "icon",
+                                          "width": 18,
+                                          "height": 18,
+                                          "icon": "link",
+                                          "library": "phosphor",
+                                          "fill": "#F1EEDD"
+                                        },
+                                        {
+                                          "type": "text",
+                                          "id": "iAFx9",
+                                          "name": "Label",
+                                          "fill": "#F1EEDD",
+                                          "content": "Unirme con link",
+                                          "fontFamily": "$font",
+                                          "fontSize": 15,
+                                          "fontWeight": "600"
+                                        }
+                                      ]
+                                    }
+                                  ]
+                                }
+                              ]
+                            },
+                            {
+                              "type": "frame",
+                              "id": "abkk6",
+                              "x": 16,
+                              "y": 58,
+                              "name": "Perfil",
+                              "width": 44,
+                              "height": 44,
+                              "fill": "#11281B",
+                              "cornerRadius": 100,
+                              "effect": {
+                                "type": "shadow",
+                                "shadowType": "outer",
+                                "color": "#0E46281A",
+                                "offset": {
+                                  "x": 0,
+                                  "y": 2
+                                },
+                                "blur": 8
+                              },
+                              "justifyContent": "center",
+                              "alignItems": "center",
+                              "children": [
+                                {
+                                  "type": "frame",
+                                  "id": "Ecxhg",
+                                  "name": "Initials",
+                                  "width": 44,
+                                  "height": 44,
+                                  "fill": "$brandGreen",
+                                  "cornerRadius": 100,
+                                  "justifyContent": "center",
+                                  "alignItems": "center",
+                                  "children": [
+                                    {
+                                      "type": "text",
+                                      "id": "g55sw",
+                                      "name": "Initials text",
+                                      "fill": "$brandCream",
+                                      "content": "DR",
+                                      "fontFamily": "$fontTitle",
+                                      "fontSize": 16,
+                                      "fontWeight": "600"
+                                    }
+                                  ]
+                                }
+                              ]
+                            },
+                            {
+                              "id": "qTYuH",
+                              "type": "ref",
+                              "ref": "X18zs",
+                              "name": "Nav/AppTabBar",
+                              "x": 16,
+                              "y": 756,
+                              "descendants": {
+                                "MeGnq": {
+                                  "fill": "#F1EEDD1A"
+                                },
+                                "bQURg": {
+                                  "fill": "#F1EEDD"
+                                },
+                                "oqZ1i": {
+                                  "fill": "#F1EEDD"
+                                },
+                                "F22rw": {
+                                  "content": "3"
+                                }
+                              }
+                            }
+                          ]
                         }
                       ]
                     }
