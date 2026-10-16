@@ -7,6 +7,10 @@ services:
       # Soft heap limit below the container's 256M, so the GC works harder
       # before the kernel OOM-kills the process.
       GOMEMLIMIT: 200MiB
+    volumes:
+      # The APNs .p8 key, if any (docs/operations.md). Docker creates an empty
+      # ./secrets when it is missing, and push stays off.
+      - ./secrets:/run/secrets/apns:ro
     ports:
       - "127.0.0.1:${API_PORT:?}:${API_PORT:?}"
     depends_on:

@@ -97,7 +97,7 @@ type Pusher interface {
 type Deps struct {
 	Tx            application.TxRunner
 	Notifications Notifications
-	Push          Pusher // nil means inbox only, until the APNs sender (BE-NOTIF-2)
+	Push          Pusher // nil means inbox only: APNs is not configured
 	// Memberships, Teams and Now serve SendManual: the admin check under the
 	// team lock, the team's timezone, and the clock (nil means time.Now).
 	Memberships application.AdminLocker

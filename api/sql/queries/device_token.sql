@@ -25,3 +25,8 @@ WHERE d.user_id = sqlc.arg(user_id) AND d.id NOT IN (
 -- name: DeleteDeviceToken :exec
 -- Removes the user's own token only; a token of another user is untouched.
 DELETE FROM device_token WHERE user_id = $1 AND token = $2;
+
+-- name: DeleteDeviceTokenByValue :exec
+-- Removes a token APNs rejected (410 or BadDeviceToken), whoever holds it:
+-- no device answers to it anymore (R11.7).
+DELETE FROM device_token WHERE token = $1;

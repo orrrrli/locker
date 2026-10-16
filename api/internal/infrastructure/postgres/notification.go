@@ -114,6 +114,15 @@ func (r *Notifications) UnregisterDevice(ctx context.Context, userID int64, toke
 	return nil
 }
 
+// DeleteDeviceToken deletes a token APNs rejected, whichever user holds it.
+// It satisfies apns.Tokens.
+func (r *Notifications) DeleteDeviceToken(ctx context.Context, token string) error {
+	if err := sqlcdb.New(Conn(ctx, r.pool)).DeleteDeviceTokenByValue(ctx, token); err != nil {
+		return fmt.Errorf("postgres: delete device token by value: %w", err)
+	}
+	return nil
+}
+
 // TrimDevices deletes the user's tokens beyond the keep newest by last_seen_at.
 func (r *Notifications) TrimDevices(ctx context.Context, userID int64, keep int) error {
 	err := sqlcdb.New(Conn(ctx, r.pool)).TrimDeviceTokens(ctx, sqlcdb.TrimDeviceTokensParams{UserID: userID, Keep: int32(keep)})

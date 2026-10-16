@@ -7,6 +7,8 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+
+	"github.com/orrrrli/locker/api/internal/infrastructure/apns"
 )
 
 type config struct {
@@ -21,11 +23,17 @@ type config struct {
 	// DownloadURL is the public TestFlight link the invite landing points to.
 	// Optional: without it the page says the app is not out yet.
 	DownloadURL string
+	// APNS is the push setup, without its key; APNSKeyFile is the path of
+	// the .p8 key. Empty until the APNs key exists: notices then stay in the
+	// inbox without a push.
+	APNS        apns.Config
+	APNSKeyFile string
 }
 
 var (
 	appleTeamIDPattern   = regexp.MustCompile(`^[A-Z0-9]{10}$`)
 	appleBundleIDPattern = regexp.MustCompile(`^[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)+$`)
+	apnsKeyIDPattern     = regexp.MustCompile(`^[A-Z0-9]{10}$`)
 )
 
 // loadConfig reads the API configuration through getenv (os.Getenv in production).
@@ -86,6 +94,29 @@ func loadConfig(getenv func(string) string) (config, error) {
 			errs = append(errs, errors.New("TESTFLIGHT_URL needs APPLE_TEAM_ID and APPLE_BUNDLE_ID"))
 		} else {
 			cfg.DownloadURL = dl
+		}
+	}
+
+	// Push needs the key, its id, and the Apple pair: the team signs the
+	// provider token and the bundle is the APNs topic.
+	keyFile, keyID := getenv("APNS_KEY_FILE"), getenv("APNS_KEY_ID")
+	sandbox, sandboxErr := strconv.ParseBool(getenv("APNS_SANDBOX"))
+	switch {
+	case getenv("APNS_SANDBOX") != "" && sandboxErr != nil:
+		errs = append(errs, fmt.Errorf("APNS_SANDBOX must be true or false, got %q", getenv("APNS_SANDBOX")))
+	case keyFile == "" && keyID == "":
+		// Not configured yet: notices stay inbox only.
+	case keyFile == "" || keyID == "":
+		errs = append(errs, errors.New("set both APNS_KEY_FILE and APNS_KEY_ID, or neither"))
+	case !apnsKeyIDPattern.MatchString(keyID):
+		errs = append(errs, fmt.Errorf("APNS_KEY_ID must be 10 uppercase letters or digits, got %q", keyID))
+	case cfg.AppleAppID == "":
+		errs = append(errs, errors.New("APNS_KEY_FILE needs APPLE_TEAM_ID and APPLE_BUNDLE_ID"))
+	default:
+		cfg.APNSKeyFile = keyFile
+		cfg.APNS = apns.Config{Host: apns.ProductionHost, TeamID: team, KeyID: keyID, Topic: bundle}
+		if sandbox {
+			cfg.APNS.Host = apns.SandboxHost
 		}
 	}
 

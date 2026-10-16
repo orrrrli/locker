@@ -29,10 +29,16 @@ const (
 
 // Client sends pushes to APNs. Build it with New.
 type Client struct {
-	http  *http.Client
-	host  string
-	topic string
-	jwt   *providerToken
+	http   *http.Client
+	host   string
+	topic  string
+	jwt    *providerToken
+	tokens Tokens
+}
+
+// Tokens deletes device tokens APNs says no device answers to (R11.7).
+type Tokens interface {
+	DeleteDeviceToken(ctx context.Context, token string) error
 }
 
 // Config is what New needs. TeamID and Topic are the Apple team and bundle
@@ -43,6 +49,7 @@ type Config struct {
 	KeyID  string
 	Key    []byte
 	Topic  string
+	Tokens Tokens
 	// HTTP is the client pushes go through; nil means one with
 	// requestTimeout. Tests pass the fake server's.
 	HTTP *http.Client
@@ -59,10 +66,11 @@ func New(cfg Config) (*Client, error) {
 		hc = &http.Client{Timeout: requestTimeout}
 	}
 	return &Client{
-		http:  hc,
-		host:  cfg.Host,
-		topic: cfg.Topic,
-		jwt:   &providerToken{key: key, keyID: cfg.KeyID, teamID: cfg.TeamID, now: time.Now},
+		http:   hc,
+		host:   cfg.Host,
+		topic:  cfg.Topic,
+		jwt:    &providerToken{key: key, keyID: cfg.KeyID, teamID: cfg.TeamID, now: time.Now},
+		tokens: cfg.Tokens,
 	}, nil
 }
 
@@ -85,10 +93,28 @@ func (c *Client) send(ctx context.Context, n domain.Notification, tokens []strin
 		return
 	}
 	for _, token := range tokens {
-		if err := c.sendOne(ctx, token, body); err != nil {
+		err := c.sendOne(ctx, token, body)
+		if err == nil {
+			continue
+		}
+		if !invalidToken(err) {
 			slog.WarnContext(ctx, "apns: push", "notification_id", n.ID, "err", err)
+			continue
+		}
+		if err := c.tokens.DeleteDeviceToken(ctx, token); err != nil {
+			slog.ErrorContext(ctx, "apns: delete invalid token", "notification_id", n.ID, "err", err)
 		}
 	}
+}
+
+// invalidToken reports whether APNs says no device answers to the token:
+// 410 (the app was uninstalled or the token expired) or BadDeviceToken.
+//
+// ponytail: a 410 carries the time the token went stale; it is not compared
+// with last_seen_at, since a device that registers again gets a new token.
+func invalidToken(err error) bool {
+	var e *Error
+	return errors.As(err, &e) && (e.Status == http.StatusGone || e.Reason == "BadDeviceToken")
 }
 
 // Error is a push APNs answered with a status other than 200. Reason is

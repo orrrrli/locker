@@ -26,6 +26,7 @@ import (
 	"github.com/orrrrli/locker/api/internal/application/teams"
 	"github.com/orrrrli/locker/api/internal/application/venues"
 	apihttp "github.com/orrrrli/locker/api/internal/http"
+	"github.com/orrrrli/locker/api/internal/infrastructure/apns"
 	"github.com/orrrrli/locker/api/internal/infrastructure/password"
 	"github.com/orrrrli/locker/api/internal/infrastructure/postgres"
 )
@@ -71,12 +72,27 @@ func start() error {
 	loginLimiter := apihttp.NewLoginLimiter(nil)
 	limits := apihttp.NewLimits(nil)
 	memberships := postgres.NewMemberships(pool)
-	// Push stays nil (inbox only) until the APNs sender, BE-NOTIF-2.
 	matchRepo := postgres.NewMatches(pool)
 	notificationRepo := postgres.NewNotifications(pool)
+	// Push stays nil, inbox only, until the APNs key is configured.
+	var push notifications.Pusher
+	if cfg.APNSKeyFile != "" {
+		key, err := os.ReadFile(cfg.APNSKeyFile)
+		if err != nil {
+			return fmt.Errorf("APNS_KEY_FILE: %w", err)
+		}
+		apnsCfg := cfg.APNS
+		apnsCfg.Key, apnsCfg.Tokens = key, notificationRepo
+		client, err := apns.New(apnsCfg)
+		if err != nil {
+			return err
+		}
+		push = client
+	}
 	notificationSvc := notifications.NewService(notifications.Deps{
 		Tx:            postgres.NewTxRunner(pool),
 		Notifications: notificationRepo,
+		Push:          push,
 		Memberships:   memberships,
 		Teams:         postgres.NewTeams(pool),
 		Matches:       matchRepo,
