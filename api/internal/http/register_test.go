@@ -85,7 +85,7 @@ func newAPI(t *testing.T, now func() time.Time) apiTest {
 	})
 	chargeRepo := postgres.NewCharges(pool)
 	chargeSvc := charges.NewService(charges.Deps{
-		Tx: postgres.NewTxRunner(pool), Charges: chargeRepo, Matches: matchRepo, Memberships: memberships, Now: now,
+		Tx: postgres.NewTxRunner(pool), Charges: chargeRepo, Matches: matchRepo, Memberships: memberships, Notifier: notificationSvc, Now: now,
 	})
 	// Limits high enough that no test of a feature trips them; the limits
 	// have their own tests in ratelimit_test.go.

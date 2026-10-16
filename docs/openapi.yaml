@@ -1530,6 +1530,58 @@ paths:
         "503":
           $ref: "#/components/responses/TeamBusy"
 
+  /charges/{id}/remind:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        description: Charge id. An unknown id answers 404, the same as a charge of a team the caller is not active in.
+        schema:
+          type: integer
+          format: int64
+          minimum: 1
+    post:
+      tags: [fees]
+      operationId: remindCharge
+      summary: Remind the members who still owe the charge
+      description: |
+        Admins only. Sends a manual notice, "Tienes pendiente <concepto>:
+        $<monto> MXN.", only to the active members with a pending entry in
+        the charge (R12.5); members who paid or left get nothing. It counts
+        against the team's 10 manual notices per local day like any other
+        (R11.3). No request body.
+      security:
+        - bearerAuth: []
+      responses:
+        "201":
+          description: Reminder stored and sent.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Notification"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          description: |
+            - `nothing_pending`: no active member besides the caller still owes this charge.
+            - `daily_limit_reached`: the team already sent 10 notices since local midnight.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Error"
+                  - properties:
+                      error:
+                        enum: [nothing_pending, daily_limit_reached]
+        "500":
+          $ref: "#/components/responses/Internal"
+        "503":
+          $ref: "#/components/responses/TeamBusy"
+
   /matches/{id}:
     parameters:
       - $ref: "#/components/parameters/MatchID"
@@ -1995,6 +2047,7 @@ components:
         - invalid_title
         - invalid_body
         - daily_limit_reached
+        - nothing_pending
     AlreadyMemberError:
       type: object
       required: [error, status]

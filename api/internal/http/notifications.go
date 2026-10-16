@@ -65,10 +65,14 @@ func (h notificationHandlers) send(w http.ResponseWriter, r *http.Request) {
 		notificationErrors.write(w, r, "notifications", err)
 		return
 	}
-	writeJSON(w, http.StatusCreated, notificationJSON{
+	writeJSON(w, http.StatusCreated, toNotificationJSON(n))
+}
+
+func toNotificationJSON(n domain.Notification) notificationJSON {
+	return notificationJSON{
 		ID: n.ID, TeamID: n.TeamID, Kind: n.Kind, Title: n.Title, Body: n.Body,
 		MatchID: n.MatchID, SentBy: n.SentBy, CreatedAt: apiTime(n.CreatedAt),
-	})
+	}
 }
 
 type notificationHandlers struct {
