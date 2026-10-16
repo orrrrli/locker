@@ -582,3 +582,85 @@ func TestFullLoginLimiterRefusesStrangersOnly(t *testing.T) {
 		t.Fatalf("ip entries = %d, want at most 2", ip)
 	}
 }
+
+// fakeMatches answers create and update with a match of teamID and counts
+// the writes that reach it; the other methods are not reached.
+type fakeMatches struct {
+	matchService
+	writes atomic.Int64
+}
+
+func (f *fakeMatches) Create(context.Context, int64, int64, time.Time, string, string) (domain.Match, error) {
+	f.writes.Add(1)
+	return domain.Match{ID: 1, TeamID: teamID}, nil
+}
+
+func (f *fakeMatches) Update(context.Context, int64, int64, int64, *time.Time, *string, *string) (domain.Match, error) {
+	f.writes.Add(1)
+	return domain.Match{ID: 1, TeamID: teamID}, nil
+}
+
+func (f *fakeMatches) MatchByID(context.Context, int64) (domain.Match, error) {
+	return domain.Match{ID: 1, TeamID: teamID}, nil
+}
+
+// Create and update share one budget per admin, so looping either cannot
+// flood the team with match notices (#427). A refused write never reaches
+// the use case, so it stores and pushes nothing.
+func TestMatchWritesShareOneLimitPerUser(t *testing.T) {
+	clk := &clock{t: today}
+	admin := domain.Membership{ID: 1, TeamID: teamID, Role: domain.RoleAdmin, Status: domain.MembershipActive}
+	auth := &fakeAuth{user: userID}
+	matches := &fakeMatches{}
+	h := NewRouter(Deps{
+		Auth:        auth,
+		Matches:     matches,
+		MatchFinder: matches,
+		Memberships: fakeMemberships{m: &admin},
+		Limits:      NewLimits(clk.now),
+	})
+	// Even calls create (201), odd calls update (200).
+	call := func(i int) *httptest.ResponseRecorder {
+		req := httptest.NewRequest(http.MethodPatch, "/matches/1", strings.NewReader(`{"location":"Cancha 2"}`))
+		if i%2 == 0 {
+			req = httptest.NewRequest(http.MethodPost, "/teams/"+strconv.Itoa(teamID)+"/matches",
+				strings.NewReader(`{"starts_at":"2026-11-01T18:00:00Z","rival_name":"Pumas","location":"Cancha 3"}`))
+		}
+		req.Header.Set("Authorization", "Bearer x")
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+		return rec
+	}
+	want := func(i int) int {
+		if i%2 == 0 {
+			return http.StatusCreated
+		}
+		return http.StatusOK
+	}
+	for i := range matchWriteMaxPerUser {
+		if rec := call(i); rec.Code != want(i) {
+			t.Fatalf("call %d = %d %s, want %d", i+1, rec.Code, rec.Body, want(i))
+		}
+	}
+	for i := range 2 { // both routes are out once the shared budget is spent
+		rec := call(i)
+		if rec.Code != http.StatusTooManyRequests || errorCode(t, rec) != "too_many_attempts" || rec.Header().Get("Retry-After") != "3600" {
+			t.Fatalf("past the limit = %d %q, Retry-After %q; want 429 too_many_attempts, 3600",
+				rec.Code, errorCode(t, rec), rec.Header().Get("Retry-After"))
+		}
+	}
+	if n := matches.writes.Load(); n != matchWriteMaxPerUser {
+		t.Fatalf("%d writes reached the use case, want %d: refused ones must not", n, matchWriteMaxPerUser)
+	}
+	// Another user keeps their own budget: they pass the limiter and reach
+	// the role check, where fakeMemberships knows only userID, hence 404.
+	auth.user = userID + 1
+	if rec := call(0); rec.Code != http.StatusNotFound {
+		t.Fatalf("other user = %d, want 404 from the role check, not a 429", rec.Code)
+	}
+	auth.user = userID
+	clk.t = clk.t.Add(matchWriteWindow)
+	if rec := call(0); rec.Code != http.StatusCreated {
+		t.Fatalf("after the window = %d, want 201", rec.Code)
+	}
+}

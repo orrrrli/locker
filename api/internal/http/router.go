@@ -41,7 +41,8 @@ type Deps struct {
 	// LoginLimiter throttles failed logins; nil gets a fresh one on the
 	// real clock.
 	LoginLimiter *LoginLimiter
-	// Limits throttles register, invites, join requests and device tokens; nil fields get NewLimits(nil).
+	// Limits throttles register, invites, join requests, device tokens and
+	// match writes; nil fields get NewLimits(nil).
 	Limits Limits
 }
 
@@ -70,6 +71,9 @@ func NewRouter(d Deps) http.Handler {
 	}
 	if d.Limits.DeviceToken == nil {
 		d.Limits.DeviceToken = defaults.DeviceToken
+	}
+	if d.Limits.MatchWrite == nil {
+		d.Limits.MatchWrite = defaults.MatchWrite
 	}
 	a := authHandlers{svc: d.Auth, limits: d.LoginLimiter, registers: d.Limits.Register}
 	mux.HandleFunc("POST /auth/register", a.register)
@@ -103,11 +107,13 @@ func NewRouter(d Deps) http.Handler {
 	mux.Handle("DELETE /memberships/{id}", a.requireAuth(z.requireActiveMember(teamFromMembership("id", d.Memberships), http.HandlerFunc(mem.leave))))
 
 	mt := matchHandlers{svc: d.Matches}
-	mux.Handle("POST /teams/{id}/matches", a.requireAuth(z.requireRole(team, domain.RoleAdmin, http.HandlerFunc(mt.create))))
+	mux.Handle("POST /teams/{id}/matches", a.requireAuth(limitBy(d.Limits.MatchWrite, byUser,
+		z.requireRole(team, domain.RoleAdmin, http.HandlerFunc(mt.create)))))
 	mux.Handle("GET /teams/{id}/matches", a.requireAuth(z.requireActiveMember(team, http.HandlerFunc(mt.list))))
 	mux.Handle("GET /me/matches", a.requireAuth(http.HandlerFunc(mt.upcoming)))
 	match := teamFromMatch("id", d.MatchFinder)
-	mux.Handle("PATCH /matches/{id}", a.requireAuth(z.requireRole(match, domain.RoleAdmin, http.HandlerFunc(mt.update))))
+	mux.Handle("PATCH /matches/{id}", a.requireAuth(limitBy(d.Limits.MatchWrite, byUser,
+		z.requireRole(match, domain.RoleAdmin, http.HandlerFunc(mt.update)))))
 	mux.Handle("PUT /matches/{id}/rsvp", a.requireAuth(z.requireActiveMember(match, http.HandlerFunc(mt.rsvp))))
 	mux.Handle("PUT /matches/{id}/attendance", a.requireAuth(z.requireRole(match, domain.RoleAdmin, http.HandlerFunc(mt.saveAttendance))))
 	mux.Handle("GET /matches/{id}/attendance", a.requireAuth(z.requireActiveMember(match, http.HandlerFunc(mt.getAttendance))))
