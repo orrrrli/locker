@@ -27,3 +27,22 @@ func CleanText(raw string, max int) (string, bool) {
 	}
 	return s, true
 }
+
+// CleanParagraph is CleanText for text that may span lines (a notice body):
+// CRLF becomes LF, and line feeds are allowed; every other control or
+// invisible character is rejected the same way.
+func CleanParagraph(raw string, max int) (string, bool) {
+	s := strings.TrimSpace(strings.ReplaceAll(raw, "\r\n", "\n"))
+	if s == "" || utf8.RuneCountInString(s) > max {
+		return "", false
+	}
+	for _, r := range s {
+		if r == '\n' {
+			continue
+		}
+		if unicode.IsControl(r) || (unicode.Is(unicode.Cf, r) && r != zeroWidthJoiner) {
+			return "", false
+		}
+	}
+	return s, true
+}

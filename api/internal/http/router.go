@@ -15,10 +15,13 @@ type Deps struct {
 	Members       membershipService
 	Account       accountService
 	Matches       matchService
+	Charges       chargeService
 	Notifications notificationService
 	Venues        venueService
 	// MatchFinder resolves the team of routes on /matches/{id}.
 	MatchFinder matchFinder
+	// ChargeFinder resolves the team of routes on /charges/{id}.
+	ChargeFinder chargeFinder
 	// AppleAppID ("<team id>.<bundle id>") is the app invite links open;
 	// empty until the Apple Developer account exists.
 	AppleAppID string
@@ -66,7 +69,9 @@ func NewRouter(d Deps) http.Handler {
 	mux.HandleFunc("POST /auth/register", a.register)
 	mux.HandleFunc("POST /auth/login", a.login)
 	mux.Handle("POST /auth/logout", a.requireAuth(http.HandlerFunc(a.logout)))
-	mux.Handle("DELETE /me", a.requireAuth(http.HandlerFunc(accountHandlers{svc: d.Account}.deleteMe)))
+	acct := accountHandlers{svc: d.Account}
+	mux.Handle("GET /me", a.requireAuth(http.HandlerFunc(acct.me)))
+	mux.Handle("DELETE /me", a.requireAuth(http.HandlerFunc(acct.deleteMe)))
 
 	z := authz{memberships: d.Memberships, users: d.Users}
 	t := teamHandlers{svc: d.Teams}
@@ -101,7 +106,14 @@ func NewRouter(d Deps) http.Handler {
 	mux.Handle("PUT /matches/{id}/attendance", a.requireAuth(z.requireRole(match, domain.RoleAdmin, http.HandlerFunc(mt.saveAttendance))))
 	mux.Handle("GET /matches/{id}/attendance", a.requireAuth(z.requireActiveMember(match, http.HandlerFunc(mt.getAttendance))))
 
+	ch := chargeHandlers{svc: d.Charges}
+	mux.Handle("POST /teams/{id}/charges", a.requireAuth(z.requireRole(team, domain.RoleAdmin, http.HandlerFunc(ch.create))))
+	mux.Handle("GET /teams/{id}/charges", a.requireAuth(z.requireActiveMember(team, http.HandlerFunc(ch.list))))
+	charge := teamFromCharge("id", d.ChargeFinder)
+	mux.Handle("PATCH /charges/{id}/members/{membershipId}", a.requireAuth(z.requireRole(charge, domain.RoleAdmin, http.HandlerFunc(ch.updateMember))))
+
 	nt := notificationHandlers{svc: d.Notifications}
+	mux.Handle("POST /teams/{id}/notifications", a.requireAuth(z.requireRole(team, domain.RoleAdmin, http.HandlerFunc(nt.send))))
 	mux.Handle("GET /me/notifications", a.requireAuth(http.HandlerFunc(nt.inbox)))
 	mux.Handle("POST /notifications/{id}/read", a.requireAuth(http.HandlerFunc(nt.markRead)))
 	mux.Handle("POST /me/device-tokens", a.requireAuth(limitBy(d.Limits.DeviceToken, byUser, http.HandlerFunc(nt.registerDevice))))
