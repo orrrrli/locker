@@ -528,6 +528,44 @@ paths:
         "500":
           $ref: "#/components/responses/Internal"
 
+  /notifications/{id}/receipts:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        description: Notice id. An unknown id answers 404, the same as a notice of a team the caller is not active in.
+        schema:
+          type: integer
+          format: int64
+          minimum: 1
+    get:
+      tags: [notifications]
+      operationId: getNotificationReceipts
+      summary: Who opened the notice ("Visto por X de Y")
+      description: |
+        Admins of the notice's team only; a player gets 403. Works for manual
+        and automatic notices (R11.9, R11.10). On a manual notice the sender
+        is left out of the counts and the list: their copy is read at send
+        time. `not_opened` lists the recipients who have not opened it yet,
+        by name; an anonymized member shows as "Ex-jugador #N".
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: The receipts.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Receipts"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/Internal"
+
   /me/device-tokens:
     post:
       tags: [notifications]
@@ -2301,6 +2339,31 @@ components:
           format: int64
         created_at:
           $ref: "#/components/schemas/Timestamp"
+    Receipts:
+      type: object
+      required: [notification_id, opened_count, recipient_count, not_opened]
+      properties:
+        notification_id:
+          type: integer
+          format: int64
+        opened_count:
+          type: integer
+          description: Recipients who opened the notice (X in "Visto por X de Y").
+        recipient_count:
+          type: integer
+          description: Recipients counted (Y), without the sender.
+        not_opened:
+          type: array
+          description: Recipients who have not opened it yet, by name.
+          items:
+            type: object
+            required: [membership_id, name]
+            properties:
+              membership_id:
+                type: integer
+                format: int64
+              name:
+                type: string
     InboxNotification:
       description: A notice as the caller sees it in the inbox (R11.1, R24.6).
       type: object
