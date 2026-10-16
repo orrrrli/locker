@@ -53,6 +53,10 @@ func newFixture(t *testing.T) fixture {
 	matchRepo := postgres.NewMatches(pool)
 	matchSvc := matches.NewService(matches.Deps{
 		Tx: postgres.NewTxRunner(pool), Matches: matchRepo, Memberships: members,
+		Teams: postgres.NewTeams(pool),
+		Notices: notifications.NewService(notifications.Deps{
+			Tx: postgres.NewTxRunner(pool), Notifications: postgres.NewNotifications(pool),
+		}),
 		Now: func() time.Time { return now },
 	})
 	notifier := notifications.NewService(notifications.Deps{

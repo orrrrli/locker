@@ -24,6 +24,9 @@ func (s *Service) Answer(ctx context.Context, caller domain.Membership, matchID 
 	if err != nil {
 		return domain.RSVP{}, err
 	}
+	if m.CancelledAt != nil {
+		return domain.RSVP{}, ErrMatchCancelled
+	}
 	if !s.now().Before(m.StartsAt) {
 		return domain.RSVP{}, ErrMatchStarted
 	}

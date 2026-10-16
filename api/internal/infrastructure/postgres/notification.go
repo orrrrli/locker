@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -166,6 +167,33 @@ func (r *Notifications) MarkRead(ctx context.Context, userID, notificationID int
 	return nil
 }
 
+// NotificationByID returns the notice in any team, or domain.ErrNotFound.
+// Routes on /notifications/{id} that need the team use it.
+func (r *Notifications) NotificationByID(ctx context.Context, id int64) (domain.Notification, error) {
+	row, err := sqlcdb.New(Conn(ctx, r.pool)).GetNotification(ctx, id)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return domain.Notification{}, domain.ErrNotFound
+	}
+	if err != nil {
+		return domain.Notification{}, fmt.Errorf("postgres: notification by id: %w", err)
+	}
+	return notificationFromRow(row), nil
+}
+
+// Receipts returns every recipient of the notice with their name and read
+// time, by name.
+func (r *Notifications) Receipts(ctx context.Context, notificationID int64) ([]domain.Receipt, error) {
+	rows, err := sqlcdb.New(Conn(ctx, r.pool)).ListNotificationReceipts(ctx, notificationID)
+	if err != nil {
+		return nil, fmt.Errorf("postgres: list notification receipts: %w", err)
+	}
+	out := make([]domain.Receipt, len(rows))
+	for i, row := range rows {
+		out[i] = domain.Receipt{MembershipID: row.MembershipID, Name: row.Name, ReadAt: utcPtr(row.ReadAt)}
+	}
+	return out, nil
+}
+
 // CountManualSince counts the team's manual notices created at or after
 // since (R11.3).
 func (r *Notifications) CountManualSince(ctx context.Context, teamID int64, since time.Time) (int, error) {
@@ -176,6 +204,37 @@ func (r *Notifications) CountManualSince(ctx context.Context, teamID int64, sinc
 		return 0, fmt.Errorf("postgres: count manual notifications since: %w", err)
 	}
 	return int(n), nil
+}
+
+// CountActiveWithoutRSVP counts the team's active members who have not
+// answered the match.
+func (r *Notifications) CountActiveWithoutRSVP(ctx context.Context, teamID, matchID int64) (int, error) {
+	n, err := sqlcdb.New(Conn(ctx, r.pool)).CountActiveMembersWithoutRSVP(ctx, sqlcdb.CountActiveMembersWithoutRSVPParams{TeamID: teamID, MatchID: matchID})
+	if err != nil {
+		return 0, fmt.Errorf("postgres: count active members without rsvp: %w", err)
+	}
+	return int(n), nil
+}
+
+// InsertRSVPReminder stores the reminder about n.MatchID with one recipient
+// per active member who has not answered it (R11.5). Call it inside a
+// transaction so both land together.
+func (r *Notifications) InsertRSVPReminder(ctx context.Context, n domain.Notification) (domain.Notification, error) {
+	q := sqlcdb.New(Conn(ctx, r.pool))
+	params := sqlcdb.InsertNotificationParams{
+		TeamID: n.TeamID, Kind: string(n.Kind), Title: n.Title, Body: n.Body, MatchID: optInt8(n.MatchID),
+	}
+	if !n.CreatedAt.IsZero() {
+		params.CreatedAt = timestamptz(n.CreatedAt)
+	}
+	row, err := q.InsertNotification(ctx, params)
+	if err != nil {
+		return domain.Notification{}, fmt.Errorf("postgres: insert rsvp reminder: %w", err)
+	}
+	if err := q.InsertNotificationRecipientsWithoutRSVP(ctx, row.ID); err != nil {
+		return domain.Notification{}, fmt.Errorf("postgres: insert rsvp reminder recipients: %w", err)
+	}
+	return notificationFromRow(row), nil
 }
 
 // CountPendingChargeRecipients counts the active members with a pending entry

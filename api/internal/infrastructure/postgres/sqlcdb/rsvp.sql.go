@@ -10,7 +10,7 @@ import (
 )
 
 const getMatchInTeam = `-- name: GetMatchInTeam :one
-SELECT id, team_id, starts_at, rival_name, location, reminder_sent_at, attendance_closed_at, created_by FROM match
+SELECT id, team_id, starts_at, rival_name, location, reminder_sent_at, attendance_closed_at, created_by, fixture_id, court_id, cancelled_at FROM match_view
 WHERE team_id = $1 AND id = $2
 `
 
@@ -20,9 +20,9 @@ type GetMatchInTeamParams struct {
 }
 
 // Scoped to the team, so an id from another team is not found.
-func (q *Queries) GetMatchInTeam(ctx context.Context, arg GetMatchInTeamParams) (Match, error) {
+func (q *Queries) GetMatchInTeam(ctx context.Context, arg GetMatchInTeamParams) (MatchView, error) {
 	row := q.db.QueryRow(ctx, getMatchInTeam, arg.TeamID, arg.ID)
-	var i Match
+	var i MatchView
 	err := row.Scan(
 		&i.ID,
 		&i.TeamID,
@@ -32,6 +32,9 @@ func (q *Queries) GetMatchInTeam(ctx context.Context, arg GetMatchInTeamParams) 
 		&i.ReminderSentAt,
 		&i.AttendanceClosedAt,
 		&i.CreatedBy,
+		&i.FixtureID,
+		&i.CourtID,
+		&i.CancelledAt,
 	)
 	return i, err
 }

@@ -17,10 +17,14 @@ import (
 	"github.com/orrrrli/locker/api/internal/application/auth"
 	"github.com/orrrrli/locker/api/internal/application/charges"
 	"github.com/orrrrli/locker/api/internal/application/invites"
+	"github.com/orrrrli/locker/api/internal/application/leads"
+	"github.com/orrrrli/locker/api/internal/application/leagues"
 	"github.com/orrrrli/locker/api/internal/application/matches"
 	applicationmemberships "github.com/orrrrli/locker/api/internal/application/memberships"
 	"github.com/orrrrli/locker/api/internal/application/notifications"
+	"github.com/orrrrli/locker/api/internal/application/pages"
 	"github.com/orrrrli/locker/api/internal/application/teams"
+	"github.com/orrrrli/locker/api/internal/application/venues"
 	apihttp "github.com/orrrrli/locker/api/internal/http"
 	"github.com/orrrrli/locker/api/internal/infrastructure/password"
 	"github.com/orrrrli/locker/api/internal/infrastructure/postgres"
@@ -67,10 +71,27 @@ func start() error {
 	loginLimiter := apihttp.NewLoginLimiter(nil)
 	limits := apihttp.NewLimits(nil)
 	memberships := postgres.NewMemberships(pool)
+	// Push stays nil (inbox only) until the APNs sender, BE-NOTIF-2.
+	matchRepo := postgres.NewMatches(pool)
+	notificationRepo := postgres.NewNotifications(pool)
+	notificationSvc := notifications.NewService(notifications.Deps{
+		Tx:            postgres.NewTxRunner(pool),
+		Notifications: notificationRepo,
+		Memberships:   memberships,
+		Teams:         postgres.NewTeams(pool),
+		Matches:       matchRepo,
+	})
+	leagueSvc := leagues.NewService(leagues.Deps{
+		Tx:      postgres.NewTxRunner(pool),
+		Leagues: postgres.NewLeagues(pool),
+		Teams:   memberships,
+		Notices: notificationSvc,
+	})
 	teamSvc := teams.NewService(teams.Deps{
 		Tx:          postgres.NewTxRunner(pool),
 		Teams:       postgres.NewTeams(pool),
 		Memberships: memberships,
+		Leagues:     leagueSvc,
 	})
 	inviteSvc := invites.NewService(invites.Deps{
 		Tx:            postgres.NewTxRunner(pool),
@@ -88,18 +109,12 @@ func start() error {
 		Memberships: memberships,
 		Users:       postgres.NewUsers(pool),
 	})
-	matchRepo := postgres.NewMatches(pool)
 	matchSvc := matches.NewService(matches.Deps{
 		Tx:          postgres.NewTxRunner(pool),
 		Matches:     matchRepo,
 		Memberships: memberships,
-	})
-	// Push stays nil (inbox only) until the APNs sender, BE-NOTIF-2.
-	notificationSvc := notifications.NewService(notifications.Deps{
-		Tx:            postgres.NewTxRunner(pool),
-		Notifications: postgres.NewNotifications(pool),
-		Memberships:   memberships,
-		Teams:         postgres.NewTeams(pool),
+		Teams:       postgres.NewTeams(pool),
+		Notices:     notificationSvc,
 	})
 	chargeRepo := postgres.NewCharges(pool)
 	chargeSvc := charges.NewService(charges.Deps{
@@ -109,23 +124,34 @@ func start() error {
 		Memberships: memberships,
 		Notifier:    notificationSvc,
 	})
+	venueSvc := venues.NewService(venues.Deps{
+		Tx:     postgres.NewTxRunner(pool),
+		Venues: postgres.NewVenues(pool),
+	})
+	pageSvc := pages.NewService(pages.Deps{Pages: postgres.NewPages(pool), Memberships: memberships})
+	leadSvc := leads.NewService(leads.Deps{Tx: postgres.NewTxRunner(pool), Leads: postgres.NewVenueLeads(pool)})
 	router := apihttp.NewRouter(apihttp.Deps{
-		Auth:          authSvc,
-		Teams:         teamSvc,
-		Invites:       inviteSvc,
-		Members:       memberSvc,
-		Account:       accountSvc,
-		Matches:       matchSvc,
-		Charges:       chargeSvc,
-		Notifications: notificationSvc,
-		MatchFinder:   matchRepo,
-		ChargeFinder:  chargeRepo,
-		AppleAppID:    cfg.AppleAppID,
-		DownloadURL:   cfg.DownloadURL,
-		Memberships:   memberships,
-		Users:         postgres.NewUsers(pool),
-		LoginLimiter:  loginLimiter,
-		Limits:        limits,
+		Auth:               authSvc,
+		Teams:              teamSvc,
+		Invites:            inviteSvc,
+		Members:            memberSvc,
+		Account:            accountSvc,
+		Matches:            matchSvc,
+		Charges:            chargeSvc,
+		Notifications:      notificationSvc,
+		Venues:             venueSvc,
+		Leagues:            leagueSvc,
+		Pages:              pageSvc,
+		Leads:              leadSvc,
+		MatchFinder:        matchRepo,
+		ChargeFinder:       chargeRepo,
+		AppleAppID:         cfg.AppleAppID,
+		DownloadURL:        cfg.DownloadURL,
+		Memberships:        memberships,
+		Users:              postgres.NewUsers(pool),
+		LoginLimiter:       loginLimiter,
+		Limits:             limits,
+		NotificationFinder: notificationRepo,
 	})
 
 	go tick(ctx, tickEvery, func(ctx context.Context) {
@@ -134,6 +160,7 @@ func start() error {
 		runJob(ctx, "delete idle sessions", authSvc.DeleteIdleSessions)
 		runJob(ctx, "delete expired invites", inviteSvc.DeleteExpired)
 		runJob(ctx, "close attendance", matchSvc.CloseDueAttendance)
+		runJob(ctx, "send rsvp reminders", notificationSvc.SendDueReminders)
 	})
 
 	ln, err := net.Listen("tcp", ":"+strconv.Itoa(cfg.Port))

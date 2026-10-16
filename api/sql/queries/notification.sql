@@ -51,6 +51,20 @@ FROM membership m
 WHERE r.notification_id = sqlc.arg(notification_id) AND m.id = r.membership_id
   AND m.user_id = sqlc.arg(user_id) AND m.status = 'active';
 
+-- name: GetNotification :one
+SELECT * FROM notification
+WHERE id = $1;
+
+-- name: ListNotificationReceipts :many
+-- Every recipient of the notice with their name and when they opened it
+-- (R11.10). An anonymized member shows the override, "Ex-jugador #N".
+SELECT r.membership_id, coalesce(m.display_name_override, u.name, '')::text AS name, r.read_at
+FROM notification_recipient r
+JOIN membership m ON m.id = r.membership_id
+LEFT JOIN "user" u ON u.id = m.user_id
+WHERE r.notification_id = $1
+ORDER BY name, m.id;
+
 -- name: CountManualNotificationsSince :one
 -- Manual notices of the team since an instant (local midnight in the team's
 -- timezone, R11.3). Automatic notices never count.
@@ -75,3 +89,19 @@ FROM notification n
 JOIN charge_member cm ON cm.charge_id = sqlc.arg(charge_id) AND cm.status = 'pending'
 JOIN membership m ON m.id = cm.membership_id AND m.team_id = n.team_id AND m.status = 'active'
 WHERE n.id = sqlc.arg(notification_id);
+
+-- name: CountActiveMembersWithoutRSVP :one
+-- Active members of the team who have not answered the match (R11.5).
+SELECT count(*) FROM membership m
+WHERE m.team_id = $1 AND m.status = 'active'
+  AND NOT EXISTS (SELECT 1 FROM rsvp r WHERE r.match_id = $2 AND r.membership_id = m.id);
+
+-- name: InsertNotificationRecipientsWithoutRSVP :exec
+-- One recipient per active membership of the team that has not answered the
+-- notice's match (R11.5): the members who already answered are not nagged.
+INSERT INTO notification_recipient (notification_id, membership_id)
+SELECT n.id, m.id
+FROM notification n
+JOIN membership m ON m.team_id = n.team_id AND m.status = 'active'
+WHERE n.id = sqlc.arg(notification_id)
+  AND NOT EXISTS (SELECT 1 FROM rsvp r WHERE r.match_id = n.match_id AND r.membership_id = m.id);

@@ -11,6 +11,25 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const countActiveMembersWithoutRSVP = `-- name: CountActiveMembersWithoutRSVP :one
+SELECT count(*) FROM membership m
+WHERE m.team_id = $1 AND m.status = 'active'
+  AND NOT EXISTS (SELECT 1 FROM rsvp r WHERE r.match_id = $2 AND r.membership_id = m.id)
+`
+
+type CountActiveMembersWithoutRSVPParams struct {
+	TeamID  int64
+	MatchID int64
+}
+
+// Active members of the team who have not answered the match (R11.5).
+func (q *Queries) CountActiveMembersWithoutRSVP(ctx context.Context, arg CountActiveMembersWithoutRSVPParams) (int64, error) {
+	row := q.db.QueryRow(ctx, countActiveMembersWithoutRSVP, arg.TeamID, arg.MatchID)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const countManualNotificationsSince = `-- name: CountManualNotificationsSince :one
 SELECT count(*) FROM notification
 WHERE team_id = $1 AND kind = 'manual' AND created_at >= $2
@@ -49,6 +68,27 @@ func (q *Queries) CountPendingChargeRecipients(ctx context.Context, arg CountPen
 	var count int64
 	err := row.Scan(&count)
 	return count, err
+}
+
+const getNotification = `-- name: GetNotification :one
+SELECT id, team_id, kind, title, body, match_id, sent_by, created_at FROM notification
+WHERE id = $1
+`
+
+func (q *Queries) GetNotification(ctx context.Context, id int64) (Notification, error) {
+	row := q.db.QueryRow(ctx, getNotification, id)
+	var i Notification
+	err := row.Scan(
+		&i.ID,
+		&i.TeamID,
+		&i.Kind,
+		&i.Title,
+		&i.Body,
+		&i.MatchID,
+		&i.SentBy,
+		&i.CreatedAt,
+	)
+	return i, err
 }
 
 const insertNotification = `-- name: InsertNotification :one
@@ -128,6 +168,22 @@ type InsertNotificationRecipientsPendingChargeParams struct {
 // sender's copy, when they owe too, starts read like any manual notice.
 func (q *Queries) InsertNotificationRecipientsPendingCharge(ctx context.Context, arg InsertNotificationRecipientsPendingChargeParams) error {
 	_, err := q.db.Exec(ctx, insertNotificationRecipientsPendingCharge, arg.ChargeID, arg.NotificationID)
+	return err
+}
+
+const insertNotificationRecipientsWithoutRSVP = `-- name: InsertNotificationRecipientsWithoutRSVP :exec
+INSERT INTO notification_recipient (notification_id, membership_id)
+SELECT n.id, m.id
+FROM notification n
+JOIN membership m ON m.team_id = n.team_id AND m.status = 'active'
+WHERE n.id = $1
+  AND NOT EXISTS (SELECT 1 FROM rsvp r WHERE r.match_id = n.match_id AND r.membership_id = m.id)
+`
+
+// One recipient per active membership of the team that has not answered the
+// notice's match (R11.5): the members who already answered are not nagged.
+func (q *Queries) InsertNotificationRecipientsWithoutRSVP(ctx context.Context, notificationID int64) error {
+	_, err := q.db.Exec(ctx, insertNotificationRecipientsWithoutRSVP, notificationID)
 	return err
 }
 
@@ -215,6 +271,43 @@ func (q *Queries) ListNotificationPushTokens(ctx context.Context, notificationID
 			return nil, err
 		}
 		items = append(items, token)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listNotificationReceipts = `-- name: ListNotificationReceipts :many
+SELECT r.membership_id, coalesce(m.display_name_override, u.name, '')::text AS name, r.read_at
+FROM notification_recipient r
+JOIN membership m ON m.id = r.membership_id
+LEFT JOIN "user" u ON u.id = m.user_id
+WHERE r.notification_id = $1
+ORDER BY name, m.id
+`
+
+type ListNotificationReceiptsRow struct {
+	MembershipID int64
+	Name         string
+	ReadAt       pgtype.Timestamptz
+}
+
+// Every recipient of the notice with their name and when they opened it
+// (R11.10). An anonymized member shows the override, "Ex-jugador #N".
+func (q *Queries) ListNotificationReceipts(ctx context.Context, notificationID int64) ([]ListNotificationReceiptsRow, error) {
+	rows, err := q.db.Query(ctx, listNotificationReceipts, notificationID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListNotificationReceiptsRow
+	for rows.Next() {
+		var i ListNotificationReceiptsRow
+		if err := rows.Scan(&i.MembershipID, &i.Name, &i.ReadAt); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err

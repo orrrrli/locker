@@ -20,6 +20,12 @@ var (
 	// saved: the list would belong to a date that no longer exists and the
 	// auto-save would never run again for the new one (R10.1).
 	ErrAttendanceClosed = errors.New("attendance is already saved; schedule a new match instead of moving this one")
+	// ErrMatchCancelled rejects any change to a cancelled match: its RSVPs,
+	// attendance and details stay as they were.
+	ErrMatchCancelled = errors.New("the match is cancelled")
+	// ErrFixtureMatch rejects a team admin's change to a league match: the
+	// operator owns its date, time, court and rival (open question 26).
+	ErrFixtureMatch = errors.New("this is a league match; only the league can change it")
 )
 
 const (
@@ -48,10 +54,24 @@ type Matches interface {
 	ListAttendance(ctx context.Context, matchID int64) ([]int64, error)
 }
 
+// Teams gives the team's timezone, for the time in a notice.
+type Teams interface {
+	GetTeam(ctx context.Context, id int64) (domain.Team, error)
+}
+
+// Notices writes the automatic notices (R11.4): Store inside the use case's
+// transaction, Deliver after it commits. notifications.Service is one.
+type Notices interface {
+	Store(ctx context.Context, n domain.Notification) (domain.Notification, error)
+	Deliver(ctx context.Context, n domain.Notification)
+}
+
 type Deps struct {
 	Tx          application.TxRunner
 	Matches     Matches
 	Memberships application.AdminLocker
+	Teams       Teams
+	Notices     Notices
 	Now         func() time.Time // nil means time.Now
 }
 
@@ -59,6 +79,8 @@ type Service struct {
 	tx          application.TxRunner
 	matches     Matches
 	memberships application.AdminLocker
+	teams       Teams
+	notices     Notices
 	now         func() time.Time
 }
 
@@ -66,12 +88,14 @@ func NewService(d Deps) *Service {
 	if d.Now == nil {
 		d.Now = time.Now
 	}
-	return &Service{tx: d.Tx, matches: d.Matches, memberships: d.Memberships, now: d.Now}
+	return &Service{tx: d.Tx, matches: d.Matches, memberships: d.Memberships, teams: d.Teams, notices: d.Notices, now: d.Now}
 }
 
 // Create schedules a match for the team (R9.1). startsAt is stored in UTC.
 // callerID is the admin's membership, checked by requireRole and again under
-// the team lock; it is also recorded as the creator.
+// the team lock; it is also recorded as the creator. A match_created notice
+// for every active member is stored with the match and pushed after commit
+// (R11.4).
 func (s *Service) Create(ctx context.Context, teamID, callerID int64, startsAt time.Time, rival, location string) (domain.Match, error) {
 	if !validStartsAt(startsAt) {
 		return domain.Match{}, ErrInvalidStartsAt
@@ -85,17 +109,23 @@ func (s *Service) Create(ctx context.Context, teamID, callerID int64, startsAt t
 		return domain.Match{}, ErrInvalidLocation
 	}
 	var out domain.Match
+	var notice domain.Notification
 	err := s.tx.InTx(ctx, func(ctx context.Context) error {
 		if _, err := application.LockTeamAsAdmin(ctx, s.memberships, teamID, callerID); err != nil {
 			return err
 		}
 		m, err := s.matches.CreateMatch(ctx, teamID, startsAt.UTC(), rival, location, callerID)
+		if err != nil {
+			return err
+		}
 		out = m
+		notice, err = s.storeNotice(ctx, domain.NotificationMatchCreated, m)
 		return err
 	})
 	if err != nil {
 		return domain.Match{}, err
 	}
+	s.notices.Deliver(ctx, notice)
 	return out, nil
 }
 
@@ -116,7 +146,11 @@ func (s *Service) Upcoming(ctx context.Context, userID int64) ([]domain.Upcoming
 
 // Update lets the admin callerID change the time, the rival, the place or
 // any of them. A nil field keeps its value. Once attendance is saved the
-// time cannot move (ErrAttendanceClosed); the rest still can.
+// time cannot move (ErrAttendanceClosed); the rest still can. A cancelled
+// match (ErrMatchCancelled) and a league match (ErrFixtureMatch) take no
+// change here. When the time
+// or the place actually changes, a match_changed notice is stored with the
+// change and pushed after commit (R11.4); the rival alone sends none.
 func (s *Service) Update(ctx context.Context, teamID, callerID, matchID int64, startsAt *time.Time, rival, location *string) (domain.Match, error) {
 	if startsAt == nil && rival == nil && location == nil {
 		return domain.Match{}, ErrNothingToUpdate
@@ -143,6 +177,7 @@ func (s *Service) Update(ctx context.Context, teamID, callerID, matchID int64, s
 		location = &l
 	}
 	var out domain.Match
+	var notice *domain.Notification
 	err := s.tx.InTx(ctx, func(ctx context.Context) error {
 		if _, err := application.LockTeamAsAdmin(ctx, s.memberships, teamID, callerID); err != nil {
 			return err
@@ -151,17 +186,48 @@ func (s *Service) Update(ctx context.Context, teamID, callerID, matchID int64, s
 		if err != nil {
 			return err
 		}
+		if cur.CancelledAt != nil {
+			return ErrMatchCancelled
+		}
+		if cur.FixtureID != nil {
+			return ErrFixtureMatch
+		}
 		if startsAt != nil && cur.AttendanceClosedAt != nil && !cur.StartsAt.Equal(*startsAt) {
 			return ErrAttendanceClosed
 		}
 		m, err := s.matches.UpdateMatch(ctx, teamID, matchID, startsAt, rival, location)
+		if err != nil {
+			return err
+		}
 		out = m
+		if m.StartsAt.Equal(cur.StartsAt) && m.Location == cur.Location {
+			return nil
+		}
+		n, err := s.storeNotice(ctx, domain.NotificationMatchChanged, m)
+		notice = &n
 		return err
 	})
 	if err != nil {
 		return domain.Match{}, err
 	}
+	if notice != nil {
+		s.notices.Deliver(ctx, *notice)
+	}
 	return out, nil
+}
+
+// storeNotice writes the automatic notice about m inside the caller's
+// transaction, with the time in the team's zone.
+func (s *Service) storeNotice(ctx context.Context, kind domain.NotificationKind, m domain.Match) (domain.Notification, error) {
+	team, err := s.teams.GetTeam(ctx, m.TeamID)
+	if err != nil {
+		return domain.Notification{}, err
+	}
+	title := application.MatchCreatedTitle
+	if kind == domain.NotificationMatchChanged {
+		title = application.MatchChangedTitle
+	}
+	return s.notices.Store(ctx, application.MatchNotice(kind, title, m, team.Timezone))
 }
 
 // validStartsAt rejects a zero time and one outside years 1 to 9999: Postgres

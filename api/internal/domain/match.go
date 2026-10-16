@@ -2,7 +2,9 @@ package domain
 
 import "time"
 
-// Match is the only event type in Phase 1 (R9.2).
+// Match is the only event type in Phase 1 (R9.2). A league fixture creates
+// one for each of its teams: FixtureID and CourtID are set, RivalName is the
+// other team's current name and CreatedBy is nil (the operator made it).
 type Match struct {
 	ID                 int64
 	TeamID             int64
@@ -11,7 +13,10 @@ type Match struct {
 	Location           string
 	ReminderSentAt     *time.Time
 	AttendanceClosedAt *time.Time
-	CreatedBy          int64 // membership
+	CreatedBy          *int64 // membership; nil on a fixture match
+	FixtureID          *int64
+	CourtID            *int64
+	CancelledAt        *time.Time // set once; a cancelled match takes no more writes
 }
 
 type RSVPAnswer string

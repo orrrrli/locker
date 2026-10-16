@@ -41,6 +41,14 @@ tags:
   - name: matches
   - name: fees
   - name: notifications
+  - name: venues
+  - name: public
+    description: Public team, venue and league pages (R17), for any signed-in user.
+  - name: operator
+    description: |
+      Curation routes under `/operator`, only for the user whose
+      `is_operator` flag is set by hand in the database (rule 12). Anyone
+      else gets 403 `forbidden` on any `/operator` path, even an unknown one.
   - name: infra
     description: Health check, Universal Links and the invite landing page.
 
@@ -528,6 +536,44 @@ paths:
         "500":
           $ref: "#/components/responses/Internal"
 
+  /notifications/{id}/receipts:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        description: Notice id. An unknown id answers 404, the same as a notice of a team the caller is not active in.
+        schema:
+          type: integer
+          format: int64
+          minimum: 1
+    get:
+      tags: [notifications]
+      operationId: getNotificationReceipts
+      summary: Who opened the notice ("Visto por X de Y")
+      description: |
+        Admins of the notice's team only; a player gets 403. Works for manual
+        and automatic notices (R11.9, R11.10). On a manual notice the sender
+        is left out of the counts and the list: their copy is read at send
+        time. `not_opened` lists the recipients who have not opened it yet,
+        by name; an anonymized member shows as "Ex-jugador #N".
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: The receipts.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Receipts"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/Internal"
+
   /me/device-tokens:
     post:
       tags: [notifications]
@@ -806,7 +852,11 @@ paths:
         pending member and sets the caller's membership left. Final: the team
         disappears from `GET /teams` and every team route answers 404. Its
         history (memberships, attendance, fees) is kept. The sole member of a
-        team dissolves it before `DELETE /me` (R5.4).
+        team dissolves it before `DELETE /me` (R5.4). The team also leaves
+        every league it is enrolled in: its future fixtures are deleted and
+        both sides' matches cancelled, and each rival team gets a
+        `match_changed` notice ("Partido cancelado: vs. <team>"). Past
+        matches stay.
       security:
         - bearerAuth: []
       responses:
@@ -1134,6 +1184,9 @@ paths:
         - `shirt_number` and/or `position`: edit the profile. Any active member
           can edit their own; editing someone else's is admin only. Answers 200
           with the Membership.
+        - `push_muted`: mute or unmute pushes from this team (R11.6). Own
+          membership only, for anyone, admins included; another member's is
+          403. Notices still land in the inbox. Answers 200 with the Membership.
 
         Any active member of the team passes the route check; the admin check
         runs in the use case and answers 403 `forbidden`. Body validation
@@ -1284,7 +1337,10 @@ paths:
       description: |
         Admins only. `starts_at` is any RFC 3339 time within years 1 to 9999
         in UTC; it is stored and returned in UTC. Rival and location are free
-        text, trimmed.
+        text, trimmed. Every active member gets a `match_created` notice
+        (R11.4), stored with the match and pushed after it is saved: title
+        "Partido nuevo: vs. <rival>", body like "Mar 20 · 19:00 · Cancha 3."
+        with the time in the team's timezone.
       security:
         - bearerAuth: []
       requestBody:
@@ -1592,7 +1648,10 @@ paths:
       description: |
         Admins of the match's team only. Send any of the fields; an absent or
         null field keeps its value. Once attendance is saved, `starts_at`
-        cannot change: schedule a new match instead.
+        cannot change: schedule a new match instead. When the time or the
+        location actually changes, every active member gets a `match_changed`
+        notice ("Cambio de partido: vs. <rival>", body with the new values);
+        a change of rival alone sends none (R11.4).
       security:
         - bearerAuth: []
       requestBody:
@@ -1617,7 +1676,10 @@ paths:
         "404":
           $ref: "#/components/responses/NotFound"
         "409":
-          description: "`attendance_closed`: attendance is already saved, so `starts_at` cannot change."
+          description: |
+            - `attendance_closed`: attendance is already saved, so `starts_at` cannot change.
+            - `match_cancelled`: the match is cancelled.
+            - `fixture_match`: a league match; only the operator changes it, through its fixture.
           content:
             application/json:
               schema:
@@ -1625,7 +1687,7 @@ paths:
                   - $ref: "#/components/schemas/Error"
                   - properties:
                       error:
-                        const: attendance_closed
+                        enum: [attendance_closed, match_cancelled, fixture_match]
         "413":
           $ref: "#/components/responses/BodyTooLarge"
         "422":
@@ -1655,7 +1717,8 @@ paths:
       description: |
         Any active member of the match's team, for themselves. A new answer
         replaces the old one until kickoff; from `starts_at` on the answer is
-        locked (R9.3-R9.5).
+        locked (R9.3-R9.5). Members who have not answered 24 hours before
+        kickoff get one `rsvp_reminder` notice (R11.5).
       security:
         - bearerAuth: []
       requestBody:
@@ -1678,7 +1741,9 @@ paths:
         "404":
           $ref: "#/components/responses/NotFound"
         "409":
-          description: "`match_started`: `starts_at` is now or in the past; the answer did not change."
+          description: |
+            - `match_started`: `starts_at` is now or in the past; the answer did not change.
+            - `match_cancelled`: the match is cancelled.
           content:
             application/json:
               schema:
@@ -1686,7 +1751,7 @@ paths:
                   - $ref: "#/components/schemas/Error"
                   - properties:
                       error:
-                        const: match_started
+                        enum: [match_started, match_cancelled]
         "413":
           $ref: "#/components/responses/BodyTooLarge"
         "422":
@@ -1764,6 +1829,7 @@ paths:
           description: |
             - `match_not_started`: `starts_at` is still in the future.
             - `attendance_locked`: a charge targets this match; the list did not change.
+            - `match_cancelled`: the match is cancelled.
           content:
             application/json:
               schema:
@@ -1771,7 +1837,7 @@ paths:
                   - $ref: "#/components/schemas/Error"
                   - properties:
                       error:
-                        enum: [match_not_started, attendance_locked]
+                        enum: [match_not_started, attendance_locked, match_cancelled]
         "413":
           $ref: "#/components/responses/BodyTooLarge"
         "422":
@@ -1788,6 +1854,963 @@ paths:
           $ref: "#/components/responses/Internal"
         "503":
           $ref: "#/components/responses/TeamBusy"
+
+  /venues:
+    get:
+      tags: [venues]
+      operationId: listNearbyVenues
+      summary: List venues near a location
+      description: |
+        Any signed-in user (R15.6). Venues within 25 km of `near`, nearest
+        first, at most 50. The location is used for this request only: the
+        API never stores or logs it, and nginx keeps no access log for this
+        path.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: near
+          in: query
+          required: true
+          description: |
+            `latitude,longitude` in decimal degrees, no spaces, e.g.
+            `31.8667,-116.5964`. Sent once.
+          schema:
+            type: string
+            examples: ["31.8667,-116.5964"]
+      responses:
+        "200":
+          description: The nearby venues; an empty list when none is within 25 km.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [venues]
+                properties:
+                  venues:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/NearbyVenue"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "422":
+          description: |
+            - `invalid_near`: `near` missing, sent twice, not two numbers, or out of -90..90 / -180..180.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Error"
+                  - properties:
+                      error:
+                        const: invalid_near
+        "500":
+          $ref: "#/components/responses/Internal"
+  /teams/{id}/public:
+    parameters:
+      - $ref: "#/components/parameters/TeamID"
+    get:
+      tags: [public]
+      operationId: getPublicTeam
+      summary: A team's public page
+      description: |
+        Any signed-in user (R17.1-R17.4): name, initials, enrolled leagues
+        with their venues, the number of active members and the active
+        admins' names (shown as "Capitán"). Never the member list, shirt
+        numbers, matches, RSVP, attendance, fees or notices (R17.5).
+        `viewer_status` is the caller's own membership: `active` (offer no
+        join request), `pending` (show it pending) or null (R17.6). A
+        dissolved team answers 404 (R6.10).
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: The page.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PublicTeam"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/Internal"
+  /venues/{id}:
+    parameters:
+      - $ref: "#/components/parameters/VenueID"
+    get:
+      tags: [public]
+      operationId: getVenuePage
+      summary: A venue's public page
+      description: |
+        Any signed-in user (R17.7): name, address, map location, courts,
+        and leagues grouped by weekday, Monday first, each day's leagues by
+        start time. Weekdays without leagues are left out.
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: The page.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VenuePage"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/Internal"
+  /leagues/{id}:
+    parameters:
+      - $ref: "#/components/parameters/LeagueID"
+    get:
+      tags: [public]
+      operationId: getLeaguePage
+      summary: A league's public page
+      description: |
+        Any signed-in user (R17.8): weekday and window (in the venue's
+        timezone), season and venue.
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: The page.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LeaguePage"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/Internal"
+  /leagues/{id}/teams:
+    parameters:
+      - $ref: "#/components/parameters/LeagueID"
+    get:
+      tags: [public]
+      operationId: listLeagueTeams
+      summary: A league's enrolled teams
+      description: Any signed-in user (R17.8). By name; dissolved teams are left out.
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: The teams.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [teams]
+                properties:
+                  teams:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/LeagueTeam"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/Internal"
+  /leagues/{id}/fixtures:
+    parameters:
+      - $ref: "#/components/parameters/LeagueID"
+    get:
+      tags: [public]
+      operationId: listNextLeagueFixtures
+      summary: A league's next fixtures
+      description: |
+        Any signed-in user (R17.8). Every fixture on the earliest date, in
+        the venue's timezone, that has one starting after now; weeks without
+        fixtures are skipped (open question 29). Cancelled fixtures never
+        count. `date` is null and `fixtures` empty when none is left.
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: The next fixture day.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FixtureDay"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/Internal"
+  /venue-leads:
+    post:
+      tags: [venues]
+      operationId: sendVenueLead
+      summary: Ask to run a venue's leagues on Locker
+      description: |
+        Any signed-in user (R25.1, R25.2). Contact name, venue name and city
+        are required, and a phone or an email (R25.3); the message is
+        optional and may span lines. At most 3 per user in any 24 hours
+        (R25.4). The lead keeps the sender's id until they delete their
+        account; then `user_id` becomes null and the lead stays (R25.8).
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SendVenueLeadRequest"
+      responses:
+        "201":
+          description: The stored lead.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VenueLead"
+        "400":
+          $ref: "#/components/responses/InvalidRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "413":
+          $ref: "#/components/responses/BodyTooLarge"
+        "422":
+          description: |
+            - `invalid_contact_name`, `invalid_venue_name`, `invalid_city`: missing, over 60 characters after trimming, or with control or invisible characters.
+            - `contact_required`: neither phone nor email.
+            - `invalid_phone`: not 7 to 20 of digits, spaces, `+`, `-`, `(` and `)`.
+            - `invalid_email`: not a valid address.
+            - `invalid_message`: over 1000 characters, or with control (other than line breaks) or invisible characters.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Error"
+                  - properties:
+                      error:
+                        enum: [invalid_contact_name, invalid_venue_name, invalid_city, contact_required, invalid_phone, invalid_email, invalid_message]
+        "429":
+          description: "`too_many_leads`: 3 leads already sent in the last 24 hours."
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Error"
+                  - properties:
+                      error:
+                        const: too_many_leads
+        "500":
+          $ref: "#/components/responses/Internal"
+  /operator/venue-leads:
+    get:
+      tags: [operator]
+      operationId: listVenueLeads
+      summary: List venue leads
+      description: Operator only (R25.5, R25.7). Unhandled first, then newest first; at most 500.
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: The leads.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [leads]
+                properties:
+                  leads:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/VenueLead"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/NotOperator"
+        "500":
+          $ref: "#/components/responses/Internal"
+  /operator/venue-leads/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        description: Lead id. An unknown id answers 404.
+        schema:
+          type: integer
+          format: int64
+          minimum: 1
+    patch:
+      tags: [operator]
+      operationId: setVenueLeadHandled
+      summary: Mark a venue lead handled
+      description: |
+        Operator only (R25.6, R25.7). `handled: true` sets `handled_at`,
+        keeping the first time if it was already set; `false` clears it.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [handled]
+              properties:
+                handled:
+                  type: boolean
+      responses:
+        "200":
+          description: The lead.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VenueLead"
+        "400":
+          $ref: "#/components/responses/InvalidRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/NotOperator"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          description: "`nothing_to_update`: `handled` missing or null."
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Error"
+                  - properties:
+                      error:
+                        const: nothing_to_update
+        "500":
+          $ref: "#/components/responses/Internal"
+  /operator/venues:
+    post:
+      tags: [operator]
+      operationId: createVenue
+      summary: Create a venue with its courts
+      description: |
+        Operator only (R15.1, R15.2). The venue and its courts are stored in
+        one transaction: a venue is never stored without a court (R15.3).
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateVenueRequest"
+      responses:
+        "201":
+          description: The venue, with its courts in the order sent.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Venue"
+        "400":
+          $ref: "#/components/responses/InvalidRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/NotOperator"
+        "413":
+          $ref: "#/components/responses/BodyTooLarge"
+        "409":
+          description: |
+            - `court_name_taken`: two courts in the request share a name.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Error"
+                  - properties:
+                      error:
+                        enum: [court_name_taken]
+        "422":
+          description: |
+            - `invalid_name`: empty or over 60 characters after trimming, or contains control or invisible characters.
+            - `invalid_address`: empty or over 160 characters after trimming, or contains control or invisible characters.
+            - `invalid_coordinates`: latitude or longitude missing, or out of -90..90 / -180..180.
+            - `invalid_timezone`: not a canonical IANA zone.
+            - `invalid_courts`: no courts, or more than 50.
+            - `invalid_court_name`: a court name is empty or over 30 characters after trimming, or contains control or invisible characters.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Error"
+                  - properties:
+                      error:
+                        enum: [invalid_name, invalid_address, invalid_coordinates, invalid_timezone, invalid_courts, invalid_court_name]
+        "500":
+          $ref: "#/components/responses/Internal"
+  /operator/venues/{id}:
+    parameters:
+      - $ref: "#/components/parameters/VenueID"
+    patch:
+      tags: [operator]
+      operationId: updateVenue
+      summary: Change a venue's name, address, location or timezone
+      description: |
+        Operator only (R15.4). Send any of the fields; an absent or null field
+        keeps its value. Courts change through their own routes.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateVenueRequest"
+      responses:
+        "200":
+          description: The updated venue, with its courts.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Venue"
+        "400":
+          $ref: "#/components/responses/InvalidRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/NotOperator"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "413":
+          $ref: "#/components/responses/BodyTooLarge"
+        "422":
+          description: |
+            - `nothing_to_update`: no field sent.
+            - `invalid_name`, `invalid_address`, `invalid_coordinates`, `invalid_timezone`: as in `POST /operator/venues`.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Error"
+                  - properties:
+                      error:
+                        enum: [nothing_to_update, invalid_name, invalid_address, invalid_coordinates, invalid_timezone]
+        "500":
+          $ref: "#/components/responses/Internal"
+  /operator/venues/{id}/courts:
+    parameters:
+      - $ref: "#/components/parameters/VenueID"
+    post:
+      tags: [operator]
+      operationId: addCourt
+      summary: Add a court to a venue
+      description: Operator only (R15.4).
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CourtRequest"
+      responses:
+        "201":
+          description: The new court.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Court"
+        "400":
+          $ref: "#/components/responses/InvalidRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/NotOperator"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          description: |
+            - `court_name_taken`: the venue already has a court with that name.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Error"
+                  - properties:
+                      error:
+                        enum: [court_name_taken]
+        "422":
+          description: |
+            - `invalid_court_name`: missing, empty or over 30 characters after trimming, or contains control or invisible characters.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Error"
+                  - properties:
+                      error:
+                        enum: [invalid_court_name]
+        "500":
+          $ref: "#/components/responses/Internal"
+  /operator/venues/{id}/courts/{courtId}:
+    parameters:
+      - $ref: "#/components/parameters/VenueID"
+      - $ref: "#/components/parameters/CourtID"
+    patch:
+      tags: [operator]
+      operationId: renameCourt
+      summary: Rename a court
+      description: Operator only (R15.4).
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CourtRequest"
+      responses:
+        "200":
+          description: The renamed court.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Court"
+        "400":
+          $ref: "#/components/responses/InvalidRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/NotOperator"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          description: |
+            - `court_name_taken`: another court of the venue has that name.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Error"
+                  - properties:
+                      error:
+                        enum: [court_name_taken]
+        "422":
+          description: |
+            - `nothing_to_update`: `name` missing or null.
+            - `invalid_court_name`: as in `POST /operator/venues/{id}/courts`.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Error"
+                  - properties:
+                      error:
+                        enum: [nothing_to_update, invalid_court_name]
+        "500":
+          $ref: "#/components/responses/Internal"
+    delete:
+      tags: [operator]
+      operationId: removeCourt
+      summary: Remove a court
+      description: |
+        Operator only. A venue keeps at least one court (R15.3): removing the
+        last one answers 409 `last_court`, checked in the delete's
+        transaction under the venue lock, so two removals at once cannot
+        both pass. A court that any fixture used, cancelled ones included,
+        answers 409 `court_in_use`: its fixtures and matches keep pointing
+        at it.
+      security:
+        - bearerAuth: []
+      responses:
+        "204":
+          description: The court is removed.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/NotOperator"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          description: |
+            - `last_court`: it is the venue's only court; add another first.
+            - `court_in_use`: a fixture was set on this court, even a cancelled one.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Error"
+                  - properties:
+                      error:
+                        enum: [last_court, court_in_use]
+        "500":
+          $ref: "#/components/responses/Internal"
+
+  /operator/leagues:
+    post:
+      tags: [operator]
+      operationId: createLeague
+      summary: Create a league at a venue
+      description: |
+        Operator only (R16.1, R16.3). The league plays one weekday, from
+        `start_time` to `end_time` in the venue's timezone, for one season.
+        Several leagues can share a venue and weekday (R16.5).
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateLeagueRequest"
+      responses:
+        "201":
+          description: The league.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/League"
+        "400":
+          $ref: "#/components/responses/InvalidRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/NotOperator"
+        "413":
+          $ref: "#/components/responses/BodyTooLarge"
+        "422":
+          description: |
+            - `invalid_name`: empty or over 60 characters after trimming, or contains control or invisible characters.
+            - `invalid_weekday`: not one of `monday` to `sunday`.
+            - `invalid_window`: a time is missing or not `HH:MM` (00:00 to 23:59), or `end_time` is not after `start_time` (R16.2).
+            - `invalid_season_name`: empty or over 40 characters after trimming, or contains control or invisible characters.
+            - `invalid_season`: a date is missing or not `YYYY-MM-DD`, or `season_ends_on` is before `season_starts_on` (R16.3).
+            - `invalid_venue`: `venue_id` missing or not a venue.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Error"
+                  - properties:
+                      error:
+                        enum: [invalid_name, invalid_weekday, invalid_window, invalid_season_name, invalid_season, invalid_venue]
+        "500":
+          $ref: "#/components/responses/Internal"
+  /operator/leagues/{id}:
+    parameters:
+      - $ref: "#/components/parameters/LeagueID"
+    patch:
+      tags: [operator]
+      operationId: updateLeague
+      summary: Change a league
+      description: |
+        Operator only. Send any field; an absent or null one keeps its value.
+        The window and season are checked on the result, so `end_time` alone
+        must still be after the stored `start_time`. The venue cannot change.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateLeagueRequest"
+      responses:
+        "200":
+          description: The updated league.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/League"
+        "400":
+          $ref: "#/components/responses/InvalidRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/NotOperator"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "413":
+          $ref: "#/components/responses/BodyTooLarge"
+        "422":
+          description: |
+            - `nothing_to_update`: no field sent.
+            - `invalid_name`: empty or over 60 characters after trimming, or contains control or invisible characters.
+            - `invalid_weekday`: not one of `monday` to `sunday`.
+            - `invalid_window`: a time is missing or not `HH:MM` (00:00 to 23:59), or `end_time` is not after `start_time` (R16.2).
+            - `invalid_season_name`: empty or over 40 characters after trimming, or contains control or invisible characters.
+            - `invalid_season`: a date is missing or not `YYYY-MM-DD`, or `season_ends_on` is before `season_starts_on` (R16.3).
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Error"
+                  - properties:
+                      error:
+                        enum: [nothing_to_update, invalid_name, invalid_weekday, invalid_window, invalid_season_name, invalid_season]
+        "500":
+          $ref: "#/components/responses/Internal"
+  /operator/leagues/{id}/teams:
+    parameters:
+      - $ref: "#/components/parameters/LeagueID"
+    post:
+      tags: [operator]
+      operationId: enrollTeam
+      summary: Enroll a team in a league
+      description: |
+        Operator only (R16.6). A team can be in several leagues (R16.9), once
+        per league (R16.7). A dissolved team cannot be enrolled (R6.10).
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/EnrollTeamRequest"
+      responses:
+        "201":
+          description: The enrollment.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Enrollment"
+        "400":
+          $ref: "#/components/responses/InvalidRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/NotOperator"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "413":
+          $ref: "#/components/responses/BodyTooLarge"
+        "409":
+          description: |
+            - `already_enrolled`: the team is already in this league.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Error"
+                  - properties:
+                      error:
+                        enum: [already_enrolled]
+        "422":
+          description: |
+            - `invalid_team`: `team_id` missing, not a team, or a dissolved team.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Error"
+                  - properties:
+                      error:
+                        enum: [invalid_team]
+        "500":
+          $ref: "#/components/responses/Internal"
+        "503":
+          $ref: "#/components/responses/TeamBusy"
+  /operator/leagues/{id}/teams/{teamId}:
+    parameters:
+      - $ref: "#/components/parameters/LeagueID"
+      - name: teamId
+        in: path
+        required: true
+        description: Team id. A team not enrolled in the league answers 404.
+        schema:
+          type: integer
+          format: int64
+          minimum: 1
+    delete:
+      tags: [operator]
+      operationId: unenrollTeam
+      summary: Remove a team from a league
+      description: |
+        Operator only (R16.8). The team can be enrolled again later. In the
+        same transaction, the team's future fixtures in the league are
+        deleted and both sides' linked matches cancelled, each team getting a
+        `match_changed` notice ("Partido cancelado: vs. <rival>"). Past
+        matches keep their attendance and fees.
+      security:
+        - bearerAuth: []
+      responses:
+        "204":
+          description: The team is no longer enrolled.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/NotOperator"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/Internal"
+
+  /operator/leagues/{id}/fixtures:
+    parameters:
+      - $ref: "#/components/parameters/LeagueID"
+    post:
+      tags: [operator]
+      operationId: createFixture
+      summary: Schedule a league fixture
+      description: |
+        Operator only. Home and away are two different teams enrolled in the
+        league; the court is one of the league's venue; `starts_at` falls on
+        the league's weekday, inside its window, in the venue's timezone (at
+        or after `start_time`, before `end_time`). In one transaction it
+        creates the fixture, one match per team (rival: the other team;
+        location: "<venue> · <court>") and a `match_created` notice for each
+        team, pushed after commit (R11.4). Teams cannot change these matches
+        (`PATCH /matches/{id}` answers 409 `fixture_match`).
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateFixtureRequest"
+      responses:
+        "201":
+          description: The fixture and its two matches.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Fixture"
+        "400":
+          $ref: "#/components/responses/InvalidRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/NotOperator"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "413":
+          $ref: "#/components/responses/BodyTooLarge"
+        "422":
+          description: |
+            - `same_team`: home and away are the same team.
+            - `team_not_enrolled`: a team is not enrolled in the league, unknown, or dissolved.
+            - `invalid_court`: the court is not one of the league's venue.
+            - `outside_league_window`: not on the league's weekday inside its window, in the venue's timezone.
+            - `invalid_starts_at`: missing, or outside years 1 to 9999.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Error"
+                  - properties:
+                      error:
+                        enum: [same_team, team_not_enrolled, invalid_court, outside_league_window, invalid_starts_at]
+        "500":
+          $ref: "#/components/responses/Internal"
+        "503":
+          $ref: "#/components/responses/TeamBusy"
+  /operator/leagues/{id}/fixtures/{fixtureId}:
+    parameters:
+      - $ref: "#/components/parameters/LeagueID"
+      - name: fixtureId
+        in: path
+        required: true
+        description: Fixture id. A fixture of another league answers 404, like an unknown one.
+        schema:
+          type: integer
+          format: int64
+          minimum: 1
+    patch:
+      tags: [operator]
+      operationId: updateFixture
+      summary: Move a fixture
+      description: |
+        Operator only. Send `starts_at`, `court_id` or both; an absent or
+        null field keeps its value. The result is checked like a new fixture.
+        Both linked matches move in the same transaction and each team gets a
+        `match_changed` notice when the time or court actually changes.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateFixtureRequest"
+      responses:
+        "200":
+          description: The fixture and its two matches.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Fixture"
+        "400":
+          $ref: "#/components/responses/InvalidRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/NotOperator"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          description: |
+            - `fixture_cancelled`: the fixture was deleted.
+            - `attendance_closed`: a team already saved attendance; the time can no longer change (the court can).
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Error"
+                  - properties:
+                      error:
+                        enum: [fixture_cancelled, attendance_closed]
+        "413":
+          $ref: "#/components/responses/BodyTooLarge"
+        "422":
+          description: |
+            - `nothing_to_update`: neither field sent.
+            - `invalid_court`, `outside_league_window`, `invalid_starts_at`: as in `POST`.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Error"
+                  - properties:
+                      error:
+                        enum: [nothing_to_update, invalid_court, outside_league_window, invalid_starts_at]
+        "500":
+          $ref: "#/components/responses/Internal"
+    delete:
+      tags: [operator]
+      operationId: deleteFixture
+      summary: Delete a fixture
+      description: |
+        Operator only, before kickoff. The fixture and both linked matches
+        are cancelled in one transaction (the rows stay, with `cancelled_at`)
+        and each team gets a `match_changed` notice ("Partido cancelado: vs.
+        <rival>").
+      security:
+        - bearerAuth: []
+      responses:
+        "204":
+          description: The fixture is deleted and its matches cancelled.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/NotOperator"
+        "404":
+          description: "`not_found`: unknown fixture, one of another league, or one already deleted."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: |
+            - `fixture_started`: the fixture has kicked off; it stays.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Error"
+                  - properties:
+                      error:
+                        enum: [fixture_started]
+        "500":
+          $ref: "#/components/responses/Internal"
 
 components:
   securitySchemes:
@@ -1814,6 +2837,34 @@ components:
       in: path
       required: true
       description: Match id. An unknown id answers 404, the same as a match of a team the caller is not active in.
+      schema:
+        type: integer
+        format: int64
+        minimum: 1
+
+    VenueID:
+      name: id
+      in: path
+      required: true
+      description: Venue id. An unknown id answers 404.
+      schema:
+        type: integer
+        format: int64
+        minimum: 1
+    LeagueID:
+      name: id
+      in: path
+      required: true
+      description: League id. An unknown id answers 404.
+      schema:
+        type: integer
+        format: int64
+        minimum: 1
+    CourtID:
+      name: courtId
+      in: path
+      required: true
+      description: Court id. A court of another venue answers 404, like an unknown one.
       schema:
         type: integer
         format: int64
@@ -1861,6 +2912,16 @@ components:
                     const: unauthorized
     Forbidden:
       description: "`forbidden`: the caller is an active member but not an admin."
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: "#/components/schemas/Error"
+              - properties:
+                  error:
+                    const: forbidden
+    NotOperator:
+      description: "`forbidden`: the caller is not the operator. Team roles never count (rule 12)."
       content:
         application/json:
           schema:
@@ -2048,6 +3109,36 @@ components:
         - invalid_body
         - daily_limit_reached
         - nothing_pending
+        - invalid_address
+        - invalid_coordinates
+        - invalid_courts
+        - invalid_court_name
+        - court_name_taken
+        - last_court
+        - court_in_use
+        - invalid_near
+        - invalid_weekday
+        - invalid_window
+        - invalid_season_name
+        - invalid_season
+        - invalid_venue
+        - invalid_team
+        - already_enrolled
+        - same_team
+        - team_not_enrolled
+        - invalid_court
+        - outside_league_window
+        - fixture_started
+        - fixture_cancelled
+        - match_cancelled
+        - fixture_match
+        - invalid_contact_name
+        - invalid_venue_name
+        - invalid_city
+        - contact_required
+        - invalid_phone
+        - invalid_message
+        - too_many_leads
     AlreadyMemberError:
       type: object
       required: [error, status]
@@ -2183,7 +3274,7 @@ components:
 
     Match:
       type: object
-      required: [id, team_id, starts_at, rival_name, location]
+      required: [id, team_id, starts_at, rival_name, location, fixture_id, court_id, cancelled_at]
       properties:
         id:
           type: integer
@@ -2195,8 +3286,27 @@ components:
           $ref: "#/components/schemas/Timestamp"
         rival_name:
           type: string
+          description: On a league match, the other team's current name.
         location:
           type: string
+          description: On a league match, "<venue> · <court>".
+        fixture_id:
+          type: [integer, "null"]
+          format: int64
+          description: The league fixture this match belongs to; null for a match the team scheduled.
+        court_id:
+          type: [integer, "null"]
+          format: int64
+          description: The court of a league match; null otherwise.
+        cancelled_at:
+          description: |
+            When the match was cancelled (its league fixture was deleted, or
+            the team left the league); null otherwise. A cancelled match stays
+            in `GET /teams/{id}/matches`, is left out of `GET /me/matches`,
+            and takes no RSVP, attendance or change.
+          oneOf:
+            - $ref: "#/components/schemas/Timestamp"
+            - type: "null"
     UpcomingMatch:
       description: A match plus the team, the caller's role and answer, and the RSVP counts (R14.2).
       allOf:
@@ -2345,6 +3455,31 @@ components:
           format: int64
         created_at:
           $ref: "#/components/schemas/Timestamp"
+    Receipts:
+      type: object
+      required: [notification_id, opened_count, recipient_count, not_opened]
+      properties:
+        notification_id:
+          type: integer
+          format: int64
+        opened_count:
+          type: integer
+          description: Recipients who opened the notice (X in "Visto por X de Y").
+        recipient_count:
+          type: integer
+          description: Recipients counted (Y), without the sender.
+        not_opened:
+          type: array
+          description: Recipients who have not opened it yet, by name.
+          items:
+            type: object
+            required: [membership_id, name]
+            properties:
+              membership_id:
+                type: integer
+                format: int64
+              name:
+                type: string
     InboxNotification:
       description: A notice as the caller sees it in the inbox (R11.1, R24.6).
       type: object
@@ -2542,7 +3677,7 @@ components:
     Membership:
       type: object
       description: Returned by PATCH /memberships/{id}.
-      required: [id, team_id, role, status, shirt_number, position]
+      required: [id, team_id, role, status, shirt_number, position, push_muted]
       properties:
         id:
           type: integer
@@ -2564,6 +3699,9 @@ components:
           oneOf:
             - $ref: "#/components/schemas/Position"
             - type: "null"
+        push_muted:
+          type: boolean
+          description: True when this member muted pushes from the team (R11.6).
     RosterMember:
       type: object
       required: [id, name, role, status, shirt_number, position]
@@ -2596,6 +3734,14 @@ components:
         - $ref: "#/components/schemas/RoleChange"
         - $ref: "#/components/schemas/DecisionChange"
         - $ref: "#/components/schemas/ProfileChange"
+        - $ref: "#/components/schemas/PushMutedChange"
+    PushMutedChange:
+      type: object
+      additionalProperties: false
+      required: [push_muted]
+      properties:
+        push_muted:
+          type: boolean
     RoleChange:
       type: object
       additionalProperties: false
@@ -2628,3 +3774,511 @@ components:
       anyOf:
         - required: [shirt_number]
         - required: [position]
+
+    Venue:
+      type: object
+      required: [id, name, address, latitude, longitude, timezone, courts, created_at]
+      properties:
+        id:
+          type: integer
+          format: int64
+        name:
+          type: string
+        address:
+          type: string
+        latitude:
+          type: number
+          minimum: -90
+          maximum: 90
+        longitude:
+          type: number
+          minimum: -180
+          maximum: 180
+        timezone:
+          type: string
+          description: IANA zone, e.g. `America/Tijuana`.
+        courts:
+          type: array
+          minItems: 1
+          description: Oldest first.
+          items:
+            $ref: "#/components/schemas/Court"
+        created_at:
+          $ref: "#/components/schemas/Timestamp"
+    Court:
+      type: object
+      required: [id, venue_id, name]
+      properties:
+        id:
+          type: integer
+          format: int64
+        venue_id:
+          type: integer
+          format: int64
+        name:
+          type: string
+    CreateVenueRequest:
+      type: object
+      additionalProperties: false
+      required: [name, address, latitude, longitude, timezone, courts]
+      properties:
+        name:
+          type: string
+          description: 1 to 60 characters after trimming; no control or invisible characters.
+        address:
+          type: string
+          description: 1 to 160 characters after trimming; no control or invisible characters.
+        latitude:
+          type: number
+          minimum: -90
+          maximum: 90
+        longitude:
+          type: number
+          minimum: -180
+          maximum: 180
+        timezone:
+          type: string
+          description: Canonical IANA zone, e.g. `America/Tijuana`.
+        courts:
+          type: array
+          minItems: 1
+          maxItems: 50
+          description: Names must differ within the venue.
+          items:
+            $ref: "#/components/schemas/CourtRequest"
+    UpdateVenueRequest:
+      type: object
+      additionalProperties: false
+      description: At least one field. Absent or null keeps the current value.
+      properties:
+        name:
+          type: [string, "null"]
+        address:
+          type: [string, "null"]
+        latitude:
+          type: [number, "null"]
+        longitude:
+          type: [number, "null"]
+        timezone:
+          type: [string, "null"]
+    CourtRequest:
+      type: object
+      additionalProperties: false
+      required: [name]
+      properties:
+        name:
+          type: string
+          description: 1 to 30 characters after trimming; no control or invisible characters; unique within the venue.
+    NearbyVenue:
+      type: object
+      required: [id, name, address, latitude, longitude, timezone, court_count, distance_m]
+      properties:
+        id:
+          type: integer
+          format: int64
+        name:
+          type: string
+        address:
+          type: string
+        latitude:
+          type: number
+        longitude:
+          type: number
+        timezone:
+          type: string
+          description: IANA zone, e.g. `America/Tijuana`.
+        court_count:
+          type: integer
+          minimum: 1
+        distance_m:
+          type: integer
+          minimum: 0
+          maximum: 25000
+          description: Great-circle distance from `near`, rounded to the meter.
+    Weekday:
+      type: string
+      enum: [monday, tuesday, wednesday, thursday, friday, saturday, sunday]
+    TimeOfDay:
+      type: string
+      pattern: "^([01][0-9]|2[0-3]):[0-5][0-9]$"
+      description: Wall-clock `HH:MM` in the venue's timezone.
+      examples: ["20:00"]
+    League:
+      type: object
+      required: [id, venue_id, name, weekday, start_time, end_time, season_name, season_starts_on, season_ends_on, created_at]
+      properties:
+        id:
+          type: integer
+          format: int64
+        venue_id:
+          type: integer
+          format: int64
+        name:
+          type: string
+          description: 1 to 60 characters after trimming; no control or invisible characters.
+        weekday:
+          $ref: "#/components/schemas/Weekday"
+        start_time:
+          $ref: "#/components/schemas/TimeOfDay"
+        end_time:
+          $ref: "#/components/schemas/TimeOfDay"
+        season_name:
+          type: string
+          description: 1 to 40 characters after trimming; no control or invisible characters.
+        season_starts_on:
+          type: string
+          format: date
+        season_ends_on:
+          type: string
+          format: date
+        created_at:
+          $ref: "#/components/schemas/Timestamp"
+    CreateLeagueRequest:
+      type: object
+      additionalProperties: false
+      required: [venue_id, name, weekday, start_time, end_time, season_name, season_starts_on, season_ends_on]
+      description: "`end_time` after `start_time`; `season_ends_on` not before `season_starts_on`."
+      properties:
+        venue_id:
+          type: integer
+          format: int64
+        name:
+          type: string
+          description: 1 to 60 characters after trimming; no control or invisible characters.
+        weekday:
+          $ref: "#/components/schemas/Weekday"
+        start_time:
+          $ref: "#/components/schemas/TimeOfDay"
+        end_time:
+          $ref: "#/components/schemas/TimeOfDay"
+        season_name:
+          type: string
+          description: 1 to 40 characters after trimming; no control or invisible characters.
+        season_starts_on:
+          type: string
+          format: date
+        season_ends_on:
+          type: string
+          format: date
+    UpdateLeagueRequest:
+      type: object
+      additionalProperties: false
+      description: At least one field. Absent or null keeps the current value. The venue cannot change.
+      properties:
+        name:
+          type: [string, "null"]
+        weekday:
+          type: [string, "null"]
+        start_time:
+          type: [string, "null"]
+        end_time:
+          type: [string, "null"]
+        season_name:
+          type: [string, "null"]
+        season_starts_on:
+          type: [string, "null"]
+        season_ends_on:
+          type: [string, "null"]
+    EnrollTeamRequest:
+      type: object
+      additionalProperties: false
+      required: [team_id]
+      properties:
+        team_id:
+          type: integer
+          format: int64
+    Enrollment:
+      type: object
+      required: [league_id, team_id, enrolled_at]
+      properties:
+        league_id:
+          type: integer
+          format: int64
+        team_id:
+          type: integer
+          format: int64
+        enrolled_at:
+          $ref: "#/components/schemas/Timestamp"
+    Fixture:
+      type: object
+      required: [id, league_id, home_team_id, away_team_id, court_id, starts_at, matches]
+      properties:
+        id:
+          type: integer
+          format: int64
+        league_id:
+          type: integer
+          format: int64
+        home_team_id:
+          type: integer
+          format: int64
+        away_team_id:
+          type: integer
+          format: int64
+        court_id:
+          type: integer
+          format: int64
+        starts_at:
+          $ref: "#/components/schemas/Timestamp"
+        matches:
+          type: array
+          description: The two linked matches, home first.
+          items:
+            type: object
+            required: [id, team_id]
+            properties:
+              id:
+                type: integer
+                format: int64
+              team_id:
+                type: integer
+                format: int64
+    CreateFixtureRequest:
+      type: object
+      additionalProperties: false
+      required: [home_team_id, away_team_id, court_id, starts_at]
+      properties:
+        home_team_id:
+          type: integer
+          format: int64
+        away_team_id:
+          type: integer
+          format: int64
+        court_id:
+          type: integer
+          format: int64
+        starts_at:
+          type: string
+          format: date-time
+          description: Any RFC 3339 time; stored and returned in UTC.
+    UpdateFixtureRequest:
+      type: object
+      additionalProperties: false
+      description: At least one field. Absent or null keeps the current value.
+      properties:
+        starts_at:
+          type: [string, "null"]
+          format: date-time
+        court_id:
+          type: [integer, "null"]
+          format: int64
+    Ref:
+      type: object
+      required: [id, name]
+      properties:
+        id:
+          type: integer
+          format: int64
+        name:
+          type: string
+    PublicTeam:
+      type: object
+      additionalProperties: false
+      required: [id, name, initials, active_members, captains, leagues, viewer_status]
+      properties:
+        id:
+          type: integer
+          format: int64
+        name:
+          type: string
+        initials:
+          type: string
+          description: First letters of the first two words ("Atlético Narvarte" is "AN"), or the first two letters of a one-word name, uppercased.
+        active_members:
+          type: integer
+        captains:
+          type: array
+          description: The active admins' names, by name. The app labels them "Capitán".
+          items:
+            type: string
+        leagues:
+          type: array
+          description: Monday first, then by start time.
+          items:
+            type: object
+            required: [id, name, weekday, start_time, end_time, venue]
+            properties:
+              id:
+                type: integer
+                format: int64
+              name:
+                type: string
+              weekday:
+                $ref: "#/components/schemas/Weekday"
+              start_time:
+                $ref: "#/components/schemas/TimeOfDay"
+              end_time:
+                $ref: "#/components/schemas/TimeOfDay"
+              venue:
+                $ref: "#/components/schemas/Ref"
+        viewer_status:
+          description: The caller's own membership; null when none, or left.
+          type: [string, "null"]
+          enum: [active, pending, null]
+    VenuePage:
+      type: object
+      required: [id, name, address, latitude, longitude, timezone, courts, weekdays]
+      properties:
+        id:
+          type: integer
+          format: int64
+        name:
+          type: string
+        address:
+          type: string
+        latitude:
+          type: number
+        longitude:
+          type: number
+        timezone:
+          type: string
+        courts:
+          type: array
+          items:
+            $ref: "#/components/schemas/Ref"
+        weekdays:
+          type: array
+          description: Monday first; only weekdays with leagues.
+          items:
+            type: object
+            required: [weekday, leagues]
+            properties:
+              weekday:
+                $ref: "#/components/schemas/Weekday"
+              leagues:
+                type: array
+                description: By start time.
+                items:
+                  type: object
+                  required: [id, name, start_time, end_time]
+                  properties:
+                    id:
+                      type: integer
+                      format: int64
+                    name:
+                      type: string
+                    start_time:
+                      $ref: "#/components/schemas/TimeOfDay"
+                    end_time:
+                      $ref: "#/components/schemas/TimeOfDay"
+    LeaguePage:
+      type: object
+      required: [id, name, weekday, start_time, end_time, season_name, season_starts_on, season_ends_on, venue]
+      properties:
+        id:
+          type: integer
+          format: int64
+        name:
+          type: string
+        weekday:
+          $ref: "#/components/schemas/Weekday"
+        start_time:
+          $ref: "#/components/schemas/TimeOfDay"
+        end_time:
+          $ref: "#/components/schemas/TimeOfDay"
+        season_name:
+          type: string
+        season_starts_on:
+          type: string
+          format: date
+        season_ends_on:
+          type: string
+          format: date
+        venue:
+          type: object
+          required: [id, name, address, timezone]
+          properties:
+            id:
+              type: integer
+              format: int64
+            name:
+              type: string
+            address:
+              type: string
+            timezone:
+              type: string
+    LeagueTeam:
+      type: object
+      required: [id, name, initials]
+      properties:
+        id:
+          type: integer
+          format: int64
+        name:
+          type: string
+        initials:
+          type: string
+    FixtureDay:
+      type: object
+      required: [date, fixtures]
+      properties:
+        date:
+          type: [string, "null"]
+          format: date
+          description: The date in the venue's timezone; null when no fixture is left.
+        fixtures:
+          type: array
+          description: By kickoff.
+          items:
+            type: object
+            required: [id, starts_at, court, home, away]
+            properties:
+              id:
+                type: integer
+                format: int64
+              starts_at:
+                $ref: "#/components/schemas/Timestamp"
+              court:
+                $ref: "#/components/schemas/Ref"
+              home:
+                $ref: "#/components/schemas/Ref"
+              away:
+                $ref: "#/components/schemas/Ref"
+    SendVenueLeadRequest:
+      type: object
+      additionalProperties: false
+      required: [contact_name, venue_name, city]
+      description: "`phone`, `email` or both. An empty string counts as absent."
+      properties:
+        contact_name:
+          type: string
+        venue_name:
+          type: string
+        city:
+          type: string
+        phone:
+          type: string
+        email:
+          type: string
+        message:
+          type: string
+    VenueLead:
+      type: object
+      required: [id, user_id, contact_name, venue_name, city, phone, email, message, created_at, handled_at]
+      properties:
+        id:
+          type: integer
+          format: int64
+        user_id:
+          type: [integer, "null"]
+          format: int64
+          description: The sender; null once they delete their account (R25.8).
+        contact_name:
+          type: string
+        venue_name:
+          type: string
+        city:
+          type: string
+        phone:
+          type: [string, "null"]
+        email:
+          type: [string, "null"]
+          description: Lowercased.
+        message:
+          type: [string, "null"]
+        created_at:
+          $ref: "#/components/schemas/Timestamp"
+        handled_at:
+          oneOf:
+            - $ref: "#/components/schemas/Timestamp"
+            - type: "null"

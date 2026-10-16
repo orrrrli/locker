@@ -16,6 +16,7 @@ type membershipService interface {
 	Reject(ctx context.Context, teamID, callerID, membershipID int64) error
 	Roster(ctx context.Context, caller domain.Membership) ([]domain.RosterMember, error)
 	UpdateProfile(ctx context.Context, teamID, callerID, membershipID int64, p domain.ProfileChange) (domain.Membership, error)
+	SetPushMuted(ctx context.Context, callerID, membershipID int64, muted bool) (domain.Membership, error)
 	Leave(ctx context.Context, teamID, callerID, membershipID int64) error
 }
 
@@ -31,6 +32,11 @@ type membershipJSON struct {
 	Status      domain.MembershipStatus `json:"status"`
 	ShirtNumber *int                    `json:"shirt_number"`
 	Position    *domain.Position        `json:"position"`
+	PushMuted   bool                    `json:"push_muted"`
+}
+
+func toMembershipJSON(m domain.Membership) membershipJSON {
+	return membershipJSON{ID: m.ID, TeamID: m.TeamID, Role: m.Role, Status: m.Status, ShirtNumber: m.ShirtNumber, Position: m.Position, PushMuted: m.PushMuted}
 }
 
 // rosterMemberJSON is one member of GET /teams/{id}/members. role stays
@@ -61,16 +67,17 @@ func (h membershipHandlers) list(w http.ResponseWriter, r *http.Request) {
 }
 
 // updateMembershipRequest carries one change per request: a role, a
-// decision on a pending membership, or the profile (shirt number and
-// position, together or alone). The decision is an action, not a stored
-// status: approve makes the membership active, reject discards it. The
-// profile fields are raw so that an absent field (kept) differs from null
-// (cleared).
+// decision on a pending membership, the profile (shirt number and position,
+// together or alone), or the caller's own push mute. The decision is an
+// action, not a stored status: approve makes the membership active, reject
+// discards it. The profile fields are raw so that an absent field (kept)
+// differs from null (cleared).
 type updateMembershipRequest struct {
 	Role        *domain.Role    `json:"role"`
 	Decision    *decision       `json:"decision"`
 	ShirtNumber json.RawMessage `json:"shirt_number"`
 	Position    json.RawMessage `json:"position"`
+	PushMuted   *bool           `json:"push_muted"`
 }
 
 // profile turns the raw profile fields into a change. numberOK and
@@ -111,7 +118,7 @@ func (h membershipHandlers) update(w http.ResponseWriter, r *http.Request) {
 	profile, numberOK, positionOK := req.profile()
 	isProfile := profile.SetShirtNumber || profile.SetPosition
 	changes := 0
-	for _, set := range []bool{req.Role != nil, req.Decision != nil, isProfile} {
+	for _, set := range []bool{req.Role != nil, req.Decision != nil, isProfile, req.PushMuted != nil} {
 		if set {
 			changes++
 		}
@@ -144,6 +151,8 @@ func (h membershipHandlers) update(w http.ResponseWriter, r *http.Request) {
 	switch {
 	case isProfile:
 		m, err = h.svc.UpdateProfile(ctx, caller.TeamID, caller.ID, id, profile)
+	case req.PushMuted != nil:
+		m, err = h.svc.SetPushMuted(ctx, caller.ID, id, *req.PushMuted)
 	case req.Role != nil:
 		m, err = h.svc.ChangeRole(ctx, caller.TeamID, caller.ID, id, *req.Role)
 	case *req.Decision == decisionApprove:
@@ -158,7 +167,7 @@ func (h membershipHandlers) update(w http.ResponseWriter, r *http.Request) {
 		membershipErrors.write(w, r, "memberships", err)
 		return
 	}
-	writeJSON(w, http.StatusOK, membershipJSON{ID: m.ID, TeamID: m.TeamID, Role: m.Role, Status: m.Status, ShirtNumber: m.ShirtNumber, Position: m.Position})
+	writeJSON(w, http.StatusOK, toMembershipJSON(m))
 }
 
 // leave runs behind requireActiveMember(teamFromMembership): a member leaves
@@ -185,6 +194,7 @@ var membershipErrors = errorMap{
 	{memberships.ErrNotActive, http.StatusConflict, "not_active"},
 	{memberships.ErrNotPending, http.StatusConflict, "not_pending"},
 	{application.ErrNotAdmin, http.StatusForbidden, "forbidden"},
+	{memberships.ErrNotOwnMembership, http.StatusForbidden, "forbidden"},
 	{memberships.ErrTargetIsAdmin, http.StatusForbidden, "target_is_admin"},
 	{domain.ErrTeamBusy, http.StatusServiceUnavailable, "team_busy"},
 	{domain.ErrLastAdmin, http.StatusConflict, "last_admin"},

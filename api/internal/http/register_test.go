@@ -16,10 +16,14 @@ import (
 	"github.com/orrrrli/locker/api/internal/application/auth"
 	"github.com/orrrrli/locker/api/internal/application/charges"
 	"github.com/orrrrli/locker/api/internal/application/invites"
+	"github.com/orrrrli/locker/api/internal/application/leads"
+	"github.com/orrrrli/locker/api/internal/application/leagues"
 	"github.com/orrrrli/locker/api/internal/application/matches"
 	applicationmemberships "github.com/orrrrli/locker/api/internal/application/memberships"
 	"github.com/orrrrli/locker/api/internal/application/notifications"
+	"github.com/orrrrli/locker/api/internal/application/pages"
 	"github.com/orrrrli/locker/api/internal/application/teams"
+	"github.com/orrrrli/locker/api/internal/application/venues"
 	"github.com/orrrrli/locker/api/internal/infrastructure/password"
 	"github.com/orrrrli/locker/api/internal/infrastructure/postgres"
 	"github.com/orrrrli/locker/api/internal/testdb"
@@ -50,11 +54,6 @@ func newAPI(t *testing.T, now func() time.Time) apiTest {
 	// exercise sessions without a feature endpoint.
 	mux := http.NewServeMux()
 	memberships := postgres.NewMemberships(pool)
-	teamSvc := teams.NewService(teams.Deps{
-		Tx:          postgres.NewTxRunner(pool),
-		Teams:       postgres.NewTeams(pool),
-		Memberships: memberships,
-	})
 	inviteSvc := invites.NewService(invites.Deps{
 		Tx:            postgres.NewTxRunner(pool),
 		Invites:       postgres.NewInvites(pool),
@@ -73,27 +72,43 @@ func newAPI(t *testing.T, now func() time.Time) apiTest {
 		Users:       postgres.NewUsers(pool),
 	})
 	matchRepo := postgres.NewMatches(pool)
+	notificationRepo := postgres.NewNotifications(pool)
+	notificationSvc := notifications.NewService(notifications.Deps{
+		Tx: postgres.NewTxRunner(pool), Notifications: notificationRepo,
+		Memberships: memberships, Teams: postgres.NewTeams(pool), Matches: matchRepo, Now: now,
+	})
 	matchSvc := matches.NewService(matches.Deps{
 		Tx:          postgres.NewTxRunner(pool),
 		Matches:     matchRepo,
 		Memberships: memberships,
+		Teams:       postgres.NewTeams(pool),
+		Notices:     notificationSvc,
 		Now:         now,
-	})
-	notificationSvc := notifications.NewService(notifications.Deps{
-		Tx: postgres.NewTxRunner(pool), Notifications: postgres.NewNotifications(pool),
-		Memberships: memberships, Teams: postgres.NewTeams(pool), Now: now,
 	})
 	chargeRepo := postgres.NewCharges(pool)
 	chargeSvc := charges.NewService(charges.Deps{
 		Tx: postgres.NewTxRunner(pool), Charges: chargeRepo, Matches: matchRepo, Memberships: memberships, Notifier: notificationSvc, Now: now,
 	})
+	venueSvc := venues.NewService(venues.Deps{Tx: postgres.NewTxRunner(pool), Venues: postgres.NewVenues(pool)})
+	leagueSvc := leagues.NewService(leagues.Deps{
+		Tx: postgres.NewTxRunner(pool), Leagues: postgres.NewLeagues(pool), Teams: memberships, Notices: notificationSvc, Now: now,
+	})
+	teamSvc := teams.NewService(teams.Deps{
+		Tx:          postgres.NewTxRunner(pool),
+		Teams:       postgres.NewTeams(pool),
+		Memberships: memberships,
+		Leagues:     leagueSvc,
+	})
+	pageSvc := pages.NewService(pages.Deps{Pages: postgres.NewPages(pool), Memberships: memberships, Now: now})
+	leadSvc := leads.NewService(leads.Deps{Tx: postgres.NewTxRunner(pool), Leads: postgres.NewVenueLeads(pool), Now: now})
 	// Limits high enough that no test of a feature trips them; the limits
 	// have their own tests in ratelimit_test.go.
 	limits := Limits{Register: NewIPRateLimiter(1000, time.Hour, nil)}
 	mux.Handle("/", NewRouter(Deps{
 		Auth: svc, Teams: teamSvc, Invites: inviteSvc, Members: memberSvc, Account: accountSvc,
 		Matches: matchSvc, MatchFinder: matchRepo, Charges: chargeSvc, ChargeFinder: chargeRepo, Notifications: notificationSvc,
-		Memberships: memberships, Users: postgres.NewUsers(pool), Limits: limits,
+		Venues: venueSvc, Memberships: memberships, Users: postgres.NewUsers(pool), Limits: limits, Leagues: leagueSvc, Pages: pageSvc, Leads: leadSvc,
+		NotificationFinder: notificationRepo,
 	}))
 	mux.Handle("GET /test/whoami", authHandlers{svc: svc}.requireAuth(http.HandlerFunc(
 		func(w http.ResponseWriter, r *http.Request) {
