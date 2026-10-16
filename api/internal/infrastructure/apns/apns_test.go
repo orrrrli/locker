@@ -281,3 +281,55 @@ func TestNewRejectsAKeyThatIsNotAP256P8(t *testing.T) {
 		}
 	}
 }
+
+func TestPayloadFitsAPNsLimit(t *testing.T) {
+	for name, body := range map[string]string{
+		"emoji":     strings.Repeat("⚽", 1000),
+		"escaped":   strings.Repeat("&", 1000),
+		"too long":  strings.Repeat("a", 5000),
+		"just fits": "short",
+	} {
+		b, err := payload(domain.Notification{ID: 42, Title: strings.Repeat("⚽", 80), Body: body})
+		if err != nil {
+			t.Fatal(err)
+		}
+		var got struct {
+			APS            struct{ Alert struct{ Body string } }
+			NotificationID int64 `json:"notification_id"`
+		}
+		if err := json.Unmarshal(b, &got); err != nil || len(b) > maxPayload || got.NotificationID != 42 {
+			t.Fatalf("%s: %d bytes, err %v; want at most %d with notification_id", name, len(b), err, maxPayload)
+		}
+		if len(b) < maxPayload-64 && got.APS.Alert.Body != body {
+			t.Fatalf("%s: body changed though it fit: %q", name, got.APS.Alert.Body)
+		}
+	}
+}
+
+func TestPushDropsWhenTooManyAreInFlight(t *testing.T) {
+	release := make(chan struct{})
+	f := newFakeAPNs(t, func(string, int) (int, string) {
+		<-release
+		return http.StatusOK, ""
+	})
+	defer close(release)
+	_, p8 := newKey(t)
+	c := newClient(t, f, p8, &deletedTokens{})
+	for range maxInFlight + 5 {
+		c.Push(context.Background(), notice, []string{"aaa"})
+	}
+	if len(c.slots) != maxInFlight {
+		t.Fatalf("%d pushes in flight, want the cap %d", len(c.slots), maxInFlight)
+	}
+}
+
+func TestTransportErrorKeepsTheTokenOutOfTheMessage(t *testing.T) {
+	f := newFakeAPNs(t, nil)
+	_, p8 := newKey(t)
+	c := newClient(t, f, p8, &deletedTokens{})
+	f.srv.Close()
+	err := c.sendOne(context.Background(), "secrettoken", []byte("{}"))
+	if err == nil || strings.Contains(err.Error(), "secrettoken") {
+		t.Fatalf("err %v; want an error that does not name the token", err)
+	}
+}

@@ -76,10 +76,10 @@ func start() error {
 	notificationRepo := postgres.NewNotifications(pool)
 	// Push stays nil, inbox only, until the APNs key is configured.
 	var push notifications.Pusher
-	if cfg.APNSKeyFile != "" {
-		key, err := os.ReadFile(cfg.APNSKeyFile)
+	if cfg.APNSKeyPath != "" {
+		key, err := os.ReadFile(cfg.APNSKeyPath)
 		if err != nil {
-			return fmt.Errorf("APNS_KEY_FILE: %w", err)
+			return fmt.Errorf("APNS_KEY_PATH: %w", err)
 		}
 		apnsCfg := cfg.APNS
 		apnsCfg.Key, apnsCfg.Tokens = key, notificationRepo

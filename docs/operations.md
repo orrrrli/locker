@@ -26,9 +26,9 @@ How the API gets to the VPS and how to undo a bad release. The workflow is `.git
    download button; needs the Apple pair, or the installed app could not open the link). Push is optional too:
    without it notices stay in the inbox only. To turn it on, create a token-auth key (.p8) in the Apple
    Developer account, copy it to `VPS_PATH/secrets/` owned by uid 65532 with mode 400, and set
-   `APNS_KEY_FILE=/run/secrets/apns/<file>.p8` and `APNS_KEY_ID` (the key's 10-character id; both or
-   neither, and both need the Apple pair). `APNS_SANDBOX=true` sends to Apple's sandbox, for development
-   builds only: APNs answers a production token there with `BadDeviceToken`, and the API deletes every
+   `APNS_KEY_PATH=/run/secrets/apns/<file>.p8` and `APNS_KEY_ID` (the key's 10-character id; both or
+   neither, and both need the Apple pair). `APNS_ENVIRONMENT` is `production` (the default, for
+   TestFlight and App Store builds) or `development` (Apple's sandbox, for builds run from Xcode only): APNs answers a production token there with `BadDeviceToken`, and the API deletes every
    token it rejects that way. The API reads `.env` only when its container is created: after an edit, run
    `docker compose up -d api` with `API_TAG` set (see "Running compose by hand").
 6. After the first push to `main`, open the `locker-api` and `locker-backup` packages in GHCR and set

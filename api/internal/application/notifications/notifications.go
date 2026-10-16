@@ -5,6 +5,7 @@ package notifications
 import (
 	"context"
 	"errors"
+	"log/slog"
 	"time"
 
 	"github.com/orrrrli/locker/api/internal/application"
@@ -285,8 +286,7 @@ func (s *Service) Deliver(ctx context.Context, n domain.Notification) {
 	}
 	tokens, err := s.notifications.PushTokens(ctx, n.ID)
 	if err != nil {
-		// ponytail: the error is dropped unlogged; the application layer has
-		// no logger. Log it here once BE-NOTIF-2 brings one for push failures.
+		slog.ErrorContext(ctx, "notifications: push tokens", "notification_id", n.ID, "err", err)
 		return
 	}
 	if len(tokens) > 0 {
