@@ -1,8 +1,11 @@
 package main
 
 import (
+	"maps"
 	"strings"
 	"testing"
+
+	"github.com/orrrrli/locker/api/internal/infrastructure/apns"
 )
 
 func env(vars map[string]string) func(string) string {
@@ -80,6 +83,43 @@ func TestLoadConfig(t *testing.T) {
 			cfg, err := loadConfig(env(base))
 			if (err == nil) != ok || (ok && cfg.DownloadURL != url) {
 				t.Fatalf("%q: url %q, err %v; want ok %v", url, cfg.DownloadURL, err, ok)
+			}
+		}
+	})
+
+	t.Run("apns", func(t *testing.T) {
+		apple := map[string]string{"APPLE_TEAM_ID": "ABCDE12345", "APPLE_BUNDLE_ID": "center.locker.app"}
+		for _, tc := range []struct {
+			name, path, keyID, env string
+			apple                  bool
+			host                   string // empty when push stays off
+			msg                    string // part of the error, when it fails
+		}{
+			{"unset", "", "", "", true, "", ""},
+			{"production", "/run/secrets/apns/k.p8", "KEY1234567", "", true, apns.ProductionHost, ""},
+			{"production named", "/run/secrets/apns/k.p8", "KEY1234567", "production", true, apns.ProductionHost, ""},
+			{"development", "/run/secrets/apns/k.p8", "KEY1234567", "development", true, apns.SandboxHost, ""},
+			{"only the path", "/k.p8", "", "", true, "", "set both"},
+			{"only the id", "", "KEY1234567", "", true, "", "set both"},
+			{"bad id", "/k.p8", "key", "", true, "", "APNS_KEY_ID"},
+			{"bad environment", "/k.p8", "KEY1234567", "sandbox", true, "", "APNS_ENVIRONMENT"},
+			{"no apple pair", "/k.p8", "KEY1234567", "", false, "", "APPLE_TEAM_ID"},
+		} {
+			vars := map[string]string{"API_PORT": "8080", "DATABASE_URL": "x", "PUBLIC_BASE_URL": "https://x.test",
+				"APNS_KEY_PATH": tc.path, "APNS_KEY_ID": tc.keyID, "APNS_ENVIRONMENT": tc.env}
+			if tc.apple {
+				maps.Copy(vars, apple)
+			}
+			cfg, err := loadConfig(env(vars))
+			if (err == nil) != (tc.msg == "") || cfg.APNS.Host != tc.host {
+				t.Fatalf("%s: host %q, err %v; want host %q, error %q", tc.name, cfg.APNS.Host, err, tc.host, tc.msg)
+			}
+			if tc.msg != "" && !strings.Contains(err.Error(), tc.msg) {
+				t.Fatalf("%s: err %v, want it to say %q", tc.name, err, tc.msg)
+			}
+			if tc.host != "" && (cfg.APNSKeyPath != tc.path || cfg.APNS.TeamID != "ABCDE12345" ||
+				cfg.APNS.KeyID != tc.keyID || cfg.APNS.Topic != "center.locker.app") {
+				t.Fatalf("%s: unexpected push config %+v, key path %q", tc.name, cfg.APNS, cfg.APNSKeyPath)
 			}
 		}
 	})

@@ -7,6 +7,8 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+
+	"github.com/orrrrli/locker/api/internal/infrastructure/apns"
 )
 
 type config struct {
@@ -21,11 +23,17 @@ type config struct {
 	// DownloadURL is the public TestFlight link the invite landing points to.
 	// Optional: without it the page says the app is not out yet.
 	DownloadURL string
+	// APNS is the push setup, without its key; APNSKeyPath is the path of
+	// the .p8 key. Empty until the APNs key exists: notices then stay in the
+	// inbox without a push.
+	APNS        apns.Config
+	APNSKeyPath string
 }
 
 var (
 	appleTeamIDPattern   = regexp.MustCompile(`^[A-Z0-9]{10}$`)
 	appleBundleIDPattern = regexp.MustCompile(`^[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)+$`)
+	apnsKeyIDPattern     = regexp.MustCompile(`^[A-Z0-9]{10}$`)
 )
 
 // loadConfig reads the API configuration through getenv (os.Getenv in production).
@@ -87,6 +95,28 @@ func loadConfig(getenv func(string) string) (config, error) {
 		} else {
 			cfg.DownloadURL = dl
 		}
+	}
+
+	// Push needs the key, its id, and the Apple pair: the team signs the
+	// provider token and the bundle is the APNs topic.
+	// APNS_ENVIRONMENT picks Apple's server: production (the default) for
+	// TestFlight and App Store builds, development for builds run from Xcode.
+	keyPath, keyID, apnsEnv := getenv("APNS_KEY_PATH"), getenv("APNS_KEY_ID"), getenv("APNS_ENVIRONMENT")
+	host := map[string]string{"": apns.ProductionHost, "production": apns.ProductionHost, "development": apns.SandboxHost}[apnsEnv]
+	switch {
+	case host == "":
+		errs = append(errs, fmt.Errorf("APNS_ENVIRONMENT must be production or development, got %q", apnsEnv))
+	case keyPath == "" && keyID == "":
+		// Not configured yet: notices stay inbox only.
+	case keyPath == "" || keyID == "":
+		errs = append(errs, errors.New("set both APNS_KEY_PATH and APNS_KEY_ID, or neither"))
+	case !apnsKeyIDPattern.MatchString(keyID):
+		errs = append(errs, fmt.Errorf("APNS_KEY_ID must be 10 uppercase letters or digits, got %q", keyID))
+	case cfg.AppleAppID == "":
+		errs = append(errs, errors.New("APNS_KEY_PATH needs APPLE_TEAM_ID and APPLE_BUNDLE_ID"))
+	default:
+		cfg.APNSKeyPath = keyPath
+		cfg.APNS = apns.Config{Host: host, TeamID: team, KeyID: keyID, Topic: bundle}
 	}
 
 	if len(missing) > 0 {

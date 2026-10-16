@@ -26,6 +26,17 @@ func (q *Queries) DeleteDeviceToken(ctx context.Context, arg DeleteDeviceTokenPa
 	return err
 }
 
+const deleteDeviceTokenByValue = `-- name: DeleteDeviceTokenByValue :exec
+DELETE FROM device_token WHERE token = $1
+`
+
+// Removes a token APNs rejected (410 or BadDeviceToken), whoever holds it:
+// no device answers to it anymore (R11.7).
+func (q *Queries) DeleteDeviceTokenByValue(ctx context.Context, token string) error {
+	_, err := q.db.Exec(ctx, deleteDeviceTokenByValue, token)
+	return err
+}
+
 const deleteOtherSessionTokens = `-- name: DeleteOtherSessionTokens :exec
 DELETE FROM device_token WHERE session_id = $1 AND token <> $2
 `
