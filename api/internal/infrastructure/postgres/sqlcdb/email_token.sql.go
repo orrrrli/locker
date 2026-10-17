@@ -62,3 +62,19 @@ func (q *Queries) DeleteEmailTokensOfUser(ctx context.Context, userID int64) err
 	_, err := q.db.Exec(ctx, deleteEmailTokensOfUser, userID)
 	return err
 }
+
+const deleteUserEmailTokens = `-- name: DeleteUserEmailTokens :exec
+DELETE FROM email_token WHERE user_id = $1 AND purpose = $2
+`
+
+type DeleteUserEmailTokensParams struct {
+	UserID  int64
+	Purpose string
+}
+
+// Drops the user's other links for purpose, so a completed reset leaves no
+// sibling link that could set the password again.
+func (q *Queries) DeleteUserEmailTokens(ctx context.Context, arg DeleteUserEmailTokensParams) error {
+	_, err := q.db.Exec(ctx, deleteUserEmailTokens, arg.UserID, arg.Purpose)
+	return err
+}

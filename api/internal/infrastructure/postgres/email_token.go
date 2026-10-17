@@ -36,6 +36,15 @@ func (r *EmailTokens) Create(ctx context.Context, userID int64, purpose string, 
 	return nil
 }
 
+// DeleteAllOfUser deletes every token of the user for purpose.
+func (r *EmailTokens) DeleteAllOfUser(ctx context.Context, userID int64, purpose string) error {
+	err := sqlcdb.New(Conn(ctx, r.pool)).DeleteUserEmailTokens(ctx, sqlcdb.DeleteUserEmailTokensParams{UserID: userID, Purpose: purpose})
+	if err != nil {
+		return fmt.Errorf("postgres: delete user email tokens: %w", err)
+	}
+	return nil
+}
+
 // Consume deletes the unexpired token for purpose that hashes to tokenHash
 // and returns its user, or domain.ErrNotFound when it is unknown, used,
 // expired or for another purpose.

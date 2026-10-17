@@ -75,12 +75,26 @@ func NewRouter(d Deps) http.Handler {
 	if d.Limits.MatchWrite == nil {
 		d.Limits.MatchWrite = defaults.MatchWrite
 	}
-	a := authHandlers{svc: d.Auth, limits: d.LoginLimiter, registers: d.Limits.Register}
+	if d.Limits.ResetRequestIP == nil {
+		d.Limits.ResetRequestIP = defaults.ResetRequestIP
+	}
+	if d.Limits.ResetRequestEmail == nil {
+		d.Limits.ResetRequestEmail = defaults.ResetRequestEmail
+	}
+	if d.Limits.ResetConfirm == nil {
+		d.Limits.ResetConfirm = defaults.ResetConfirm
+	}
+	a := authHandlers{svc: d.Auth, limits: d.LoginLimiter, registers: d.Limits.Register,
+		resetIPs: d.Limits.ResetRequestIP, resetEmails: d.Limits.ResetRequestEmail, resetConfirms: d.Limits.ResetConfirm}
 	mux.HandleFunc("POST /auth/register", a.register)
 	mux.HandleFunc("POST /auth/login", a.login)
 	mux.HandleFunc("POST /auth/verify-email", a.verifyEmail)
 	mux.HandleFunc("GET /v/{token}", verifyLinkPage)
 	mux.HandleFunc("POST /v/{token}", a.verifyLink)
+	mux.HandleFunc("POST /auth/password-reset", a.passwordReset)
+	mux.HandleFunc("POST /auth/password-reset/confirm", a.passwordResetConfirm)
+	mux.HandleFunc("GET /r/{token}", resetLinkPage)
+	mux.HandleFunc("POST /r/{token}", a.resetLink)
 	mux.Handle("POST /auth/logout", a.requireAuth(http.HandlerFunc(a.logout)))
 	acct := accountHandlers{svc: d.Account}
 	mux.Handle("GET /me", a.requireAuth(http.HandlerFunc(acct.me)))

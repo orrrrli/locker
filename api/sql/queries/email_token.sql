@@ -11,3 +11,8 @@ RETURNING user_id;
 
 -- name: DeleteEmailTokensOfUser :exec
 DELETE FROM email_token WHERE user_id = $1;
+
+-- name: DeleteUserEmailTokens :exec
+-- Drops the user's other links for purpose, so a completed reset leaves no
+-- sibling link that could set the password again.
+DELETE FROM email_token WHERE user_id = $1 AND purpose = $2;

@@ -88,10 +88,16 @@ func (h authHandlers) verifyLink(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// writeVerifyPage writes the page in state with the landing page's headers,
-// except that the form may post back to this origin. The page never echoes
-// the token: the form posts to the URL it was loaded from.
+// writeVerifyPage writes the verification page in state.
 func writeVerifyPage(w http.ResponseWriter, status int, state string) {
+	writeLinkPage(w, status, verifyPage, state)
+}
+
+// writeLinkPage writes a page opened from an emailed link, with the landing
+// page's headers except that its form may post back to this origin. The
+// pages never echo the token: their forms post to the URL they were loaded
+// from.
+func writeLinkPage(w http.ResponseWriter, status int, page *template.Template, data any) {
 	h := w.Header()
 	h.Set("Content-Type", "text/html; charset=utf-8")
 	h.Set("Referrer-Policy", "no-referrer")
@@ -101,5 +107,5 @@ func writeVerifyPage(w http.ResponseWriter, status int, state string) {
 	h.Set("Content-Security-Policy",
 		"default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'")
 	w.WriteHeader(status)
-	_ = verifyPage.Execute(w, state)
+	_ = page.Execute(w, data)
 }

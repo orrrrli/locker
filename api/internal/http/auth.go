@@ -18,6 +18,8 @@ type authService interface {
 	Authenticate(ctx context.Context, token string) (auth.Auth, error)
 	Logout(ctx context.Context, sessionID int64) error
 	VerifyEmail(ctx context.Context, token string) error
+	RequestPasswordReset(ctx context.Context, email string) error
+	ConfirmPasswordReset(ctx context.Context, token, password string) error
 }
 
 // requireAuth authenticates the bearer token and puts the user and session
@@ -62,6 +64,11 @@ type authHandlers struct {
 	svc       authService
 	limits    *LoginLimiter
 	registers *IPRateLimiter // per client IP
+	// Password reset: requests per client IP and per address, and confirms
+	// (each an argon2id hash) per client IP.
+	resetIPs      *IPRateLimiter
+	resetEmails   *RateLimiter
+	resetConfirms *IPRateLimiter
 }
 
 type registerRequest struct {

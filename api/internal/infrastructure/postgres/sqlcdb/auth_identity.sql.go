@@ -49,3 +49,23 @@ func (q *Queries) GetPasswordIdentity(ctx context.Context, subject string) (GetP
 	err := row.Scan(&i.UserID, &i.PasswordHash)
 	return i, err
 }
+
+const setPasswordHash = `-- name: SetPasswordHash :one
+UPDATE auth_identity SET password_hash = $2
+WHERE user_id = $1 AND provider = 'password'
+RETURNING subject
+`
+
+type SetPasswordHashParams struct {
+	UserID       int64
+	PasswordHash pgtype.Text
+}
+
+// Returns the subject, which for a password identity is the normalized email,
+// so the caller can tell the owner the password changed.
+func (q *Queries) SetPasswordHash(ctx context.Context, arg SetPasswordHashParams) (string, error) {
+	row := q.db.QueryRow(ctx, setPasswordHash, arg.UserID, arg.PasswordHash)
+	var subject string
+	err := row.Scan(&subject)
+	return subject, err
+}

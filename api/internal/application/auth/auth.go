@@ -44,6 +44,9 @@ type Users interface {
 	PasswordIdentity(ctx context.Context, email string) (userID int64, passwordHash string, err error)
 	// MarkEmailVerified sets email_verified_at, keeping the first time.
 	MarkEmailVerified(ctx context.Context, userID int64, now time.Time) error
+	// SetPassword replaces the password hash and returns the identity's
+	// email, or domain.ErrNotFound when the user has no password identity.
+	SetPassword(ctx context.Context, userID int64, passwordHash string) (email string, err error)
 }
 
 type Deps struct {

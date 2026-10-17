@@ -73,18 +73,20 @@ Origin Certificate and proxies to the API on `127.0.0.1`. The server block is
    - Repeat it with a different email each time. Within 21 attempts it returns 429: the limit keys on your
      real IP. Logins from your IP stay blocked for 15 minutes.
 7. After any change to `deploy/nginx/api.locker.center.conf` on `main`, run step 3 again: CI does not
-   install it. Check that invite links, email verification links and device-token deletes stay out of the logs (their path
+   install it. Check that invite links, email verification and password reset links, and device-token deletes stay out of the logs (their path
    carries a token), and so do nearby-venue searches (their query carries the user's location). The `/health` line proves you are reading the right log:
 
    ```bash
    curl -s -o /dev/null https://api.locker.center/health?drill-check
    curl -s -o /dev/null https://api.locker.center/i/drill-check
    curl -s -o /dev/null https://api.locker.center/v/drill-check
+   curl -s -o /dev/null https://api.locker.center/r/drill-check
    curl -s -o /dev/null -X DELETE https://api.locker.center/me/device-tokens/drill-check
    curl -s -o /dev/null 'https://api.locker.center/venues?near=0,0&drill-check'
    grep -c 'health?drill-check' /var/log/nginx/access.log                              # 1 or more
    grep -c '/i/drill-check' /var/log/nginx/access.log /var/log/nginx/error.log         # 0 and 0
    grep -c '/v/drill-check' /var/log/nginx/access.log /var/log/nginx/error.log         # 0 and 0
+   grep -c '/r/drill-check' /var/log/nginx/access.log /var/log/nginx/error.log         # 0 and 0
    grep -c 'device-tokens/drill-check' /var/log/nginx/access.log /var/log/nginx/error.log  # 0 and 0
    grep -c 'venues?near=0,0&drill-check' /var/log/nginx/access.log /var/log/nginx/error.log  # 0 and 0
    ```

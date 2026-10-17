@@ -34,6 +34,8 @@ type EmailTokens interface {
 	// Consume deletes the token and returns its user, or domain.ErrNotFound
 	// when it is unknown, used, expired or for another purpose.
 	Consume(ctx context.Context, purpose string, tokenHash []byte, now time.Time) (int64, error)
+	// DeleteAllOfUser deletes every token of the user for purpose.
+	DeleteAllOfUser(ctx context.Context, userID int64, purpose string) error
 }
 
 // verification is an email to send once the transaction that stored its
@@ -59,11 +61,7 @@ func (s *Service) createVerification(ctx context.Context, userID int64, email st
 	return &verification{to: email, link: s.publicBaseURL + "/v/" + t}, nil
 }
 
-// sendVerification mails v in the background and returns at once: the
-// account already exists, so registration does not wait on Resend. A failure
-// is logged, never the email's text, which holds the token.
-//
-// It sends on a fresh context, not the request's, which ends first.
+// sendVerification mails v once registration has committed.
 //
 // ponytail: no retry or resend endpoint yet; a lost email means the address
 // stays unverified until one exists.
@@ -71,15 +69,26 @@ func (s *Service) sendVerification(v *verification, userID int64) {
 	if v == nil {
 		return
 	}
+	// No name or other user input in the email, so it cannot carry attacker
+	// text to someone else's inbox.
+	s.sendInBackground("verification", userID, v.to, "Confirma tu correo en Locker",
+		"Abre este link para confirmar tu correo en Locker:\n\n"+v.link+
+			"\n\nEl link vence en "+strconv.Itoa(int(VerifyEmailTTL.Hours()))+
+			" horas. Si no creaste una cuenta en Locker, ignora este correo.\n")
+}
+
+// sendInBackground mails one email and returns at once, so the request does
+// not wait on Resend. A failure is logged by kind, never with the text,
+// which may hold a token. It sends on a fresh context, not the request's,
+// which ends first. Without a mailer it does nothing.
+func (s *Service) sendInBackground(kind string, userID int64, to, subject, text string) {
+	if s.mailer == nil {
+		return
+	}
 	go func() {
 		ctx := context.Background()
-		// No name or other user input in the email, so it cannot carry
-		// attacker text to someone else's inbox.
-		text := "Abre este link para confirmar tu correo en Locker:\n\n" + v.link +
-			"\n\nEl link vence en " + strconv.Itoa(int(VerifyEmailTTL.Hours())) +
-			" horas. Si no creaste una cuenta en Locker, ignora este correo.\n"
-		if err := s.mailer.Send(ctx, v.to, "Confirma tu correo en Locker", text); err != nil {
-			slog.ErrorContext(ctx, "auth: send verification email", "user_id", userID, "err", err)
+		if err := s.mailer.Send(ctx, to, subject, text); err != nil {
+			slog.ErrorContext(ctx, "auth: send "+kind+" email", "user_id", userID, "err", err)
 		}
 	}()
 }

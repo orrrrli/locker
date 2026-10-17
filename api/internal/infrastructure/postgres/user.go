@@ -133,6 +133,21 @@ func (r *Users) Get(ctx context.Context, userID int64) (domain.User, error) {
 	return u, nil
 }
 
+// SetPassword replaces the user's password hash and returns the identity's
+// email, or domain.ErrNotFound when the user has no password identity.
+func (r *Users) SetPassword(ctx context.Context, userID int64, passwordHash string) (string, error) {
+	email, err := sqlcdb.New(Conn(ctx, r.pool)).SetPasswordHash(ctx, sqlcdb.SetPasswordHashParams{
+		UserID: userID, PasswordHash: pgtype.Text{String: passwordHash, Valid: true},
+	})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", domain.ErrNotFound
+	}
+	if err != nil {
+		return "", fmt.Errorf("postgres: set password: %w", err)
+	}
+	return email, nil
+}
+
 // MarkEmailVerified sets email_verified_at, keeping the first time. A deleted
 // user is left alone.
 func (r *Users) MarkEmailVerified(ctx context.Context, userID int64, now time.Time) error {

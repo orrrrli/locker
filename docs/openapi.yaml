@@ -173,6 +173,170 @@ paths:
               schema:
                 type: string
 
+  /r/{token}:
+    get:
+      tags: [infra]
+      operationId: resetPasswordPage
+      summary: Password reset link page (HTML)
+      description: |
+        What the link in the reset email opens: a form for the new password.
+        It never reads the token or the database, so mail scanners that fetch
+        links do not use it up. The form posts to the same URL.
+      parameters:
+        - name: token
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Static HTML page (Spanish), sent with `Cache-Control no-store` and `Referrer-Policy no-referrer`.
+          content:
+            text/html:
+              schema:
+                type: string
+    post:
+      tags: [infra]
+      operationId: resetPasswordLink
+      summary: Set the new password from the link page (HTML)
+      description: |
+        Sent by the page's form (`application/x-www-form-urlencoded`, field
+        `password`). Works like `POST /auth/password-reset/confirm`, shares
+        its per-IP limit, and answers with an HTML page.
+      parameters:
+        - name: token
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: The password changed; every session was signed out.
+          content:
+            text/html:
+              schema:
+                type: string
+        "400":
+          description: The link is malformed, unknown, already used or expired, or the form could not be read.
+          content:
+            text/html:
+              schema:
+                type: string
+        "422":
+          description: The password is too short or too long; the form is shown again with the reason.
+          content:
+            text/html:
+              schema:
+                type: string
+        "429":
+          description: Too many attempts from this IP; `Retry-After` says how long to wait.
+          content:
+            text/html:
+              schema:
+                type: string
+        "503":
+          description: The server is too busy hashing passwords; try again shortly.
+          content:
+            text/html:
+              schema:
+                type: string
+        "500":
+          description: Server error page.
+          content:
+            text/html:
+              schema:
+                type: string
+
+  /auth/password-reset:
+    post:
+      tags: [auth]
+      operationId: requestPasswordReset
+      summary: Email a password reset link
+      description: |
+        Answers 204 whether or not the email has an account, so it never
+        reveals which emails are registered. When the email has a password
+        identity and email is configured, a single-use `/r/{token}` link that
+        expires in 1 hour is sent in the background. Rate limited to 10
+        requests per client IP and 3 per address per hour.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [email]
+              properties:
+                email:
+                  type: string
+      responses:
+        "204":
+          description: Accepted. No body, with or without an account.
+        "400":
+          $ref: "#/components/responses/InvalidRequest"
+        "413":
+          $ref: "#/components/responses/BodyTooLarge"
+        "422":
+          description: "`invalid_email`: not a valid address."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "429":
+          $ref: "#/components/responses/TooManyAttempts"
+        "500":
+          $ref: "#/components/responses/Internal"
+
+  /auth/password-reset/confirm:
+    post:
+      tags: [auth]
+      operationId: confirmPasswordReset
+      summary: Set a new password with the token from the reset email
+      description: |
+        The token is the last path segment of the emailed `/r/{token}` link.
+        It works once and expires 1 hour after it was requested. On success
+        every session of the account is deleted, the email counts as verified,
+        and the owner gets an email saying the password changed. Rate limited
+        to 30 requests per client IP per hour.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [token, password]
+              properties:
+                token:
+                  type: string
+                password:
+                  type: string
+                  minLength: 8
+                  maxLength: 128
+      responses:
+        "204":
+          description: The password changed; sign in again.
+        "400":
+          description: "`invalid_request` (see InvalidRequest), or `invalid_token`: the token is malformed, unknown, already used or expired (same answer for all)."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "413":
+          $ref: "#/components/responses/BodyTooLarge"
+        "422":
+          description: "`password_too_short` or `password_too_long`."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "429":
+          $ref: "#/components/responses/TooManyAttempts"
+        "500":
+          $ref: "#/components/responses/Internal"
+        "503":
+          $ref: "#/components/responses/ServerBusy"
+
   /auth/verify-email:
     post:
       tags: [auth]

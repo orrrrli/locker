@@ -32,6 +32,8 @@ type Sessions interface {
 	ByTokenHash(ctx context.Context, tokenHash []byte) (domain.Session, error)
 	Touch(ctx context.Context, id int64, now time.Time) error
 	Delete(ctx context.Context, id int64) error
+	// DeleteAllOfUser signs the user out everywhere.
+	DeleteAllOfUser(ctx context.Context, userID int64) error
 	// DeleteIdle deletes sessions last used at or before cutoff.
 	DeleteIdle(ctx context.Context, cutoff time.Time) (int64, error)
 }
