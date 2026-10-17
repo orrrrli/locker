@@ -98,3 +98,18 @@ func (q *Queries) DeleteUserEmailTokens(ctx context.Context, arg DeleteUserEmail
 	_, err := q.db.Exec(ctx, deleteUserEmailTokens, arg.UserID, arg.Purpose)
 	return err
 }
+
+const lockUserForEmailToken = `-- name: LockUserForEmailToken :one
+SELECT id FROM "user"
+WHERE id = $1 AND deleted_at IS NULL
+FOR NO KEY UPDATE
+`
+
+// Serializes one user's link requests, so the live-link cap stays exact when
+// several arrive at once.
+func (q *Queries) LockUserForEmailToken(ctx context.Context, id int64) (int64, error) {
+	row := q.db.QueryRow(ctx, lockUserForEmailToken, id)
+	var id_2 int64
+	err := row.Scan(&id_2)
+	return id_2, err
+}

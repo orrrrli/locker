@@ -36,6 +36,25 @@ func (r *EmailTokens) Create(ctx context.Context, userID int64, purpose string, 
 	return nil
 }
 
+// LockUser locks the user's row until the transaction ends, so concurrent
+// link requests for one user run one at a time. It returns
+// domain.ErrNotFound for an unknown or deleted user.
+func (r *EmailTokens) LockUser(ctx context.Context, userID int64) error {
+	// Outside a transaction the lock would be released at once and protect
+	// nothing.
+	if _, ok := ctx.Value(txKey{}).(pgx.Tx); !ok {
+		return errors.New("postgres: lock user for email token: no transaction in ctx")
+	}
+	_, err := sqlcdb.New(Conn(ctx, r.pool)).LockUserForEmailToken(ctx, userID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return domain.ErrNotFound
+	}
+	if err != nil {
+		return fmt.Errorf("postgres: lock user for email token: %w", err)
+	}
+	return nil
+}
+
 // CountLive reports how many of the user's tokens for purpose are unexpired
 // at now.
 func (r *EmailTokens) CountLive(ctx context.Context, userID int64, purpose string, now time.Time) (int, error) {

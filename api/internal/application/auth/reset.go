@@ -3,6 +3,7 @@ package auth
 import (
 	"context"
 	"errors"
+	"log/slog"
 	"strconv"
 	"time"
 
@@ -17,7 +18,7 @@ const (
 	purposeResetPassword = "reset_password"
 
 	// MaxLiveResetLinks caps the unused reset links an account can have at
-	// once; with ResetPasswordTTL of 1h that is 3 emails per hour per inbox.
+	// once; with ResetPasswordTTL of 1h that is 3 emails per hour per account.
 	MaxLiveResetLinks = 3
 )
 
@@ -26,9 +27,10 @@ const (
 // answer never tells which emails are registered. A malformed address is
 // ErrInvalidEmail: that says nothing about any account.
 //
-// ponytail: a known email costs a COUNT and an INSERT more than an unknown
-// one. There is no dummy work to even it out, unlike Login's argon2id:
-// register already answers email_taken, so timing reveals nothing new.
+// ponytail: a known email costs a transaction (user lock, COUNT, INSERT)
+// more than an unknown one. There is no dummy work to even it out, unlike
+// Login's argon2id: register already answers email_taken, so timing
+// reveals nothing new.
 func (s *Service) RequestPasswordReset(ctx context.Context, raw string) error {
 	email, err := NormalizeEmail(raw)
 	if err != nil {
@@ -44,29 +46,48 @@ func (s *Service) RequestPasswordReset(ctx context.Context, raw string) error {
 	if err != nil {
 		return err
 	}
-	// The per-inbox cap counts in the database and only for real accounts,
+	// The per-account cap counts in the database and only for real accounts,
 	// so addresses nobody registered cost no memory and cannot crowd out real
 	// requests. Over the cap the answer is the same nil, and nothing is sent:
-	// a distinct error would tell which addresses have an account.
-	//
-	// ponytail: count then insert is not atomic; two racing requests can
-	// leave one link over the cap, which the per-IP limit keeps small.
+	// a distinct error would tell which addresses have an account. The user
+	// row lock makes concurrent requests for one account count one at a time.
 	now := s.now()
-	live, err := s.emailTokens.CountLive(ctx, userID, purposeResetPassword, now)
-	if err != nil {
-		return err
-	}
-	if live >= MaxLiveResetLinks {
+	var t string
+	err = s.tx.InTx(ctx, func(ctx context.Context) error {
+		if err := s.emailTokens.LockUser(ctx, userID); err != nil {
+			return err
+		}
+		live, err := s.emailTokens.CountLive(ctx, userID, purposeResetPassword, now)
+		if err != nil {
+			return err
+		}
+		if live >= MaxLiveResetLinks {
+			return nil // t stays empty: nothing to send
+		}
+		tok, hash, err := token.New()
+		if err != nil {
+			return err
+		}
+		if err := s.emailTokens.Create(ctx, userID, purposeResetPassword, hash, now.Add(ResetPasswordTTL)); err != nil {
+			return err
+		}
+		t = tok
+		return nil
+	})
+	if errors.Is(err, domain.ErrNotFound) {
+		// Deleted between the lookup and the lock: same answer as unknown.
 		return nil
 	}
-	t, hash, err := token.New()
 	if err != nil {
 		return err
 	}
-	if err := s.emailTokens.Create(ctx, userID, purposeResetPassword, hash, now.Add(ResetPasswordTTL)); err != nil {
-		return err
+	if t == "" {
+		// Leave a trace of the silent drop, without the address.
+		slog.InfoContext(ctx, "auth: password reset link cap reached", "user_id", userID)
+		return nil
 	}
-	// The address is the stored identity, never the raw input.
+	// After the commit, so a rolled-back link is never sent. The address is
+	// the stored identity, never the raw input.
 	s.sendInBackground("password reset", userID, email, "Cambia tu contraseña de Locker",
 		"Abre este link para elegir una contraseña nueva en Locker:\n\n"+s.publicBaseURL+"/r/"+t+
 			"\n\nEl link vence en "+strconv.Itoa(int(ResetPasswordTTL.Minutes()))+" minutos y sirve una sola vez. Si no pediste cambiar tu contraseña, ignora este correo: tu contraseña sigue igual.\n")

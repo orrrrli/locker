@@ -22,3 +22,10 @@ DELETE FROM email_token WHERE user_id = $1 AND purpose = $2;
 -- is how many were sent in the last hour and not used yet.
 SELECT count(*) FROM email_token
 WHERE user_id = sqlc.arg(user_id) AND purpose = sqlc.arg(purpose) AND expires_at > sqlc.arg(now);
+
+-- name: LockUserForEmailToken :one
+-- Serializes one user's link requests, so the live-link cap stays exact when
+-- several arrive at once.
+SELECT id FROM "user"
+WHERE id = $1 AND deleted_at IS NULL
+FOR NO KEY UPDATE;

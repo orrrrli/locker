@@ -1,10 +1,13 @@
 package http
 
 import (
+	"context"
 	"net/http"
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/orrrrli/locker/api/internal/application/auth"
 )
 
 const racers = 10
@@ -43,6 +46,25 @@ func TestVerifyTokenRace(t *testing.T) {
 	got := race(t, api, "/auth/verify-email", map[string]string{"token": tok})
 	if got[http.StatusNoContent] != 1 || got[http.StatusBadRequest] != racers-1 {
 		t.Fatalf("statuses = %v, want one 204 and %d 400", got, racers-1)
+	}
+}
+
+// Ten reset requests for one account at once store exactly the cap: the user
+// row lock makes them count one at a time.
+func TestResetCapRace(t *testing.T) {
+	api := newAPI(t, func() time.Time { return today })
+	registerAndMail(t, api, "ana@example.com")
+
+	got := race(t, api, "/auth/password-reset", map[string]string{"email": "ana@example.com"})
+	if got[http.StatusNoContent] != racers {
+		t.Fatalf("statuses = %v, want %d 204", got, racers)
+	}
+	var n int
+	if err := api.pool.QueryRow(context.Background(), `SELECT count(*) FROM email_token WHERE purpose = 'reset_password'`).Scan(&n); err != nil {
+		t.Fatal(err)
+	}
+	if n != auth.MaxLiveResetLinks {
+		t.Fatalf("live reset links = %d, want %d", n, auth.MaxLiveResetLinks)
 	}
 }
 

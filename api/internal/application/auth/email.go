@@ -36,6 +36,10 @@ type EmailTokens interface {
 	Consume(ctx context.Context, purpose string, tokenHash []byte, now time.Time) (int64, error)
 	// DeleteAllOfUser deletes every token of the user for purpose.
 	DeleteAllOfUser(ctx context.Context, userID int64, purpose string) error
+	// LockUser locks the user until the transaction ends, so a count then
+	// create stays exact under concurrency; domain.ErrNotFound for an unknown
+	// or deleted user.
+	LockUser(ctx context.Context, userID int64) error
 	// CountLive reports how many of the user's tokens for purpose are
 	// unexpired at now.
 	CountLive(ctx context.Context, userID int64, purpose string, now time.Time) (int, error)
