@@ -324,6 +324,14 @@ func TestSchemaConstraints(t *testing.T) {
 		{"charge amount must be positive", "",
 			`INSERT INTO charge (team_id, concept, amount_cents, created_by) VALUES ($1, 'x', 0, $2)`,
 			[]any{f.team, f.admin}, checkViolation},
+		{"user_block self block CHECK", "",
+			`INSERT INTO user_block (blocker_id, blocked_id) VALUES ($1, $1)`,
+			[]any{f.user}, checkViolation},
+		{"user_block PK (blocker_id, blocked_id)",
+			`WITH b AS (INSERT INTO "user" (name, birth_date) VALUES ('Beto', '2000-01-01') RETURNING id)
+			 INSERT INTO user_block (blocker_id, blocked_id) SELECT $1, id FROM b`,
+			`INSERT INTO user_block (blocker_id, blocked_id) SELECT $1, id FROM "user" WHERE name = 'Beto'`,
+			[]any{f.user}, uniqueViolation},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
