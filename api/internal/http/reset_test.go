@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"os"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -146,17 +147,61 @@ func TestPasswordResetRevokesSiblingLinks(t *testing.T) {
 	}
 }
 
-// Three requests per address per hour; the fourth is 429.
-func TestPasswordResetLimitPerEmail(t *testing.T) {
-	api := newAPI(t, func() time.Time { return today })
+// An account holds at most three live reset links. A fourth request gets the
+// same 204, so the cap reveals nothing, but sends nothing; once the links
+// expire the account can ask again.
+func TestPasswordResetCapPerAccount(t *testing.T) {
+	var now atomic.Pointer[time.Time]
+	start := today
+	now.Store(&start)
+	api := newAPI(t, func() time.Time { return *now.Load() })
 	registerAndMail(t, api, "ana@example.com")
+	registerAndMail(t, api, "bea@example.com")
 	for range 3 {
 		requestReset(t, api, "ana@example.com")
 	}
 	rec := api.do(t, http.MethodPost, "/auth/password-reset", "", map[string]string{"email": "ANA@example.com"})
-	if rec.Code != http.StatusTooManyRequests {
-		t.Fatalf("fourth request: status %d, want 429", rec.Code)
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("fourth request: status %d, want 204", rec.Code)
 	}
+	var n int
+	if err := api.pool.QueryRow(context.Background(), `SELECT count(*) FROM email_token WHERE purpose = 'reset_password'`).Scan(&n); err != nil {
+		t.Fatal(err)
+	}
+	// The row count is the real check: a broken cap would send from a
+	// goroutine, which an empty channel right after the 204 could miss.
+	if n != 3 {
+		t.Fatalf("live links = %d, want 3", n)
+	}
+
+	// The cap is per account: Ana at her cap does not hold Bea back.
+	requestReset(t, api, "bea@example.com")
+
+	later := today.Add(time.Hour)
+	now.Store(&later)
+	requestReset(t, api, "ana@example.com")
+}
+
+// Requests for addresses with no account store nothing and leave a real
+// account's request untouched. (The per-account isolation itself is
+// TestPasswordResetCapPerAccount.)
+func TestPasswordResetUnknownAddressesDoNotCount(t *testing.T) {
+	api := newAPI(t, func() time.Time { return today })
+	registerAndMail(t, api, "ana@example.com")
+	for i := range 5 {
+		rec := api.do(t, http.MethodPost, "/auth/password-reset", "", map[string]string{"email": "ghost" + strconv.Itoa(i) + "@example.com"})
+		if rec.Code != http.StatusNoContent {
+			t.Fatalf("unknown address %d: status %d, want 204", i, rec.Code)
+		}
+	}
+	var n int
+	if err := api.pool.QueryRow(context.Background(), `SELECT count(*) FROM email_token WHERE purpose = 'reset_password'`).Scan(&n); err != nil {
+		t.Fatal(err)
+	}
+	if n != 0 {
+		t.Fatalf("unknown addresses stored %d reset links", n)
+	}
+	requestReset(t, api, "ana@example.com")
 }
 
 // The emailed link: GET shows the form without reading the token; the

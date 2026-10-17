@@ -17,8 +17,8 @@ type passwordResetRequest struct {
 }
 
 // passwordReset emails a reset link (R3.3). It answers 204 whether or not
-// the email has an account. Limited per client IP and per address, so it
-// cannot flood one inbox or burn the Resend quota.
+// the email has an account. Limited per client IP here; the service caps
+// the links per account, so one inbox cannot be flooded.
 func (h authHandlers) passwordReset(w http.ResponseWriter, r *http.Request) {
 	ip, ok := clientIP(r)
 	if !ok {
@@ -32,13 +32,6 @@ func (h authHandlers) passwordReset(w http.ResponseWriter, r *http.Request) {
 	var req passwordResetRequest
 	if !decodeJSON(w, r, &req) {
 		return
-	}
-	// A malformed address gets no counter: the service rejects it.
-	if email, err := auth.NormalizeEmail(req.Email); err == nil {
-		if wait, ok := h.resetEmails.take(shortHash(email)); !ok {
-			tooManyAttempts(w, wait)
-			return
-		}
 	}
 	if err := h.svc.RequestPasswordReset(r.Context(), req.Email); err != nil {
 		authErrors.write(w, r, "auth", err)

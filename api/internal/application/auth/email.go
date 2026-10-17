@@ -36,6 +36,9 @@ type EmailTokens interface {
 	Consume(ctx context.Context, purpose string, tokenHash []byte, now time.Time) (int64, error)
 	// DeleteAllOfUser deletes every token of the user for purpose.
 	DeleteAllOfUser(ctx context.Context, userID int64, purpose string) error
+	// CountLive reports how many of the user's tokens for purpose are
+	// unexpired at now.
+	CountLive(ctx context.Context, userID int64, purpose string, now time.Time) (int, error)
 }
 
 // verification is an email to send once the transaction that stored its

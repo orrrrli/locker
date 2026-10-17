@@ -32,6 +32,26 @@ func (q *Queries) ConsumeEmailToken(ctx context.Context, arg ConsumeEmailTokenPa
 	return user_id, err
 }
 
+const countLiveEmailTokens = `-- name: CountLiveEmailTokens :one
+SELECT count(*) FROM email_token
+WHERE user_id = $1 AND purpose = $2 AND expires_at > $3
+`
+
+type CountLiveEmailTokensParams struct {
+	UserID  int64
+	Purpose string
+	Now     pgtype.Timestamptz
+}
+
+// Links of the user for purpose that still work at now. With a 1h TTL this
+// is how many were sent in the last hour and not used yet.
+func (q *Queries) CountLiveEmailTokens(ctx context.Context, arg CountLiveEmailTokensParams) (int64, error) {
+	row := q.db.QueryRow(ctx, countLiveEmailTokens, arg.UserID, arg.Purpose, arg.Now)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const createEmailToken = `-- name: CreateEmailToken :exec
 INSERT INTO email_token (user_id, purpose, token_hash, expires_at)
 VALUES ($1, $2, $3, $4)

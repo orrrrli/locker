@@ -16,3 +16,9 @@ DELETE FROM email_token WHERE user_id = $1;
 -- Drops the user's other links for purpose, so a completed reset leaves no
 -- sibling link that could set the password again.
 DELETE FROM email_token WHERE user_id = $1 AND purpose = $2;
+
+-- name: CountLiveEmailTokens :one
+-- Links of the user for purpose that still work at now. With a 1h TTL this
+-- is how many were sent in the last hour and not used yet.
+SELECT count(*) FROM email_token
+WHERE user_id = sqlc.arg(user_id) AND purpose = sqlc.arg(purpose) AND expires_at > sqlc.arg(now);

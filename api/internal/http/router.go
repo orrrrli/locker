@@ -78,14 +78,11 @@ func NewRouter(d Deps) http.Handler {
 	if d.Limits.ResetRequestIP == nil {
 		d.Limits.ResetRequestIP = defaults.ResetRequestIP
 	}
-	if d.Limits.ResetRequestEmail == nil {
-		d.Limits.ResetRequestEmail = defaults.ResetRequestEmail
-	}
 	if d.Limits.ResetConfirm == nil {
 		d.Limits.ResetConfirm = defaults.ResetConfirm
 	}
 	a := authHandlers{svc: d.Auth, limits: d.LoginLimiter, registers: d.Limits.Register,
-		resetIPs: d.Limits.ResetRequestIP, resetEmails: d.Limits.ResetRequestEmail, resetConfirms: d.Limits.ResetConfirm}
+		resetIPs: d.Limits.ResetRequestIP, resetConfirms: d.Limits.ResetConfirm}
 	mux.HandleFunc("POST /auth/register", a.register)
 	mux.HandleFunc("POST /auth/login", a.login)
 	mux.HandleFunc("POST /auth/verify-email", a.verifyEmail)

@@ -64,10 +64,9 @@ type authHandlers struct {
 	svc       authService
 	limits    *LoginLimiter
 	registers *IPRateLimiter // per client IP
-	// Password reset: requests per client IP and per address, and confirms
-	// (each an argon2id hash) per client IP.
+	// Password reset requests, and confirms (each an argon2id hash), per
+	// client IP.
 	resetIPs      *IPRateLimiter
-	resetEmails   *RateLimiter
 	resetConfirms *IPRateLimiter
 }
 

@@ -391,15 +391,15 @@ const (
 	// share one budget.
 	matchWriteMaxPerUser = 20
 	matchWriteWindow     = time.Hour
-	// Each reset request can send an email: a few per address stops one
-	// inbox being flooded, and the IP cap stops one client spraying
-	// addresses and burning the Resend quota. Confirms cost an argon2id hash
-	// each, so they are capped like registrations.
-	resetRequestMaxPerIP    = 10
-	resetRequestMaxPerEmail = 3
-	resetRequestWindow      = time.Hour
-	resetConfirmMaxPerIP    = 30
-	resetConfirmWindow      = time.Hour
+	// Each reset request can send an email: the IP cap stops one client
+	// spraying addresses and burning the Resend quota, and the service caps
+	// live links per account (auth.MaxLiveResetLinks) so one inbox cannot be
+	// flooded. Confirms cost an argon2id hash each, so they are capped like
+	// registrations.
+	resetRequestMaxPerIP = 10
+	resetRequestWindow   = time.Hour
+	resetConfirmMaxPerIP = 30
+	resetConfirmWindow   = time.Hour
 )
 
 // RateLimiter allows max requests per key in a window. Counters live in
@@ -466,12 +466,10 @@ type Limits struct {
 	JoinRequest *RateLimiter
 	DeviceToken *RateLimiter // per user
 	MatchWrite  *RateLimiter // per user, match create and update together
-	// ResetRequestIP and ResetRequestEmail limit POST /auth/password-reset
-	// per client IP and per address; ResetConfirm limits setting the new
-	// password per client IP.
-	ResetRequestIP    *IPRateLimiter
-	ResetRequestEmail *RateLimiter
-	ResetConfirm      *IPRateLimiter
+	// ResetRequestIP limits POST /auth/password-reset per client IP;
+	// ResetConfirm limits setting the new password per client IP.
+	ResetRequestIP *IPRateLimiter
+	ResetConfirm   *IPRateLimiter
 }
 
 // NewLimits returns the production limits; now nil means the real clock.
@@ -484,9 +482,8 @@ func NewLimits(now func() time.Time) Limits {
 		DeviceToken:  NewRateLimiter(deviceTokenMaxPerUser, deviceTokenWindow, now),
 		MatchWrite:   NewRateLimiter(matchWriteMaxPerUser, matchWriteWindow, now),
 
-		ResetRequestIP:    NewIPRateLimiter(resetRequestMaxPerIP, resetRequestWindow, now),
-		ResetRequestEmail: NewRateLimiter(resetRequestMaxPerEmail, resetRequestWindow, now),
-		ResetConfirm:      NewIPRateLimiter(resetConfirmMaxPerIP, resetConfirmWindow, now),
+		ResetRequestIP: NewIPRateLimiter(resetRequestMaxPerIP, resetRequestWindow, now),
+		ResetConfirm:   NewIPRateLimiter(resetConfirmMaxPerIP, resetConfirmWindow, now),
 	}
 }
 
@@ -499,7 +496,6 @@ func (l Limits) Prune() {
 	l.DeviceToken.Prune()
 	l.MatchWrite.Prune()
 	l.ResetRequestIP.Prune()
-	l.ResetRequestEmail.Prune()
 	l.ResetConfirm.Prune()
 }
 

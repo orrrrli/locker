@@ -257,7 +257,9 @@ paths:
         reveals which emails are registered. When the email has a password
         identity and email is configured, a single-use `/r/{token}` link that
         expires in 1 hour is sent in the background. Rate limited to 10
-        requests per client IP and 3 per address per hour.
+        requests per client IP per hour. An account holds at most 3 unused
+        links at once; past that the answer is still 204 but nothing is sent,
+        so the cap does not reveal which addresses have an account.
       requestBody:
         required: true
         content:

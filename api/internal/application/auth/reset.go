@@ -15,6 +15,10 @@ const (
 	ResetPasswordTTL = time.Hour
 
 	purposeResetPassword = "reset_password"
+
+	// MaxLiveResetLinks caps the unused reset links an account can have at
+	// once; with ResetPasswordTTL of 1h that is 3 emails per hour per inbox.
+	MaxLiveResetLinks = 3
 )
 
 // RequestPasswordReset emails a single-use reset link to email when it has a
@@ -22,9 +26,9 @@ const (
 // answer never tells which emails are registered. A malformed address is
 // ErrInvalidEmail: that says nothing about any account.
 //
-// ponytail: a known email costs one INSERT more than an unknown one; the
-// difference is far below network jitter, so there is no dummy work to even
-// it out, unlike Login's argon2id.
+// ponytail: a known email costs a COUNT and an INSERT more than an unknown
+// one. There is no dummy work to even it out, unlike Login's argon2id:
+// register already answers email_taken, so timing reveals nothing new.
 func (s *Service) RequestPasswordReset(ctx context.Context, raw string) error {
 	email, err := NormalizeEmail(raw)
 	if err != nil {
@@ -40,11 +44,26 @@ func (s *Service) RequestPasswordReset(ctx context.Context, raw string) error {
 	if err != nil {
 		return err
 	}
+	// The per-inbox cap counts in the database and only for real accounts,
+	// so addresses nobody registered cost no memory and cannot crowd out real
+	// requests. Over the cap the answer is the same nil, and nothing is sent:
+	// a distinct error would tell which addresses have an account.
+	//
+	// ponytail: count then insert is not atomic; two racing requests can
+	// leave one link over the cap, which the per-IP limit keeps small.
+	now := s.now()
+	live, err := s.emailTokens.CountLive(ctx, userID, purposeResetPassword, now)
+	if err != nil {
+		return err
+	}
+	if live >= MaxLiveResetLinks {
+		return nil
+	}
 	t, hash, err := token.New()
 	if err != nil {
 		return err
 	}
-	if err := s.emailTokens.Create(ctx, userID, purposeResetPassword, hash, s.now().Add(ResetPasswordTTL)); err != nil {
+	if err := s.emailTokens.Create(ctx, userID, purposeResetPassword, hash, now.Add(ResetPasswordTTL)); err != nil {
 		return err
 	}
 	// The address is the stored identity, never the raw input.

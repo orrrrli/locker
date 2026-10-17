@@ -36,6 +36,18 @@ func (r *EmailTokens) Create(ctx context.Context, userID int64, purpose string, 
 	return nil
 }
 
+// CountLive reports how many of the user's tokens for purpose are unexpired
+// at now.
+func (r *EmailTokens) CountLive(ctx context.Context, userID int64, purpose string, now time.Time) (int, error) {
+	n, err := sqlcdb.New(Conn(ctx, r.pool)).CountLiveEmailTokens(ctx, sqlcdb.CountLiveEmailTokensParams{
+		UserID: userID, Purpose: purpose, Now: timestamptz(now),
+	})
+	if err != nil {
+		return 0, fmt.Errorf("postgres: count live email tokens: %w", err)
+	}
+	return int(n), nil
+}
+
 // DeleteAllOfUser deletes every token of the user for purpose.
 func (r *EmailTokens) DeleteAllOfUser(ctx context.Context, userID int64, purpose string) error {
 	err := sqlcdb.New(Conn(ctx, r.pool)).DeleteUserEmailTokens(ctx, sqlcdb.DeleteUserEmailTokensParams{UserID: userID, Purpose: purpose})
