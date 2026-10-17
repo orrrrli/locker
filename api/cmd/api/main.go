@@ -29,6 +29,7 @@ import (
 	"github.com/orrrrli/locker/api/internal/infrastructure/apns"
 	"github.com/orrrrli/locker/api/internal/infrastructure/password"
 	"github.com/orrrrli/locker/api/internal/infrastructure/postgres"
+	"github.com/orrrrli/locker/api/internal/infrastructure/resend"
 )
 
 const (
@@ -63,11 +64,19 @@ func start() error {
 		return err
 	}
 
+	// Mailer stays nil, no email sent, until Resend is configured.
+	var mailer auth.Mailer
+	if cfg.Email.APIKey != "" {
+		mailer = resend.New(cfg.Email)
+	}
 	authSvc := auth.NewService(auth.Deps{
-		Tx:       postgres.NewTxRunner(pool),
-		Users:    postgres.NewUsers(pool),
-		Sessions: postgres.NewSessions(pool),
-		Hasher:   password.NewHasher(password.DefaultParams),
+		Tx:            postgres.NewTxRunner(pool),
+		Users:         postgres.NewUsers(pool),
+		Sessions:      postgres.NewSessions(pool),
+		Hasher:        password.NewHasher(password.DefaultParams),
+		EmailTokens:   postgres.NewEmailTokens(pool),
+		Mailer:        mailer,
+		PublicBaseURL: cfg.PublicBaseURL,
 	})
 	loginLimiter := apihttp.NewLoginLimiter(nil)
 	limits := apihttp.NewLimits(nil)

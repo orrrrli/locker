@@ -78,6 +78,9 @@ func NewRouter(d Deps) http.Handler {
 	a := authHandlers{svc: d.Auth, limits: d.LoginLimiter, registers: d.Limits.Register}
 	mux.HandleFunc("POST /auth/register", a.register)
 	mux.HandleFunc("POST /auth/login", a.login)
+	mux.HandleFunc("POST /auth/verify-email", a.verifyEmail)
+	mux.HandleFunc("GET /v/{token}", verifyLinkPage)
+	mux.HandleFunc("POST /v/{token}", a.verifyLink)
 	mux.Handle("POST /auth/logout", a.requireAuth(http.HandlerFunc(a.logout)))
 	acct := accountHandlers{svc: d.Account}
 	mux.Handle("GET /me", a.requireAuth(http.HandlerFunc(acct.me)))

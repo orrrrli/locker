@@ -52,15 +52,6 @@ func New(cfg Config) *Client {
 	return &Client{http: hc, host: cfg.Host, apiKey: cfg.APIKey, from: cfg.From}
 }
 
-// Message is one plain-text email to one recipient.
-//
-// ponytail: text only; an HTML body is added when there is a design for it.
-type Message struct {
-	To      string
-	Subject string
-	Text    string
-}
-
 // Error is a send Resend answered with a status other than 2xx. Message is
 // Resend's own explanation, like "The from address is not verified".
 type Error struct {
@@ -72,15 +63,18 @@ func (e *Error) Error() string {
 	return "resend: status " + strconv.Itoa(e.Status) + " " + e.Message
 }
 
-// Send delivers m and returns once Resend has accepted it. It does not retry:
-// the caller decides whether a failed email fails its request.
-func (c *Client) Send(ctx context.Context, m Message) error {
+// Send delivers one plain-text email to one recipient and returns once Resend
+// has accepted it. It does not retry: the caller decides whether a failed
+// email fails its request. It satisfies auth.Mailer.
+//
+// ponytail: text only; an HTML body is added when there is a design for it.
+func (c *Client) Send(ctx context.Context, to, subject, text string) error {
 	body, err := json.Marshal(struct {
 		From    string   `json:"from"`
 		To      []string `json:"to"`
 		Subject string   `json:"subject"`
 		Text    string   `json:"text"`
-	}{c.from, []string{m.To}, m.Subject, m.Text})
+	}{c.from, []string{to}, subject, text})
 	if err != nil {
 		return fmt.Errorf("resend: encode: %w", err)
 	}

@@ -57,6 +57,15 @@ type DeviceToken struct {
 	SessionID  pgtype.Int8
 }
 
+type EmailToken struct {
+	ID        int64
+	UserID    int64
+	Purpose   string
+	TokenHash []byte
+	ExpiresAt pgtype.Timestamptz
+	CreatedAt pgtype.Timestamptz
+}
+
 type Fixture struct {
 	ID          int64
 	LeagueID    int64

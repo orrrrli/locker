@@ -36,6 +36,35 @@ type apiTest struct {
 	pool    *pgxpool.Pool
 	handler http.Handler
 	svc     *auth.Service
+	mail    *fakeMailer
+}
+
+// sentMail is one email the fake mailer was asked to send.
+type sentMail struct{ to, subject, text string }
+
+// fakeMailer records sends on a buffered channel. Registration sends in the
+// background, so tests wait on the channel; a full buffer drops the email
+// rather than block a test that does not read it.
+type fakeMailer struct{ sent chan sentMail }
+
+func (m *fakeMailer) Send(_ context.Context, to, subject, text string) error {
+	select {
+	case m.sent <- sentMail{to, subject, text}:
+	default:
+	}
+	return nil
+}
+
+// next returns the next email sent, or fails after a few seconds.
+func (m *fakeMailer) next(t *testing.T) sentMail {
+	t.Helper()
+	select {
+	case s := <-m.sent:
+		return s
+	case <-time.After(5 * time.Second):
+		t.Fatal("no email was sent")
+		return sentMail{}
+	}
 }
 
 // newAPI wires the real router, use cases and repositories on a fresh
@@ -43,12 +72,16 @@ type apiTest struct {
 func newAPI(t *testing.T, now func() time.Time) apiTest {
 	t.Helper()
 	pool := testdb.New(t)
+	mail := &fakeMailer{sent: make(chan sentMail, 64)}
 	svc := auth.NewService(auth.Deps{
-		Tx:       postgres.NewTxRunner(pool),
-		Users:    postgres.NewUsers(pool),
-		Sessions: postgres.NewSessions(pool),
-		Hasher:   password.NewHasher(password.Params{MemoryKiB: 64, Time: 1, Threads: 1}),
-		Now:      now,
+		Tx:            postgres.NewTxRunner(pool),
+		Users:         postgres.NewUsers(pool),
+		Sessions:      postgres.NewSessions(pool),
+		Hasher:        password.NewHasher(password.Params{MemoryKiB: 64, Time: 1, Threads: 1}),
+		EmailTokens:   postgres.NewEmailTokens(pool),
+		Mailer:        mail,
+		PublicBaseURL: "https://api.example.test",
+		Now:           now,
 	})
 	// The real router, plus GET /test/whoami behind requireAuth so tests can
 	// exercise sessions without a feature endpoint.
@@ -115,7 +148,7 @@ func newAPI(t *testing.T, now func() time.Time) apiTest {
 			userID, _ := userIDFrom(r.Context())
 			writeJSON(w, http.StatusOK, map[string]int64{"user_id": userID})
 		})))
-	return apiTest{pool: pool, handler: mux, svc: svc}
+	return apiTest{pool: pool, handler: mux, svc: svc, mail: mail}
 }
 
 func (a apiTest) do(t *testing.T, method, path, token string, body any) *httptest.ResponseRecorder {

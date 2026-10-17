@@ -34,7 +34,7 @@ func newClient(srv *httptest.Server) *Client {
 func TestSendPostsTheEmail(t *testing.T) {
 	srv, req, body := fakeResend(t, http.StatusOK, `{"id":"49a3999c-0ce1-4ea6-ab68-afcd6dc2e794"}`)
 
-	err := newClient(srv).Send(context.Background(), Message{To: "ana@example.com", Subject: "Verify", Text: "Open the link"})
+	err := newClient(srv).Send(context.Background(), "ana@example.com", "Verify", "Open the link")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -65,7 +65,7 @@ func TestSendPostsTheEmail(t *testing.T) {
 func TestSendReturnsResendError(t *testing.T) {
 	srv, _, _ := fakeResend(t, http.StatusForbidden, `{"statusCode":403,"name":"validation_error","message":"The from address is not verified"}`)
 
-	err := newClient(srv).Send(context.Background(), Message{To: "ana@example.com", Subject: "s", Text: "t"})
+	err := newClient(srv).Send(context.Background(), "ana@example.com", "s", "t")
 	var e *Error
 	if !errors.As(err, &e) || e.Status != http.StatusForbidden || e.Message != "The from address is not verified" {
 		t.Fatalf("err = %v, want *Error 403 with Resend's message", err)
@@ -75,7 +75,7 @@ func TestSendReturnsResendError(t *testing.T) {
 func TestSendToleratesUnparsableErrorBody(t *testing.T) {
 	srv, _, _ := fakeResend(t, http.StatusBadGateway, `<html>bad gateway</html>`)
 
-	err := newClient(srv).Send(context.Background(), Message{To: "ana@example.com", Subject: "s", Text: "t"})
+	err := newClient(srv).Send(context.Background(), "ana@example.com", "s", "t")
 	var e *Error
 	if !errors.As(err, &e) || e.Status != http.StatusBadGateway || e.Message != "" {
 		t.Fatalf("err = %v, want *Error 502 with no message", err)
@@ -95,7 +95,7 @@ func TestSendHonorsContext(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
 	defer cancel()
-	err := newClient(srv).Send(ctx, Message{To: "ana@example.com", Subject: "s", Text: "t"})
+	err := newClient(srv).Send(ctx, "ana@example.com", "s", "t")
 	if !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatalf("err = %v, want context.DeadlineExceeded", err)
 	}

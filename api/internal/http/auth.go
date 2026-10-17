@@ -17,6 +17,7 @@ type authService interface {
 	Login(ctx context.Context, email, password string) (auth.Registered, error)
 	Authenticate(ctx context.Context, token string) (auth.Auth, error)
 	Logout(ctx context.Context, sessionID int64) error
+	VerifyEmail(ctx context.Context, token string) error
 }
 
 // requireAuth authenticates the bearer token and puts the user and session
@@ -181,5 +182,7 @@ var authErrors = errorMap{
 	{auth.ErrEmailTaken, http.StatusConflict, "email_taken"},
 	// Same response for an unknown email and a wrong password.
 	{auth.ErrInvalidCredentials, http.StatusUnauthorized, "invalid_credentials"},
+	// Same response for a malformed, unknown, used or expired email link.
+	{auth.ErrInvalidToken, http.StatusBadRequest, "invalid_token"},
 	{domain.ErrServerBusy, http.StatusServiceUnavailable, "server_busy"},
 }
