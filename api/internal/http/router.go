@@ -21,6 +21,7 @@ type Deps struct {
 	Leagues       leagueService
 	Pages         pageService
 	Leads         leadService
+	Blocks        blockService
 	// MatchFinder resolves the team of routes on /matches/{id}.
 	MatchFinder matchFinder
 	// ChargeFinder resolves the team of routes on /charges/{id}.
@@ -152,6 +153,10 @@ func NewRouter(d Deps) http.Handler {
 
 	ld := leadHandlers{svc: d.Leads}
 	mux.Handle("POST /venue-leads", a.requireAuth(http.HandlerFunc(ld.send)))
+
+	bl := blockHandlers{svc: d.Blocks}
+	mux.Handle("PUT /users/{id}/block", a.requireAuth(http.HandlerFunc(bl.block)))
+	mux.Handle("DELETE /users/{id}/block", a.requireAuth(http.HandlerFunc(bl.unblock)))
 
 	pg := pageHandlers{svc: d.Pages}
 	mux.Handle("GET /teams/{id}/public", a.requireAuth(http.HandlerFunc(pg.team)))

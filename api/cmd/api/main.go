@@ -15,6 +15,7 @@ import (
 
 	"github.com/orrrrli/locker/api/internal/application/account"
 	"github.com/orrrrli/locker/api/internal/application/auth"
+	"github.com/orrrrli/locker/api/internal/application/blocks"
 	"github.com/orrrrli/locker/api/internal/application/charges"
 	"github.com/orrrrli/locker/api/internal/application/invites"
 	"github.com/orrrrli/locker/api/internal/application/leads"
@@ -168,6 +169,7 @@ func start() error {
 		Leagues:            leagueSvc,
 		Pages:              pageSvc,
 		Leads:              leadSvc,
+		Blocks:             blocks.NewService(postgres.NewBlocks(pool)),
 		MatchFinder:        matchRepo,
 		ChargeFinder:       chargeRepo,
 		AppleAppID:         cfg.AppleAppID,
