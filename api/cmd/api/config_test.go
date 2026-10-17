@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/orrrrli/locker/api/internal/domain"
 	"github.com/orrrrli/locker/api/internal/infrastructure/apns"
 	"github.com/orrrrli/locker/api/internal/infrastructure/resend"
 )
@@ -156,6 +157,67 @@ func TestLoadConfig(t *testing.T) {
 			}
 			if cfg.Email != want {
 				t.Fatalf("%s: email config %+v, want %+v", tc.name, cfg.Email, want)
+			}
+		}
+	})
+
+	t.Run("card fees", func(t *testing.T) {
+		for _, tc := range []struct {
+			name      string
+			vars      map[string]string
+			rates     domain.CardFeeRates
+			lockerFee int64
+			msg       string // part of the error, when it fails
+		}{
+			{"defaults", nil, domain.CardFeeRates{PercentBps: 349, FixedCents: 400, TaxBps: 1600}, 0, ""},
+			{"override", map[string]string{"MP_FEE_PERCENT_BPS": "399", "MP_FEE_FIXED_CENTS": "300",
+				"MP_FEE_TAX_BPS": "800", "LOCKER_FEE_FIXED_CENTS": "232"},
+				domain.CardFeeRates{PercentBps: 399, FixedCents: 300, TaxBps: 800}, 232, ""},
+			{"zero is allowed", map[string]string{"MP_FEE_TAX_BPS": "0"},
+				domain.CardFeeRates{PercentBps: 349, FixedCents: 400}, 0, ""},
+			{"not a number", map[string]string{"MP_FEE_PERCENT_BPS": "3.49"}, domain.CardFeeRates{}, 0, "MP_FEE_PERCENT_BPS"},
+			{"negative", map[string]string{"LOCKER_FEE_FIXED_CENTS": "-1"}, domain.CardFeeRates{}, 0, "LOCKER_FEE_FIXED_CENTS"},
+			{"too large", map[string]string{"MP_FEE_FIXED_CENTS": "9999999999"}, domain.CardFeeRates{}, 0, "MP_FEE_FIXED_CENTS"},
+			{"rate reaches 100%", map[string]string{"MP_FEE_PERCENT_BPS": "5000", "MP_FEE_TAX_BPS": "10000"},
+				domain.CardFeeRates{}, 0, "below 100%"},
+			{"tax above 100%", map[string]string{"MP_FEE_PERCENT_BPS": "0", "MP_FEE_TAX_BPS": "10001"},
+				domain.CardFeeRates{}, 0, "at most 100%"},
+		} {
+			vars := map[string]string{"API_PORT": "8080", "DATABASE_URL": "x", "PUBLIC_BASE_URL": "https://x.test"}
+			maps.Copy(vars, tc.vars)
+			cfg, err := loadConfig(env(vars))
+			if (err == nil) != (tc.msg == "") {
+				t.Fatalf("%s: err %v, want error %q", tc.name, err, tc.msg)
+			}
+			if tc.msg != "" {
+				if !strings.Contains(err.Error(), tc.msg) {
+					t.Fatalf("%s: err %v, want it to say %q", tc.name, err, tc.msg)
+				}
+				continue
+			}
+			if cfg.CardFees != tc.rates || cfg.LockerFeeCents != tc.lockerFee {
+				t.Fatalf("%s: rates %+v, fee %d; want %+v, %d", tc.name, cfg.CardFees, cfg.LockerFeeCents, tc.rates, tc.lockerFee)
+			}
+		}
+
+		// A config change alone moves the total (R26.5): no code change.
+		for _, tc := range []struct {
+			vars  map[string]string
+			total int64
+		}{
+			{nil, 2568},
+			{map[string]string{"LOCKER_FEE_FIXED_CENTS": "232"}, 2810},
+			{map[string]string{"MP_FEE_PERCENT_BPS": "399", "MP_FEE_FIXED_CENTS": "300", "MP_FEE_TAX_BPS": "800",
+				"LOCKER_FEE_FIXED_CENTS": "232"}, 2672},
+		} {
+			vars := map[string]string{"API_PORT": "8080", "DATABASE_URL": "x", "PUBLIC_BASE_URL": "https://x.test"}
+			maps.Copy(vars, tc.vars)
+			cfg, err := loadConfig(env(vars))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if total, _ := domain.CardTotal(2000, cfg.LockerFeeCents, cfg.CardFees); total != tc.total {
+				t.Fatalf("%v: total for 2000 = %d, want %d", tc.vars, total, tc.total)
 			}
 		}
 	})

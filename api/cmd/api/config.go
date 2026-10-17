@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/orrrrli/locker/api/internal/domain"
 	"github.com/orrrrli/locker/api/internal/infrastructure/apns"
 	"github.com/orrrrli/locker/api/internal/infrastructure/resend"
 )
@@ -33,6 +34,11 @@ type config struct {
 	// Email is the Resend setup for verification and password-reset mail.
 	// Empty APIKey until the Resend account exists.
 	Email resend.Config
+	// CardFees are MP's card fee rates and LockerFeeCents the commission
+	// Locker adds to each card payment: the inputs of domain.CardTotal. The
+	// card quote endpoint (BE-FEES-6) is the first reader.
+	CardFees       domain.CardFeeRates
+	LockerFeeCents int64
 }
 
 var (
@@ -141,6 +147,32 @@ func loadConfig(getenv func(string) string) (config, error) {
 		} else {
 			cfg.Email = resend.Config{Host: resend.Host, APIKey: apiKey, From: from}
 		}
+	}
+
+	// Card fees (R26.5): MP's published MX rates unless the env overrides
+	// them, so a rate change needs no code change. The Locker commission
+	// stays 0 until activation gate G2.
+	optionalCount := func(name string, def int64) int64 {
+		v := getenv(name)
+		if v == "" {
+			return def
+		}
+		// 32 bits keeps each product in the fee math inside int64.
+		n, err := strconv.ParseInt(v, 10, 32)
+		if err != nil || n < 0 {
+			errs = append(errs, fmt.Errorf("%s must be a whole number of 0 or more, got %q", name, v))
+			return def
+		}
+		return n
+	}
+	cfg.CardFees = domain.CardFeeRates{
+		PercentBps: optionalCount("MP_FEE_PERCENT_BPS", 349),
+		FixedCents: optionalCount("MP_FEE_FIXED_CENTS", 400),
+		TaxBps:     optionalCount("MP_FEE_TAX_BPS", 1600),
+	}
+	cfg.LockerFeeCents = optionalCount("LOCKER_FEE_FIXED_CENTS", 0)
+	if err := cfg.CardFees.Validate(); err != nil {
+		errs = append(errs, fmt.Errorf("MP_FEE_PERCENT_BPS, MP_FEE_FIXED_CENTS, MP_FEE_TAX_BPS: %w", err))
 	}
 
 	if len(missing) > 0 {
