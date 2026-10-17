@@ -31,7 +31,11 @@ How the API gets to the VPS and how to undo a bad release. The workflow is `.git
    TestFlight and App Store builds) or `development` (Apple's sandbox, for builds run from Xcode only): APNs answers a production token there with `BadDeviceToken`, and the API deletes every
    token it rejects that way. Email (verification and password-reset links) is optional too: verify the
    sending domain in Resend, then set `RESEND_API_KEY` (starts with `re_`) and `EMAIL_FROM` (an address
-   on that domain, like `Locker <no-reply@locker.center>`; both or neither). The API reads `.env` only when its container is created: after an edit, run
+   on that domain, like `Locker <no-reply@locker.center>`; both or neither). Card fees have defaults and
+   need no setting: `MP_FEE_PERCENT_BPS` (349 = 3.49%), `MP_FEE_FIXED_CENTS` (400) and `MP_FEE_TAX_BPS`
+   (1600 = 16% IVA) are Mercado Pago's rates; set them only when MP changes its prices. The percentage plus
+   its IVA must stay below 100%, and the IVA at most 100%. `LOCKER_FEE_FIXED_CENTS` (default 0) is Locker's commission per card
+   payment; keep it 0 until activation gate G2. The API reads `.env` only when its container is created: after an edit, run
    `docker compose up -d api` with `API_TAG` set (see "Running compose by hand").
 6. After the first push to `main`, open the `locker-api` and `locker-backup` packages in GHCR and set
    both to Public. The VPS pulls without credentials. Until then the deploy fails with `denied`; re-run

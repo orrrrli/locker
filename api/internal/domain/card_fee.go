@@ -1,11 +1,36 @@
 package domain
 
+import "errors"
+
+var (
+	ErrCardFeeNegative = errors.New("card fee rates must not be negative")
+	ErrCardFeeTax      = errors.New("card fee tax must be at most 100%")
+	ErrCardFeeRate     = errors.New("card fee percentage plus its tax must stay below 100%")
+)
+
 // CardFeeRates are Mercado Pago's card fee parts (R26.5). Rates are basis
 // points: 349 is 3.49%, 1600 is 16%.
 type CardFeeRates struct {
 	PercentBps int64 // MP's percentage of the charged total
 	FixedCents int64 // MP's fixed fee per payment
 	TaxBps     int64 // IVA charged on each of the two parts above
+}
+
+// Validate checks the preconditions of CardTotal. At a percentage plus tax of
+// 100% or more no total exists; a tax above 100% breaks the 2-cent rounding
+// bound searchStart relies on. With values below 2^31 each product stays
+// inside int64, but a percentage plus tax within a hair of 100% still pushes
+// the total past it; real MP rates are nowhere near that.
+func (r CardFeeRates) Validate() error {
+	switch {
+	case r.PercentBps < 0 || r.FixedCents < 0 || r.TaxBps < 0:
+		return ErrCardFeeNegative
+	case r.TaxBps > 10_000:
+		return ErrCardFeeTax
+	case r.PercentBps*(10_000+r.TaxBps) >= 100_000_000:
+		return ErrCardFeeRate
+	}
+	return nil
 }
 
 // Fee is what MP keeps from a payment of total cents. Like MP's simulator,
@@ -22,8 +47,8 @@ func (r CardFeeRates) Fee(total int64) int64 {
 // fee, amount + commission still reach the team (R26.5). cardFee is
 // total - amount - commission: MP's fee plus the cent or so the rounding
 // leaves over. Callers must pass a non-negative amount and commission, and
-// rates whose PercentBps*(1+TaxBps) stays below 100%: at 100% this divides
-// by zero, above it the search never ends.
+// rates that pass Validate: otherwise this can divide by zero, never end, or
+// miss the smallest total.
 func CardTotal(amount, commission int64, r CardFeeRates) (total, cardFee int64) {
 	need := amount + commission
 	for total = searchStart(need, r); total-r.Fee(total) < need; total++ {
