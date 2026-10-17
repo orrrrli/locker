@@ -44,6 +44,8 @@ tags:
   - name: venues
   - name: public
     description: Public team, venue and league pages (R17), for any signed-in user.
+  - name: moderation
+    description: One-way user blocks (R23).
   - name: operator
     description: |
       Curation routes under `/operator`, only for the user whose
@@ -2309,6 +2311,74 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "404":
           $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/Internal"
+  /users/{id}/block:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        description: The user to block or unblock.
+        schema:
+          type: integer
+          format: int64
+          minimum: 1
+    put:
+      tags: [moderation]
+      operationId: blockUser
+      summary: Stop seeing a user's posts
+      description: |
+        One-way: the caller stops seeing the user's posts; the user can still
+        see the caller's (R23.5). The blocked user is not told and no team
+        membership changes (R23.6). Blocking a user already blocked answers
+        204 again and keeps the first block. Hiding the posts is the feed's
+        job (SEC-MOD-1).
+      security:
+        - bearerAuth: []
+      responses:
+        "204":
+          description: Blocked, or already blocked.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          description: "`not_found`: unknown or deleted user, or an id that is not a positive integer."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "422":
+          description: "`cannot_block_self`: the id is the caller's own (R23.8)."
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Error"
+                  - properties:
+                      error:
+                        const: cannot_block_self
+        "500":
+          $ref: "#/components/responses/Internal"
+    delete:
+      tags: [moderation]
+      operationId: unblockUser
+      summary: See a user's posts again
+      description: |
+        Removes the caller's block on the user, so their posts show again
+        (R23.7). With no block, or an unknown user, it also answers 204 and
+        removes nothing, so a retry is safe.
+      security:
+        - bearerAuth: []
+      responses:
+        "204":
+          description: Unblocked, or there was no block.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          description: "`not_found`: the id is not a positive integer."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
         "500":
           $ref: "#/components/responses/Internal"
   /venue-leads:

@@ -200,6 +200,12 @@ type User struct {
 	IsOperator      bool
 }
 
+type UserBlock struct {
+	BlockerID int64
+	BlockedID int64
+	CreatedAt pgtype.Timestamptz
+}
+
 type Venue struct {
 	ID        int64
 	Name      string
