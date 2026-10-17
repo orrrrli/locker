@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/orrrrli/locker/api/internal/infrastructure/apns"
+	"github.com/orrrrli/locker/api/internal/infrastructure/resend"
 )
 
 func env(vars map[string]string) func(string) string {
@@ -120,6 +121,41 @@ func TestLoadConfig(t *testing.T) {
 			if tc.host != "" && (cfg.APNSKeyPath != tc.path || cfg.APNS.TeamID != "ABCDE12345" ||
 				cfg.APNS.KeyID != tc.keyID || cfg.APNS.Topic != "center.locker.app") {
 				t.Fatalf("%s: unexpected push config %+v, key path %q", tc.name, cfg.APNS, cfg.APNSKeyPath)
+			}
+		}
+	})
+
+	t.Run("email", func(t *testing.T) {
+		for _, tc := range []struct {
+			name, key, from string
+			msg             string // part of the error, when it fails
+		}{
+			{"unset", "", "", ""},
+			{"set", "re_abc123", "Locker <no-reply@locker.center>", ""},
+			{"bare address", "re_abc123", "no-reply@locker.center", ""},
+			{"only the key", "re_abc123", "", "set both"},
+			{"only the sender", "", "no-reply@locker.center", "set both"},
+			{"not a resend key", "sk_abc123", "no-reply@locker.center", "RESEND_API_KEY"},
+			{"bad sender", "re_abc123", "locker.center", "EMAIL_FROM"},
+		} {
+			vars := map[string]string{"API_PORT": "8080", "DATABASE_URL": "x", "PUBLIC_BASE_URL": "https://x.test",
+				"RESEND_API_KEY": tc.key, "EMAIL_FROM": tc.from}
+			cfg, err := loadConfig(env(vars))
+			if (err == nil) != (tc.msg == "") {
+				t.Fatalf("%s: err %v, want error %q", tc.name, err, tc.msg)
+			}
+			if tc.msg != "" && !strings.Contains(err.Error(), tc.msg) {
+				t.Fatalf("%s: err %v, want it to say %q", tc.name, err, tc.msg)
+			}
+			if tc.msg != "" && strings.Contains(err.Error(), tc.key) && tc.key != "" {
+				t.Fatalf("%s: err %v leaks the API key", tc.name, err)
+			}
+			want := resend.Config{}
+			if tc.msg == "" && tc.key != "" {
+				want = resend.Config{Host: resend.Host, APIKey: tc.key, From: tc.from}
+			}
+			if cfg.Email != want {
+				t.Fatalf("%s: email config %+v, want %+v", tc.name, cfg.Email, want)
 			}
 		}
 	})

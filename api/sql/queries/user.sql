@@ -20,6 +20,12 @@ SET name = NULL, email = NULL, email_verified_at = NULL, birth_date = NULL,
     photo_url = NULL, deleted_at = now()
 WHERE id = $1 AND deleted_at IS NULL;
 
+-- name: MarkEmailVerified :exec
+-- Keeps the first verification time when the address is verified twice.
+UPDATE "user"
+SET email_verified_at = coalesce(email_verified_at, sqlc.arg(now))
+WHERE id = sqlc.arg(id) AND deleted_at IS NULL;
+
 -- name: IsOperator :one
 -- The flag is set by hand in the database; no query writes it (rule 12).
 SELECT is_operator FROM "user" WHERE id = $1;

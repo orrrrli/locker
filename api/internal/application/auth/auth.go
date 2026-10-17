@@ -42,22 +42,36 @@ type Users interface {
 	CreateIdentity(ctx context.Context, userID int64, provider domain.Provider, subject string, passwordHash *string) error
 	// PasswordIdentity returns domain.ErrNotFound when no password identity has that email.
 	PasswordIdentity(ctx context.Context, email string) (userID int64, passwordHash string, err error)
+	// MarkEmailVerified sets email_verified_at, keeping the first time.
+	MarkEmailVerified(ctx context.Context, userID int64, now time.Time) error
+	// SetPassword replaces the password hash and returns the identity's
+	// email, or domain.ErrNotFound when the user has no password identity.
+	SetPassword(ctx context.Context, userID int64, passwordHash string) (email string, err error)
 }
 
 type Deps struct {
-	Tx       application.TxRunner
-	Users    Users
-	Sessions Sessions
-	Hasher   PasswordHasher
-	Now      func() time.Time // nil means time.Now
+	Tx          application.TxRunner
+	Users       Users
+	Sessions    Sessions
+	Hasher      PasswordHasher
+	EmailTokens EmailTokens
+	// Mailer sends verification email; nil until Resend is configured, and
+	// then no email is sent.
+	Mailer Mailer
+	// PublicBaseURL is where email links point, like https://api.locker.center.
+	PublicBaseURL string
+	Now           func() time.Time // nil means time.Now
 }
 
 type Service struct {
-	tx       application.TxRunner
-	users    Users
-	sessions Sessions
-	hasher   PasswordHasher
-	now      func() time.Time
+	tx            application.TxRunner
+	users         Users
+	sessions      Sessions
+	hasher        PasswordHasher
+	emailTokens   EmailTokens
+	mailer        Mailer
+	publicBaseURL string
+	now           func() time.Time
 	sessionState
 }
 
@@ -65,7 +79,10 @@ func NewService(d Deps) *Service {
 	if d.Now == nil {
 		d.Now = time.Now
 	}
-	return &Service{tx: d.Tx, users: d.Users, sessions: d.Sessions, hasher: d.Hasher, now: d.Now}
+	return &Service{
+		tx: d.Tx, users: d.Users, sessions: d.Sessions, hasher: d.Hasher,
+		emailTokens: d.EmailTokens, mailer: d.Mailer, publicBaseURL: d.PublicBaseURL, now: d.Now,
+	}
 }
 
 type RegisterInput struct {
@@ -86,6 +103,7 @@ type Registered struct {
 // Register creates a user with a password identity and signs them in. It
 // rejects a missing birth date and users younger than 15 (R1.1, R1.2),
 // stores the birth date (R1.4) and hashes the password with argon2id (R3.1).
+// Once committed, it emails a verification link (R3.2).
 func (s *Service) Register(ctx context.Context, in RegisterInput) (Registered, error) {
 	name := strings.TrimSpace(in.Name)
 	if name == "" || utf8.RuneCountInString(name) > maxNameLen {
@@ -112,6 +130,7 @@ func (s *Service) Register(ctx context.Context, in RegisterInput) (Registered, e
 	}
 
 	var out Registered
+	var pending *verification
 	err = s.tx.InTx(ctx, func(ctx context.Context) error {
 		id, err := s.users.CreateUser(ctx, name, email, in.BirthDate)
 		if err != nil {
@@ -124,6 +143,9 @@ func (s *Service) Register(ctx context.Context, in RegisterInput) (Registered, e
 		if err != nil {
 			return err
 		}
+		if pending, err = s.createVerification(ctx, id, email); err != nil {
+			return err
+		}
 		out = Registered{UserID: id, Token: token}
 		return nil
 	})
@@ -133,6 +155,8 @@ func (s *Service) Register(ctx context.Context, in RegisterInput) (Registered, e
 	if err != nil {
 		return Registered{}, err
 	}
+	// After the commit, so a rolled-back registration never sends a link.
+	s.sendVerification(pending, out.UserID)
 	return out, nil
 }
 

@@ -74,8 +74,8 @@ func (r *Users) PasswordIdentity(ctx context.Context, email string) (int64, stri
 }
 
 // DeletePersonalData runs the user part of account deletion (R5.2): it
-// deletes the user's auth identities, device tokens and sessions, unlinks
-// their venue leads (R25.8), then nulls the personal fields and sets
+// deletes the user's auth identities, device tokens, sessions and email
+// tokens, unlinks their venue leads (R25.8), then nulls the personal fields and sets
 // deleted_at. The row stays, so the history that
 // hangs off it keeps its foreign keys. It returns domain.ErrNotFound when the
 // user is unknown or already deleted.
@@ -89,6 +89,9 @@ func (r *Users) DeletePersonalData(ctx context.Context, userID int64) error {
 	}
 	if err := q.DeleteSessionsOfUser(ctx, userID); err != nil {
 		return fmt.Errorf("postgres: delete sessions: %w", err)
+	}
+	if err := q.DeleteEmailTokensOfUser(ctx, userID); err != nil {
+		return fmt.Errorf("postgres: delete email tokens: %w", err)
 	}
 	if err := q.UnlinkVenueLeadsOfUser(ctx, pgtype.Int8{Int64: userID, Valid: true}); err != nil {
 		return fmt.Errorf("postgres: unlink venue leads: %w", err)
@@ -128,6 +131,31 @@ func (r *Users) Get(ctx context.Context, userID int64) (domain.User, error) {
 		u.BirthDate = &row.BirthDate.Time
 	}
 	return u, nil
+}
+
+// SetPassword replaces the user's password hash and returns the identity's
+// email, or domain.ErrNotFound when the user has no password identity.
+func (r *Users) SetPassword(ctx context.Context, userID int64, passwordHash string) (string, error) {
+	email, err := sqlcdb.New(Conn(ctx, r.pool)).SetPasswordHash(ctx, sqlcdb.SetPasswordHashParams{
+		UserID: userID, PasswordHash: pgtype.Text{String: passwordHash, Valid: true},
+	})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", domain.ErrNotFound
+	}
+	if err != nil {
+		return "", fmt.Errorf("postgres: set password: %w", err)
+	}
+	return email, nil
+}
+
+// MarkEmailVerified sets email_verified_at, keeping the first time. A deleted
+// user is left alone.
+func (r *Users) MarkEmailVerified(ctx context.Context, userID int64, now time.Time) error {
+	err := sqlcdb.New(Conn(ctx, r.pool)).MarkEmailVerified(ctx, sqlcdb.MarkEmailVerifiedParams{ID: userID, Now: timestamptz(now)})
+	if err != nil {
+		return fmt.Errorf("postgres: mark email verified: %w", err)
+	}
+	return nil
 }
 
 // IsOperator reports whether the user is the operator (rule 12). It returns

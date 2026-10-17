@@ -3,12 +3,14 @@ package main
 import (
 	"errors"
 	"fmt"
+	"net/mail"
 	"net/url"
 	"regexp"
 	"strconv"
 	"strings"
 
 	"github.com/orrrrli/locker/api/internal/infrastructure/apns"
+	"github.com/orrrrli/locker/api/internal/infrastructure/resend"
 )
 
 type config struct {
@@ -28,6 +30,9 @@ type config struct {
 	// inbox without a push.
 	APNS        apns.Config
 	APNSKeyPath string
+	// Email is the Resend setup for verification and password-reset mail.
+	// Empty APIKey until the Resend account exists.
+	Email resend.Config
 }
 
 var (
@@ -117,6 +122,25 @@ func loadConfig(getenv func(string) string) (config, error) {
 	default:
 		cfg.APNSKeyPath = keyPath
 		cfg.APNS = apns.Config{Host: host, TeamID: team, KeyID: keyID, Topic: bundle}
+	}
+
+	// Email needs the API key and a sender on a domain verified in Resend.
+	// EMAIL_FROM may carry a display name: "Locker <no-reply@locker.center>".
+	apiKey, from := getenv("RESEND_API_KEY"), getenv("EMAIL_FROM")
+	switch {
+	case apiKey == "" && from == "":
+		// Not configured yet: no email is sent.
+	case apiKey == "" || from == "":
+		errs = append(errs, errors.New("set both RESEND_API_KEY and EMAIL_FROM, or neither"))
+	case !strings.HasPrefix(apiKey, "re_"):
+		// Not echoed: it is a secret.
+		errs = append(errs, errors.New("RESEND_API_KEY must be a Resend API key starting with re_"))
+	default:
+		if _, err := mail.ParseAddress(from); err != nil {
+			errs = append(errs, fmt.Errorf("EMAIL_FROM must be an address like Locker <no-reply@locker.center>, got %q", from))
+		} else {
+			cfg.Email = resend.Config{Host: resend.Host, APIKey: apiKey, From: from}
+		}
 	}
 
 	if len(missing) > 0 {

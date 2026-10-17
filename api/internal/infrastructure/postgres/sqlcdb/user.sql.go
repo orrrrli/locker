@@ -118,3 +118,20 @@ func (q *Queries) IsOperator(ctx context.Context, id int64) (bool, error) {
 	err := row.Scan(&is_operator)
 	return is_operator, err
 }
+
+const markEmailVerified = `-- name: MarkEmailVerified :exec
+UPDATE "user"
+SET email_verified_at = coalesce(email_verified_at, $1)
+WHERE id = $2 AND deleted_at IS NULL
+`
+
+type MarkEmailVerifiedParams struct {
+	Now pgtype.Timestamptz
+	ID  int64
+}
+
+// Keeps the first verification time when the address is verified twice.
+func (q *Queries) MarkEmailVerified(ctx context.Context, arg MarkEmailVerifiedParams) error {
+	_, err := q.db.Exec(ctx, markEmailVerified, arg.Now, arg.ID)
+	return err
+}

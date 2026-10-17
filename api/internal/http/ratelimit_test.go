@@ -67,7 +67,12 @@ func (f *fakeAuth) Authenticate(context.Context, string) (auth.Auth, error) {
 	return auth.Auth{}, auth.ErrUnauthenticated
 }
 
-func (f *fakeAuth) Logout(context.Context, int64) error { return nil }
+func (f *fakeAuth) Logout(context.Context, int64) error                { return nil }
+func (f *fakeAuth) VerifyEmail(context.Context, string) error          { return nil }
+func (f *fakeAuth) RequestPasswordReset(context.Context, string) error { return nil }
+func (f *fakeAuth) ConfirmPasswordReset(context.Context, string, string) error {
+	return nil
+}
 
 type limitTest struct {
 	t   *testing.T

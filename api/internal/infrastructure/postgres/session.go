@@ -54,6 +54,14 @@ func (r *Sessions) Delete(ctx context.Context, id int64) error {
 	return nil
 }
 
+// DeleteAllOfUser signs the user out everywhere.
+func (r *Sessions) DeleteAllOfUser(ctx context.Context, userID int64) error {
+	if err := sqlcdb.New(Conn(ctx, r.pool)).DeleteSessionsOfUser(ctx, userID); err != nil {
+		return fmt.Errorf("postgres: delete sessions of user: %w", err)
+	}
+	return nil
+}
+
 // DeleteIdle deletes sessions last used at or before cutoff and reports how
 // many it deleted.
 // ponytail: seq scan on session; add an index on last_used_at if the table grows large.
