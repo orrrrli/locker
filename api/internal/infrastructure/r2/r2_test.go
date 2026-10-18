@@ -2,12 +2,15 @@ package r2
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/orrrrli/locker/api/internal/domain"
 )
 
 func testClient(endpoint string) *Client {
@@ -71,5 +74,35 @@ func TestDelete(t *testing.T) {
 	status = http.StatusForbidden
 	if err := c.Delete(context.Background(), "photos/abc/large"); err == nil {
 		t.Fatal("a 403 from R2 must be an error")
+	}
+}
+
+func TestHead(t *testing.T) {
+	var method, path, auth string
+	status := http.StatusOK
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		method, path, auth = r.Method, r.URL.Path, r.Header.Get("Authorization")
+		w.Header().Set("Content-Type", "image/png")
+		w.Header().Set("Content-Length", "3000")
+		w.WriteHeader(status)
+	}))
+	defer srv.Close()
+	c := testClient(srv.URL)
+
+	ct, size, err := c.Head(context.Background(), "photos/abc/large")
+	if err != nil || ct != "image/png" || size != 3000 {
+		t.Fatalf("Head = %q, %d, %v; want image/png, 3000", ct, size, err)
+	}
+	if method != http.MethodHead || path != "/photos/photos/abc/large" || !strings.HasPrefix(auth, "AWS4-HMAC-SHA256 Credential=key-id/") {
+		t.Fatalf("got %s %s auth %q, want a signed HEAD /photos/photos/abc/large", method, path, auth)
+	}
+
+	status = http.StatusNotFound
+	if _, _, err := c.Head(context.Background(), "photos/abc/large"); !errors.Is(err, domain.ErrNotFound) {
+		t.Fatalf("404: err = %v, want domain.ErrNotFound", err)
+	}
+	status = http.StatusForbidden
+	if _, _, err := c.Head(context.Background(), "photos/abc/large"); err == nil || errors.Is(err, domain.ErrNotFound) {
+		t.Fatalf("403: err = %v, want an error that is not ErrNotFound", err)
 	}
 }

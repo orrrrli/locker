@@ -2424,6 +2424,151 @@ paths:
         "500":
           $ref: "#/components/responses/Internal"
 
+  /posts:
+    post:
+      tags: [feed]
+      operationId: publishPost
+      summary: Publish a post
+      description: |
+        Publish text, photos or both (R18.7) as one author, chosen with
+        `as_kind` and exactly its own id:
+
+        - `team` with `team_id`: an active admin (Capitán) of the team (R18.5).
+        - `player` with `team_id`: an active member of that team (R18.3, R18.4).
+        - `league` with `league_id`, `venue` with `venue_id`: the operator only (R18.6).
+
+        `photo_keys` are `storage_key`s from `POST /media/uploads`, in display
+        order: at most 4, each issued to the caller within the last 23 hours,
+        not in another post, with both versions uploaded and within the photo
+        limits (R18.8, NFR 8). `body` is at most 500 characters (NFR 9). A user
+        publishes at most 20 posts in any 24 hours (NFR 9). Posts cannot be
+        edited (R18.12).
+
+        Photos come back without URLs for now; signed photo URLs come with
+        the feed.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [as_kind]
+              properties:
+                as_kind:
+                  type: string
+                  enum: [team, player, league, venue]
+                team_id:
+                  type: integer
+                  format: int64
+                league_id:
+                  type: integer
+                  format: int64
+                venue_id:
+                  type: integer
+                  format: int64
+                body:
+                  type: string
+                  maxLength: 500
+                photo_keys:
+                  type: array
+                  maxItems: 4
+                  items:
+                    type: string
+      responses:
+        "201":
+          description: The post.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [id, as_kind, team_id, league_id, venue_id, body, share_token, created_at, photos]
+                properties:
+                  id:
+                    type: integer
+                    format: int64
+                  as_kind:
+                    type: string
+                    enum: [team, player, league, venue]
+                  team_id:
+                    type: [integer, "null"]
+                    format: int64
+                  league_id:
+                    type: [integer, "null"]
+                    format: int64
+                  venue_id:
+                    type: [integer, "null"]
+                    format: int64
+                  body:
+                    type: [string, "null"]
+                  share_token:
+                    type: string
+                    description: The post's stable `/p/{token}` link (R21).
+                  created_at:
+                    type: string
+                    format: date-time
+                  photos:
+                    type: array
+                    items:
+                      type: object
+                      required: [position, content_type]
+                      properties:
+                        position:
+                          type: integer
+                        content_type:
+                          type: string
+                          enum: [image/jpeg, image/png]
+        "400":
+          $ref: "#/components/responses/InvalidRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          description: "`forbidden`: an active player posting as the team, or a non-operator posting as a league or venue."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: "`not_found`: the team, league or venue does not exist, or the caller is not an active member of the team."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "413":
+          $ref: "#/components/responses/BodyTooLarge"
+        "422":
+          description: |
+            `invalid_author` (unknown `as_kind`, or not exactly its own id),
+            `invalid_body` (over 500 characters or invisible characters),
+            `empty_post` (no text and no photos), `too_many_photos` (over 4, or
+            a key twice) or `invalid_photo` (a key not issued to the caller,
+            older than 23 hours, already posted, not uploaded, or over the
+            photo limits). Nothing was stored.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "429":
+          description: |
+            `too_many_posts`: 20 posts in the last 24 hours. Or
+            `too_many_attempts` with Retry-After: over 30 requests in an hour.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "503":
+          description: |
+            `uploads_unavailable` (a post with photos while photo storage is
+            not configured; no Retry-After), or `team_busy` with Retry-After.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          $ref: "#/components/responses/Internal"
+
   /follows/{kind}/{id}:
     parameters:
       - name: kind
@@ -3672,6 +3817,12 @@ components:
         - invalid_phone
         - invalid_message
         - too_many_leads
+        - uploads_unavailable
+        - invalid_author
+        - empty_post
+        - too_many_photos
+        - invalid_photo
+        - too_many_posts
     AlreadyMemberError:
       type: object
       required: [error, status]
