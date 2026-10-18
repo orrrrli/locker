@@ -4477,7 +4477,7 @@ components:
     PublicTeam:
       type: object
       additionalProperties: false
-      required: [id, name, initials, active_members, captains, leagues, viewer_status]
+      required: [id, name, initials, active_members, followers, captains, leagues, viewer_status]
       properties:
         id:
           type: integer
@@ -4489,6 +4489,9 @@ components:
           description: First letters of the first two words ("Atlético Narvarte" is "AN"), or the first two letters of a one-word name, uppercased.
         active_members:
           type: integer
+        followers:
+          type: integer
+          description: How many users follow the team (R20.4). Who they are is never shown.
         captains:
           type: array
           description: The active admins' names, by name. The app labels them "Capitán".
@@ -4566,8 +4569,11 @@ components:
                       $ref: "#/components/schemas/TimeOfDay"
     LeaguePage:
       type: object
-      required: [id, name, weekday, start_time, end_time, season_name, season_starts_on, season_ends_on, venue]
+      required: [id, name, weekday, start_time, end_time, season_name, season_starts_on, season_ends_on, venue, followers]
       properties:
+        followers:
+          type: integer
+          description: How many users follow the league (R20.4). Who they are is never shown.
         id:
           type: integer
           format: int64

@@ -48,7 +48,7 @@ func TestPublicTeamPage(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &raw); err != nil {
 		t.Fatal(err)
 	}
-	if keys, want := slices.Sorted(maps.Keys(raw)), []string{"active_members", "captains", "id", "initials", "leagues", "name", "viewer_status"}; !slices.Equal(keys, want) {
+	if keys, want := slices.Sorted(maps.Keys(raw)), []string{"active_members", "captains", "followers", "id", "initials", "leagues", "name", "viewer_status"}; !slices.Equal(keys, want) {
 		t.Fatalf("keys = %v, want exactly %v (R17.5)", keys, want)
 	}
 	for _, private := range []string{"Beto", "shirt", "rsvp", "Truenos"} {

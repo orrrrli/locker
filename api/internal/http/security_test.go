@@ -187,7 +187,7 @@ func TestPublicPagesShowOnlyWhatR17Allows(t *testing.T) {
 		want []string
 	}{
 		{fmt.Sprintf("/teams/%d/public", s.home.ID), []string{
-			"active_members", "captains", "id", "initials", "leagues",
+			"active_members", "captains", "followers", "id", "initials", "leagues",
 			"leagues[].end_time", "leagues[].id", "leagues[].name", "leagues[].start_time",
 			"leagues[].venue", "leagues[].venue.id", "leagues[].venue.name", "leagues[].weekday",
 			"name", "viewer_status",
@@ -198,7 +198,7 @@ func TestPublicPagesShowOnlyWhatR17Allows(t *testing.T) {
 			"weekdays[].leagues[].name", "weekdays[].leagues[].start_time", "weekdays[].weekday",
 		}},
 		{fmt.Sprintf("/leagues/%d", s.league.ID), []string{
-			"end_time", "id", "name", "season_ends_on", "season_name", "season_starts_on", "start_time",
+			"end_time", "followers", "id", "name", "season_ends_on", "season_name", "season_starts_on", "start_time",
 			"venue", "venue.address", "venue.id", "venue.name", "venue.timezone", "weekday",
 		}},
 		{fmt.Sprintf("/leagues/%d/teams", s.league.ID), []string{"teams", "teams[].id", "teams[].initials", "teams[].name"}},

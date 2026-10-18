@@ -43,7 +43,8 @@ func (r *Pages) Team(ctx context.Context, id int64) (domain.PublicTeam, error) {
 	}
 	t := domain.PublicTeam{
 		ID: row.ID, Name: row.Name, Initials: domain.Initials(row.Name), ActiveMembers: int(row.ActiveMembers),
-		Captains: captains, Leagues: make([]domain.TeamLeague, len(leagues)),
+		Followers: int(row.Followers),
+		Captains:  captains, Leagues: make([]domain.TeamLeague, len(leagues)),
 	}
 	for i, l := range leagues {
 		t.Leagues[i] = domain.TeamLeague{
@@ -90,11 +91,18 @@ func (r *Pages) League(ctx context.Context, id int64) (domain.LeaguePage, error)
 	if err != nil {
 		return domain.LeaguePage{}, err
 	}
-	v, err := sqlcdb.New(Conn(ctx, r.pool)).GetLeagueVenue(ctx, id)
+	q := sqlcdb.New(Conn(ctx, r.pool))
+	v, err := q.GetLeagueVenue(ctx, id)
 	if err != nil {
 		return domain.LeaguePage{}, fmt.Errorf("postgres: league venue: %w", err)
 	}
-	return domain.LeaguePage{League: l, Venue: domain.Venue{ID: v.ID, Name: v.Name, Address: v.Address, Timezone: v.Timezone}}, nil
+	followers, err := q.CountLeagueFollowers(ctx, pgInt8(id))
+	if err != nil {
+		return domain.LeaguePage{}, fmt.Errorf("postgres: league followers: %w", err)
+	}
+	return domain.LeaguePage{
+		League: l, Venue: domain.Venue{ID: v.ID, Name: v.Name, Address: v.Address, Timezone: v.Timezone}, Followers: int(followers),
+	}, nil
 }
 
 // LeagueTeams returns the league's teams that are not dissolved, by name.

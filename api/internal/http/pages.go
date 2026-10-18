@@ -43,6 +43,7 @@ type publicTeamJSON struct {
 	Name          string                   `json:"name"`
 	Initials      string                   `json:"initials"`
 	ActiveMembers int                      `json:"active_members"`
+	Followers     int                      `json:"followers"`
 	Captains      []string                 `json:"captains"`
 	Leagues       []teamLeagueJSON         `json:"leagues"`
 	ViewerStatus  *domain.MembershipStatus `json:"viewer_status"`
@@ -61,7 +62,7 @@ func (h pageHandlers) team(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	out := publicTeamJSON{
-		ID: t.ID, Name: t.Name, Initials: t.Initials, ActiveMembers: t.ActiveMembers,
+		ID: t.ID, Name: t.Name, Initials: t.Initials, ActiveMembers: t.ActiveMembers, Followers: t.Followers,
 		Captains: t.Captains, Leagues: make([]teamLeagueJSON, len(t.Leagues)), ViewerStatus: t.ViewerStatus,
 	}
 	if out.Captains == nil {
@@ -147,6 +148,7 @@ type leaguePageJSON struct {
 	SeasonStartsOn string          `json:"season_starts_on"`
 	SeasonEndsOn   string          `json:"season_ends_on"`
 	Venue          leagueVenueJSON `json:"venue"`
+	Followers      int             `json:"followers"`
 }
 
 func (h pageHandlers) league(w http.ResponseWriter, r *http.Request) {
@@ -163,7 +165,8 @@ func (h pageHandlers) league(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, leaguePageJSON{
 		ID: l.ID, Name: l.Name, Weekday: l.Weekday.String(), StartTime: l.StartTime.String(), EndTime: l.EndTime.String(),
 		SeasonName: l.SeasonName, SeasonStartsOn: l.SeasonStartsOn.Format(time.DateOnly), SeasonEndsOn: l.SeasonEndsOn.Format(time.DateOnly),
-		Venue: leagueVenueJSON{ID: l.Venue.ID, Name: l.Venue.Name, Address: l.Venue.Address, Timezone: l.Venue.Timezone},
+		Venue:     leagueVenueJSON{ID: l.Venue.ID, Name: l.Venue.Name, Address: l.Venue.Address, Timezone: l.Venue.Timezone},
+		Followers: l.Followers,
 	})
 }
 
