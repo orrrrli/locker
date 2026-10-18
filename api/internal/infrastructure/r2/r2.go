@@ -50,8 +50,9 @@ func New(cfg Config) *Client {
 		// Path style keeps the bucket out of the host name, so a test server
 		// on 127.0.0.1 works the same as R2.
 		UsePathStyle: true,
-		// Without this the SDK adds checksum parameters the app would have to
-		// send too; R2 does not need them.
+		// Defensive: presigning already skips default checksums in this SDK
+		// version; this keeps a later SDK from adding checksum parameters the
+		// app would have to send too. R2 does not need them.
 		RequestChecksumCalculation: aws.RequestChecksumCalculationWhenRequired,
 		ResponseChecksumValidation: aws.ResponseChecksumValidationWhenRequired,
 	})

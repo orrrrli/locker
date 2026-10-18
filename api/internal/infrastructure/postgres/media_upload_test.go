@@ -25,9 +25,10 @@ func TestMediaUploads(t *testing.T) {
 		key string
 		at  time.Time
 	}{
-		{"oldest", cutoff.Add(-3 * time.Hour)},
-		{"older", cutoff.Add(-2 * time.Hour)},
+		// Out of age order, so the table order cannot pass for "oldest first".
 		{"at-cutoff", cutoff},
+		{"older", cutoff.Add(-2 * time.Hour)},
+		{"oldest", cutoff.Add(-3 * time.Hour)},
 		{"in-post", cutoff.Add(-4 * time.Hour)},
 		{"fresh", cutoff.Add(time.Second)},
 	} {

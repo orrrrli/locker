@@ -2398,13 +2398,11 @@ paths:
                           type: string
                           format: date-time
         "400":
-          description: "`invalid_request`: the body is not this JSON, or has unknown fields."
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Error"
+          $ref: "#/components/responses/InvalidRequest"
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "413":
+          $ref: "#/components/responses/BodyTooLarge"
         "422":
           description: |
             `invalid_photo_count` (not 1 to 4 photos), `unsupported_photo_type`

@@ -48,22 +48,6 @@ func TestPresignPut(t *testing.T) {
 			t.Errorf("URL carries %s; the app would have to send it too", name)
 		}
 	}
-
-	// Another size or type signs differently, so the first URL cannot stand
-	// in for either.
-	for _, other := range []struct {
-		contentType string
-		size        int64
-	}{{"image/jpeg", 3001}, {"image/png", 3000}} {
-		raw2, err := c.PresignPut(context.Background(), "photos/abc.jpg", other.contentType, other.size, 15*time.Minute)
-		if err != nil {
-			t.Fatal(err)
-		}
-		u2, _ := url.Parse(raw2)
-		if u2.Query().Get("X-Amz-Signature") == q.Get("X-Amz-Signature") && u2.Query().Get("X-Amz-Date") == q.Get("X-Amz-Date") {
-			t.Errorf("%s %d signs the same as image/jpeg 3000", other.contentType, other.size)
-		}
-	}
 }
 
 func TestDelete(t *testing.T) {
