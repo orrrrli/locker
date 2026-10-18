@@ -59,16 +59,19 @@ func New(cfg Config) *Client {
 	return &Client{s3: c, presign: s3.NewPresignClient(c), bucket: cfg.Bucket}
 }
 
-// PresignPut returns a URL that accepts PUTs of exactly size bytes of
-// contentType to key until ttl passes; each PUT replaces the object.
-// Content-Type and Content-Length are signed headers: a PUT with any other
-// value fails R2's signature check.
+// PresignPut returns a URL that accepts one PUT of exactly size bytes of
+// contentType to key until ttl passes. Content-Type, Content-Length and
+// If-None-Match: * are signed headers: a PUT with any other value fails R2's
+// signature check, and once the object exists R2 documents a 412, so a
+// photo cannot be swapped after a post checked it (BE-FEED-7). Untested
+// through a presigned URL until the bucket exists (OPS-FEED-1 checklist).
 func (c *Client) PresignPut(ctx context.Context, key, contentType string, size int64, ttl time.Duration) (string, error) {
 	req, err := c.presign.PresignPutObject(ctx, &s3.PutObjectInput{
 		Bucket:        aws.String(c.bucket),
 		Key:           aws.String(key),
 		ContentType:   aws.String(contentType),
 		ContentLength: aws.Int64(size),
+		IfNoneMatch:   aws.String("*"),
 	}, s3.WithPresignExpires(ttl))
 	if err != nil {
 		return "", fmt.Errorf("r2: presign put: %w", err)

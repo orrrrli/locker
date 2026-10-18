@@ -26,7 +26,8 @@ func (fakePhotos) Delete(context.Context, string) error { return nil }
 
 type photoReq struct {
 	ContentType string `json:"content_type"`
-	Size        int64  `json:"size"`
+	LargeSize   int64  `json:"large_size"`
+	SmallSize   int64  `json:"small_size"`
 }
 
 func uploadBody(ps ...photoReq) map[string][]photoReq { return map[string][]photoReq{"photos": ps} }
@@ -36,25 +37,33 @@ func TestRequestUploads(t *testing.T) {
 	anaID, ana := signUp(t, api, "ana@example.com")
 
 	rec := api.do(t, http.MethodPost, "/media/uploads", ana, uploadBody(
-		photoReq{"image/jpeg", 3 << 20},
-		photoReq{"image/png", media.MaxPhotoBytes},
+		photoReq{"image/jpeg", 3 << 20, 300 << 10},
+		photoReq{"image/png", media.MaxPhotoBytes, media.MaxSmallBytes},
 	))
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("POST = %d %s, want 201", rec.Code, rec.Body)
 	}
 	// Exactly these keys: nothing else about the bucket leaks.
 	if got, want := keyPaths(t, rec.Body.Bytes()), []string{
-		"uploads", "uploads[].expires_at", "uploads[].headers", "uploads[].headers.Content-Length",
-		"uploads[].headers.Content-Type", "uploads[].storage_key", "uploads[].upload_url",
+		"uploads", "uploads[].expires_at",
+		"uploads[].large", "uploads[].large.headers", "uploads[].large.headers.Content-Length",
+		"uploads[].large.headers.Content-Type", "uploads[].large.headers.If-None-Match", "uploads[].large.upload_url",
+		"uploads[].small", "uploads[].small.headers", "uploads[].small.headers.Content-Length",
+		"uploads[].small.headers.Content-Type", "uploads[].small.headers.If-None-Match", "uploads[].small.upload_url",
+		"uploads[].storage_key",
 	}; !slices.Equal(got, want) {
 		t.Fatalf("keys %v, want %v", got, want)
 	}
+	type targetBody struct {
+		URL     string            `json:"upload_url"`
+		Headers map[string]string `json:"headers"`
+	}
 	var body struct {
 		Uploads []struct {
-			StorageKey string            `json:"storage_key"`
-			URL        string            `json:"upload_url"`
-			Headers    map[string]string `json:"headers"`
-			ExpiresAt  time.Time         `json:"expires_at"`
+			StorageKey string     `json:"storage_key"`
+			Large      targetBody `json:"large"`
+			Small      targetBody `json:"small"`
+			ExpiresAt  time.Time  `json:"expires_at"`
 		} `json:"uploads"`
 	}
 	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
@@ -63,14 +72,19 @@ func TestRequestUploads(t *testing.T) {
 	if len(body.Uploads) != 2 {
 		t.Fatalf("%d uploads, want 2", len(body.Uploads))
 	}
-	for i, want := range []struct{ typ, size string }{{"image/jpeg", "3145728"}, {"image/png", "10485760"}} {
+	for i, want := range []struct{ typ, large, small string }{{"image/jpeg", "3145728", "307200"}, {"image/png", "10485760", "1048576"}} {
 		u := body.Uploads[i]
-		wantURL := fmt.Sprintf("https://r2.test/%s?type=%s&size=%s&ttl=15m0s", u.StorageKey, want.typ, want.size)
-		if u.URL != wantURL {
-			t.Errorf("upload %d URL %q, want %q", i, u.URL, wantURL)
-		}
-		if u.Headers["Content-Type"] != want.typ || u.Headers["Content-Length"] != want.size {
-			t.Errorf("upload %d headers %v, want %s and %s", i, u.Headers, want.typ, want.size)
+		for _, v := range []struct {
+			name, size string
+			got        targetBody
+		}{{"large", want.large, u.Large}, {"small", want.small, u.Small}} {
+			wantURL := fmt.Sprintf("https://r2.test/%s/%s?type=%s&size=%s&ttl=15m0s", u.StorageKey, v.name, want.typ, v.size)
+			if v.got.URL != wantURL {
+				t.Errorf("upload %d %s URL %q, want %q", i, v.name, v.got.URL, wantURL)
+			}
+			if h := v.got.Headers; h["Content-Type"] != want.typ || h["Content-Length"] != v.size || h["If-None-Match"] != "*" {
+				t.Errorf("upload %d %s headers %v, want %s, %s and If-None-Match *", i, v.name, h, want.typ, v.size)
+			}
 		}
 		if !u.ExpiresAt.Equal(today.Add(media.URLTTL)) {
 			t.Errorf("upload %d expires %v, want %v", i, u.ExpiresAt, today.Add(media.URLTTL))
@@ -87,7 +101,7 @@ func TestRequestUploads(t *testing.T) {
 func TestRequestUploadsRejects(t *testing.T) {
 	api := newAPI(t, func() time.Time { return today })
 	_, ana := signUp(t, api, "ana@example.com")
-	jpeg := photoReq{"image/jpeg", 1000}
+	jpeg := photoReq{"image/jpeg", 1000, 100}
 
 	for _, tc := range []struct {
 		name   string
@@ -99,9 +113,12 @@ func TestRequestUploadsRejects(t *testing.T) {
 		{"no session", "", uploadBody(jpeg), http.StatusUnauthorized, "unauthorized"},
 		{"no photos", ana, uploadBody(), http.StatusUnprocessableEntity, "invalid_photo_count"},
 		{"five photos", ana, uploadBody(jpeg, jpeg, jpeg, jpeg, jpeg), http.StatusUnprocessableEntity, "invalid_photo_count"},
-		{"gif", ana, uploadBody(jpeg, photoReq{"image/gif", 1000}), http.StatusUnprocessableEntity, "unsupported_photo_type"},
-		{"empty photo", ana, uploadBody(photoReq{"image/png", 0}), http.StatusUnprocessableEntity, "invalid_photo_size"},
-		{"over 10 MB", ana, uploadBody(photoReq{"image/png", media.MaxPhotoBytes + 1}), http.StatusUnprocessableEntity, "photo_too_large"},
+		{"gif", ana, uploadBody(jpeg, photoReq{"image/gif", 1000, 100}), http.StatusUnprocessableEntity, "unsupported_photo_type"},
+		{"empty photo", ana, uploadBody(photoReq{"image/png", 0, 100}), http.StatusUnprocessableEntity, "invalid_photo_size"},
+		{"no small version", ana, uploadBody(photoReq{"image/png", 1000, 0}), http.StatusUnprocessableEntity, "invalid_photo_size"},
+		{"over 10 MB", ana, uploadBody(photoReq{"image/png", media.MaxPhotoBytes + 1, 100}), http.StatusUnprocessableEntity, "photo_too_large"},
+		{"small over 1 MB", ana, uploadBody(photoReq{"image/png", 1000, media.MaxSmallBytes + 1}), http.StatusUnprocessableEntity, "small_photo_too_large"},
+		{"old body with size", ana, map[string]any{"photos": []any{map[string]any{"content_type": "image/png", "size": 1000}}}, http.StatusBadRequest, "invalid_request"},
 		{"unknown field", ana, map[string]any{"photos": []any{}, "user_id": 1}, http.StatusBadRequest, "invalid_request"},
 	} {
 		rec := api.do(t, http.MethodPost, "/media/uploads", tc.token, tc.body)
@@ -120,7 +137,7 @@ func TestRequestUploadsRejects(t *testing.T) {
 // waiting a second does not help.
 func TestRequestUploadsWithoutBucket(t *testing.T) {
 	h := mediaHandlers{svc: media.NewService(media.Deps{})}
-	req := httptest.NewRequest(http.MethodPost, "/media/uploads", strings.NewReader(`{"photos":[{"content_type":"image/jpeg","size":1000}]}`))
+	req := httptest.NewRequest(http.MethodPost, "/media/uploads", strings.NewReader(`{"photos":[{"content_type":"image/jpeg","large_size":1000,"small_size":100}]}`))
 	rec := httptest.NewRecorder()
 	h.requestUploads(rec, req.WithContext(withUserID(req.Context(), 1)))
 	if rec.Code != http.StatusServiceUnavailable || errorCode(t, rec) != "uploads_unavailable" {

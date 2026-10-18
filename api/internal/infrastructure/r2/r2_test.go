@@ -14,12 +14,13 @@ func testClient(endpoint string) *Client {
 	return New(Config{AccountID: "0123456789abcdef0123456789abcdef", AccessKeyID: "key-id", SecretAccessKey: "secret", Bucket: "photos", Endpoint: endpoint})
 }
 
-// The URL is bound to key, type and size (BE-FEED-1-T4): type and size are
-// signed headers, so R2 rejects a PUT that sends other values. No checksum
+// The URL is bound to key, type and size (BE-FEED-1-T4) and writes only a
+// missing object (BE-FEED-7): type, size and If-None-Match are signed
+// headers, so R2 rejects a PUT that sends other values or none. No checksum
 // parameter is added that the app would also have to send.
 func TestPresignPut(t *testing.T) {
 	c := testClient("")
-	raw, err := c.PresignPut(context.Background(), "photos/abc.jpg", "image/jpeg", 3000, 15*time.Minute)
+	raw, err := c.PresignPut(context.Background(), "photos/abc/large", "image/jpeg", 3000, 15*time.Minute)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -27,12 +28,12 @@ func TestPresignPut(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if u.Scheme != "https" || u.Host != "0123456789abcdef0123456789abcdef.r2.cloudflarestorage.com" || u.Path != "/photos/photos/abc.jpg" {
+	if u.Scheme != "https" || u.Host != "0123456789abcdef0123456789abcdef.r2.cloudflarestorage.com" || u.Path != "/photos/photos/abc/large" {
 		t.Fatalf("URL %s, want https on the account's R2 host, path /<bucket>/<key>", raw)
 	}
 	q := u.Query()
 	for name, want := range map[string]string{
-		"X-Amz-SignedHeaders": "content-length;content-type;host",
+		"X-Amz-SignedHeaders": "content-length;content-type;host;if-none-match",
 		"X-Amz-Expires":       "900",
 		"X-Amz-Algorithm":     "AWS4-HMAC-SHA256",
 	} {
@@ -60,15 +61,15 @@ func TestDelete(t *testing.T) {
 	defer srv.Close()
 	c := testClient(srv.URL)
 
-	if err := c.Delete(context.Background(), "photos/abc.jpg"); err != nil {
+	if err := c.Delete(context.Background(), "photos/abc/large"); err != nil {
 		t.Fatal(err)
 	}
-	if method != http.MethodDelete || path != "/photos/photos/abc.jpg" || !strings.HasPrefix(auth, "AWS4-HMAC-SHA256 Credential=key-id/") {
-		t.Fatalf("got %s %s auth %q, want a signed DELETE /photos/photos/abc.jpg", method, path, auth)
+	if method != http.MethodDelete || path != "/photos/photos/abc/large" || !strings.HasPrefix(auth, "AWS4-HMAC-SHA256 Credential=key-id/") {
+		t.Fatalf("got %s %s auth %q, want a signed DELETE /photos/photos/abc/large", method, path, auth)
 	}
 
 	status = http.StatusForbidden
-	if err := c.Delete(context.Background(), "photos/abc.jpg"); err == nil {
+	if err := c.Delete(context.Background(), "photos/abc/large"); err == nil {
 		t.Fatal("a 403 from R2 must be an error")
 	}
 }
