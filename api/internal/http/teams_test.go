@@ -31,8 +31,8 @@ func signUp(t *testing.T, api apiTest, email string) (int64, string) {
 	return body.UserID, body.Token
 }
 
-// addMember inserts a membership directly, in any status: approve, leave and
-// remove do not exist yet.
+// addMember inserts a membership directly, in any role and status, without
+// going through the invite and approval flow.
 func addMember(t *testing.T, api apiTest, teamID, userID int64, role, status string) {
 	t.Helper()
 	// joined_at as the app sets it: every active or left row has joined.

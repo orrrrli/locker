@@ -61,12 +61,26 @@ func TestBlockAndUnblock(t *testing.T) {
 		t.Fatal("Beto's DELETE removed Ana's block")
 	}
 	// Nor can a third user's DELETE on Beto touch Ana's block on Beto.
-	_, carla := signUp(t, api, "carla@example.com")
+	carlaID, carla := signUp(t, api, "carla@example.com")
 	if rec := api.do(t, http.MethodDelete, blockPath(betoID), carla, nil); rec.Code != http.StatusNoContent {
 		t.Fatalf("Carla DELETE = %d %s, want 204", rec.Code, rec.Body)
 	}
 	if !blocked(t, api, anaID, betoID) {
 		t.Fatal("Carla's DELETE removed Ana's block")
+	}
+
+	// Ana's DELETE on Beto removes only that block: her block on Carla stays.
+	if rec := api.do(t, http.MethodPut, blockPath(carlaID), ana, nil); rec.Code != http.StatusNoContent {
+		t.Fatalf("block Carla = %d %s, want 204", rec.Code, rec.Body)
+	}
+	if rec := api.do(t, http.MethodDelete, blockPath(betoID), ana, nil); rec.Code != http.StatusNoContent {
+		t.Fatalf("unblock Beto = %d %s, want 204", rec.Code, rec.Body)
+	}
+	if blocked(t, api, anaID, betoID) {
+		t.Fatal("block on Beto not deleted")
+	}
+	if !blocked(t, api, anaID, carlaID) {
+		t.Fatal("Ana's DELETE on Beto removed her block on Carla")
 	}
 }
 
@@ -84,15 +98,17 @@ func TestBlockRejects(t *testing.T) {
 		path   string
 		token  string
 		want   int
+		code   string
 	}{
-		{"unknown user", http.MethodPut, blockPath(999999), ana, http.StatusNotFound},
-		{"deleted user", http.MethodPut, blockPath(carlaID), ana, http.StatusNotFound},
-		{"bad id", http.MethodPut, "/users/abc/block", ana, http.StatusNotFound},
-		{"PUT without session", http.MethodPut, blockPath(carlaID), "", http.StatusUnauthorized},
-		{"DELETE without session", http.MethodDelete, blockPath(carlaID), "", http.StatusUnauthorized},
+		{"unknown user", http.MethodPut, blockPath(999999), ana, http.StatusNotFound, "not_found"},
+		{"deleted user", http.MethodPut, blockPath(carlaID), ana, http.StatusNotFound, "not_found"},
+		{"bad id", http.MethodPut, "/users/abc/block", ana, http.StatusNotFound, "not_found"},
+		{"PUT without session", http.MethodPut, blockPath(carlaID), "", http.StatusUnauthorized, "unauthorized"},
+		{"DELETE without session", http.MethodDelete, blockPath(carlaID), "", http.StatusUnauthorized, "unauthorized"},
 	} {
-		if rec := api.do(t, tc.method, tc.path, tc.token, nil); rec.Code != tc.want {
-			t.Errorf("%s = %d %s, want %d", tc.name, rec.Code, rec.Body, tc.want)
+		rec := api.do(t, tc.method, tc.path, tc.token, nil)
+		if rec.Code != tc.want || errorCode(t, rec) != tc.code {
+			t.Errorf("%s = %d %s, want %d %s", tc.name, rec.Code, rec.Body, tc.want, tc.code)
 		}
 	}
 }
