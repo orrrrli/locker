@@ -140,6 +140,13 @@ type MatchView struct {
 	CancelledAt        pgtype.Timestamptz
 }
 
+type MediaUpload struct {
+	StorageKey string
+	UserID     int64
+	PostID     pgtype.Int8
+	CreatedAt  pgtype.Timestamptz
+}
+
 type Membership struct {
 	ID                  int64
 	TeamID              int64

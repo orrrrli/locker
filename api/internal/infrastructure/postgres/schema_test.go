@@ -339,6 +339,10 @@ func TestSchemaConstraints(t *testing.T) {
 			`INSERT INTO follow (user_id, team_id) VALUES ($1, $2)`,
 			`INSERT INTO follow (user_id, team_id) VALUES ($1, $2)`,
 			[]any{f.user, f.team}, uniqueViolation},
+		{"media_upload storage_key is unique",
+			`INSERT INTO media_upload (storage_key, user_id) VALUES ('photos/a.jpg', $1)`,
+			`INSERT INTO media_upload (storage_key, user_id) VALUES ('photos/a.jpg', $1)`,
+			[]any{f.user}, uniqueViolation},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
