@@ -46,6 +46,8 @@ tags:
     description: Public team, venue and league pages (R17), for any signed-in user.
   - name: social
     description: Follows of teams and leagues (R20).
+  - name: feed
+    description: Posts and their photos (R18).
   - name: moderation
     description: One-way user blocks (R23).
   - name: operator
@@ -2315,6 +2317,112 @@ paths:
           $ref: "#/components/responses/NotFound"
         "500":
           $ref: "#/components/responses/Internal"
+  /media/uploads:
+    post:
+      tags: [feed]
+      operationId: requestPhotoUploads
+      summary: Get upload URLs for the photos of a post
+      description: |
+        Send the type and size of each photo; the API answers one new random
+        `storage_key` and one upload URL per photo, in the same order (R18.7).
+        The app then PUTs each photo straight to the URL before
+        `expires_at` (15 minutes), sending exactly the `headers` given: they
+        are part of the URL's signature, so another type or size is
+        rejected by the storage. The key is recorded for the caller, so a
+        post can later use only keys issued to its author. A key no post uses
+        within 24 hours is deleted.
+
+        Limits, checked before any URL is signed (R18.8, NFR 8): 1 to 4
+        photos, each `image/jpeg` or `image/png`, each 1 byte to 10 MB
+        (10485760 bytes).
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [photos]
+              properties:
+                photos:
+                  type: array
+                  minItems: 1
+                  maxItems: 4
+                  items:
+                    type: object
+                    additionalProperties: false
+                    required: [content_type, size]
+                    properties:
+                      content_type:
+                        type: string
+                        enum: [image/jpeg, image/png]
+                      size:
+                        type: integer
+                        format: int64
+                        minimum: 1
+                        maximum: 10485760
+                        description: Bytes.
+      responses:
+        "201":
+          description: One upload per photo.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [uploads]
+                properties:
+                  uploads:
+                    type: array
+                    items:
+                      type: object
+                      required: [storage_key, upload_url, headers, expires_at]
+                      properties:
+                        storage_key:
+                          type: string
+                          example: photos/3f1c0e9a5b7d4e2f8a6c1b0d9e7f5a3c.jpg
+                        upload_url:
+                          type: string
+                          format: uri
+                          description: Takes one PUT of the photo's bytes.
+                        headers:
+                          type: object
+                          required: [Content-Type, Content-Length]
+                          properties:
+                            Content-Type:
+                              type: string
+                            Content-Length:
+                              type: string
+                        expires_at:
+                          type: string
+                          format: date-time
+        "400":
+          description: "`invalid_request`: the body is not this JSON, or has unknown fields."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "422":
+          description: |
+            `invalid_photo_count` (not 1 to 4 photos), `unsupported_photo_type`
+            (not JPEG or PNG), `invalid_photo_size` (under 1 byte) or
+            `photo_too_large` (over 10 MB). No key was issued.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "503":
+          description: "`uploads_unavailable`: photo storage is not configured yet. No Retry-After: it does not clear in seconds."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          $ref: "#/components/responses/Internal"
+
   /follows/{kind}/{id}:
     parameters:
       - name: kind

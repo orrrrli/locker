@@ -21,6 +21,7 @@ import (
 	"github.com/orrrrli/locker/api/internal/application/leads"
 	"github.com/orrrrli/locker/api/internal/application/leagues"
 	"github.com/orrrrli/locker/api/internal/application/matches"
+	"github.com/orrrrli/locker/api/internal/application/media"
 	applicationmemberships "github.com/orrrrli/locker/api/internal/application/memberships"
 	"github.com/orrrrli/locker/api/internal/application/notifications"
 	"github.com/orrrrli/locker/api/internal/application/pages"
@@ -145,6 +146,7 @@ func newAPI(t *testing.T, now func() time.Time) apiTest {
 		Venues: venueSvc, Memberships: memberships, Users: postgres.NewUsers(pool), Limits: limits, Leagues: leagueSvc, Pages: pageSvc, Leads: leadSvc,
 		Blocks:             blocks.NewService(postgres.NewBlocks(pool)),
 		Follows:            follows.NewService(postgres.NewFollows(pool)),
+		Media:              media.NewService(media.Deps{Uploads: postgres.NewMediaUploads(pool), Storage: fakePhotos{}, Now: now}),
 		NotificationFinder: notificationRepo,
 	}))
 	mux.Handle("GET /test/whoami", authHandlers{svc: svc}.requireAuth(http.HandlerFunc(

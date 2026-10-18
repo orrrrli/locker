@@ -7,6 +7,7 @@ import (
 
 	"github.com/orrrrli/locker/api/internal/domain"
 	"github.com/orrrrli/locker/api/internal/infrastructure/apns"
+	"github.com/orrrrli/locker/api/internal/infrastructure/r2"
 	"github.com/orrrrli/locker/api/internal/infrastructure/resend"
 )
 
@@ -157,6 +158,42 @@ func TestLoadConfig(t *testing.T) {
 			}
 			if cfg.Email != want {
 				t.Fatalf("%s: email config %+v, want %+v", tc.name, cfg.Email, want)
+			}
+		}
+	})
+
+	t.Run("photos bucket", func(t *testing.T) {
+		const account, secret = "0123456789abcdef0123456789abcdef", "s3cr3t-value"
+		for _, tc := range []struct {
+			name, account, bucket, keyID, secret string
+			msg                                  string // "" means valid
+		}{
+			{"not configured", "", "", "", "", ""},
+			{"all four", account, "locker-photos", "key-id", secret, ""},
+			{"no secret", account, "locker-photos", "key-id", "", "set all of"},
+			{"only the account", account, "", "", "", "set all of"},
+			{"bad account", "ACCOUNT", "locker-photos", "key-id", secret, "R2_ACCOUNT_ID"},
+			{"bad bucket", account, "Locker_Photos", "key-id", secret, "R2_PHOTOS_BUCKET"},
+		} {
+			vars := maps.Clone(valid)
+			vars["R2_ACCOUNT_ID"], vars["R2_PHOTOS_BUCKET"] = tc.account, tc.bucket
+			vars["R2_PHOTOS_ACCESS_KEY_ID"], vars["R2_PHOTOS_SECRET_ACCESS_KEY"] = tc.keyID, tc.secret
+			cfg, err := loadConfig(env(vars))
+			if (err == nil) != (tc.msg == "") {
+				t.Fatalf("%s: err %v, want error %q", tc.name, err, tc.msg)
+			}
+			if tc.msg != "" && !strings.Contains(err.Error(), tc.msg) {
+				t.Fatalf("%s: err %v, want it to say %q", tc.name, err, tc.msg)
+			}
+			if err != nil && strings.Contains(err.Error(), secret) {
+				t.Fatalf("%s: err %v leaks the secret", tc.name, err)
+			}
+			want := r2.Config{}
+			if tc.msg == "" && tc.bucket != "" {
+				want = r2.Config{AccountID: account, Bucket: "locker-photos", AccessKeyID: "key-id", SecretAccessKey: secret}
+			}
+			if cfg.Photos != want {
+				t.Fatalf("%s: photos config %+v, want %+v", tc.name, cfg.Photos, want)
 			}
 		}
 	})
