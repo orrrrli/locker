@@ -11,6 +11,7 @@ import (
 
 	"github.com/orrrrli/locker/api/internal/domain"
 	"github.com/orrrrli/locker/api/internal/infrastructure/apns"
+	"github.com/orrrrli/locker/api/internal/infrastructure/r2"
 	"github.com/orrrrli/locker/api/internal/infrastructure/resend"
 )
 
@@ -39,12 +40,18 @@ type config struct {
 	// card quote endpoint (BE-FEES-6) is the first reader.
 	CardFees       domain.CardFeeRates
 	LockerFeeCents int64
+	// Photos is the R2 bucket for post photos and its bucket-scoped key.
+	// Empty until the bucket exists (OPS-FEED-1): photo uploads then answer
+	// 503.
+	Photos r2.Config
 }
 
 var (
 	appleTeamIDPattern   = regexp.MustCompile(`^[A-Z0-9]{10}$`)
 	appleBundleIDPattern = regexp.MustCompile(`^[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)+$`)
 	apnsKeyIDPattern     = regexp.MustCompile(`^[A-Z0-9]{10}$`)
+	r2AccountIDPattern   = regexp.MustCompile(`^[0-9a-f]{32}$`)
+	r2BucketPattern      = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{1,61}[a-z0-9]$`)
 )
 
 // loadConfig reads the API configuration through getenv (os.Getenv in production).
@@ -173,6 +180,34 @@ func loadConfig(getenv func(string) string) (config, error) {
 	cfg.LockerFeeCents = optionalCount("LOCKER_FEE_FIXED_CENTS", 0)
 	if err := cfg.CardFees.Validate(); err != nil {
 		errs = append(errs, fmt.Errorf("MP_FEE_PERCENT_BPS, MP_FEE_FIXED_CENTS, MP_FEE_TAX_BPS: %w", err))
+	}
+
+	// Photos need all four or none: a partial set is a half-done setup.
+	photos := r2.Config{
+		AccountID:       getenv("R2_ACCOUNT_ID"),
+		Bucket:          getenv("R2_PHOTOS_BUCKET"),
+		AccessKeyID:     getenv("R2_PHOTOS_ACCESS_KEY_ID"),
+		SecretAccessKey: getenv("R2_PHOTOS_SECRET_ACCESS_KEY"),
+	}
+	set := 0
+	for _, v := range []string{photos.AccountID, photos.Bucket, photos.AccessKeyID, photos.SecretAccessKey} {
+		if v != "" {
+			set++
+		}
+	}
+	switch {
+	case set == 0:
+		// Not configured yet: photo uploads answer 503.
+	case set < 4:
+		errs = append(errs, errors.New("set all of R2_ACCOUNT_ID, R2_PHOTOS_BUCKET, R2_PHOTOS_ACCESS_KEY_ID and R2_PHOTOS_SECRET_ACCESS_KEY, or none"))
+	case !r2AccountIDPattern.MatchString(photos.AccountID):
+		// R2 values are never echoed: a secret pasted into the wrong
+		// variable would otherwise land in the deploy logs.
+		errs = append(errs, fmt.Errorf("R2_ACCOUNT_ID must be 32 lowercase hex characters, got %d characters", len(photos.AccountID)))
+	case !r2BucketPattern.MatchString(photos.Bucket):
+		errs = append(errs, fmt.Errorf("R2_PHOTOS_BUCKET must be 3 to 63 lowercase letters, digits or hyphens, got %d characters", len(photos.Bucket)))
+	default:
+		cfg.Photos = photos
 	}
 
 	if len(missing) > 0 {

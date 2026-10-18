@@ -22,6 +22,7 @@ import (
 	"github.com/orrrrli/locker/api/internal/application/leads"
 	"github.com/orrrrli/locker/api/internal/application/leagues"
 	"github.com/orrrrli/locker/api/internal/application/matches"
+	"github.com/orrrrli/locker/api/internal/application/media"
 	applicationmemberships "github.com/orrrrli/locker/api/internal/application/memberships"
 	"github.com/orrrrli/locker/api/internal/application/notifications"
 	"github.com/orrrrli/locker/api/internal/application/pages"
@@ -31,6 +32,7 @@ import (
 	"github.com/orrrrli/locker/api/internal/infrastructure/apns"
 	"github.com/orrrrli/locker/api/internal/infrastructure/password"
 	"github.com/orrrrli/locker/api/internal/infrastructure/postgres"
+	"github.com/orrrrli/locker/api/internal/infrastructure/r2"
 	"github.com/orrrrli/locker/api/internal/infrastructure/resend"
 )
 
@@ -157,6 +159,12 @@ func start() error {
 	})
 	pageSvc := pages.NewService(pages.Deps{Pages: postgres.NewPages(pool), Memberships: memberships})
 	leadSvc := leads.NewService(leads.Deps{Tx: postgres.NewTxRunner(pool), Leads: postgres.NewVenueLeads(pool)})
+	// Storage stays nil, uploads answer 503, until the R2 bucket is configured.
+	var photos media.Storage
+	if cfg.Photos.Bucket != "" {
+		photos = r2.New(cfg.Photos)
+	}
+	mediaSvc := media.NewService(media.Deps{Tx: postgres.NewTxRunner(pool), Uploads: postgres.NewMediaUploads(pool), Storage: photos})
 	router := apihttp.NewRouter(apihttp.Deps{
 		Auth:               authSvc,
 		Teams:              teamSvc,
@@ -172,6 +180,7 @@ func start() error {
 		Leads:              leadSvc,
 		Blocks:             blocks.NewService(postgres.NewBlocks(pool)),
 		Follows:            follows.NewService(postgres.NewFollows(pool)),
+		Media:              mediaSvc,
 		MatchFinder:        matchRepo,
 		ChargeFinder:       chargeRepo,
 		AppleAppID:         cfg.AppleAppID,
@@ -190,6 +199,7 @@ func start() error {
 		runJob(ctx, "delete expired invites", inviteSvc.DeleteExpired)
 		runJob(ctx, "close attendance", matchSvc.CloseDueAttendance)
 		runJob(ctx, "send rsvp reminders", notificationSvc.SendDueReminders)
+		runJob(ctx, "delete unused photo uploads", mediaSvc.DeleteUnused)
 	})
 
 	ln, err := net.Listen("tcp", ":"+strconv.Itoa(cfg.Port))
