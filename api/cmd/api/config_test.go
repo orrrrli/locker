@@ -163,7 +163,9 @@ func TestLoadConfig(t *testing.T) {
 	})
 
 	t.Run("photos bucket", func(t *testing.T) {
-		const account, secret = "0123456789abcdef0123456789abcdef", "s3cr3t-value"
+		const account = "0123456789abcdef0123456789abcdef"
+		// R2 secrets are 64 hex characters.
+		const secret = "fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210"
 		for _, tc := range []struct {
 			name, account, bucket, keyID, secret string
 			msg                                  string // "" means valid
@@ -174,6 +176,9 @@ func TestLoadConfig(t *testing.T) {
 			{"only the account", account, "", "", "", "set all of"},
 			{"bad account", "ACCOUNT", "locker-photos", "key-id", secret, "R2_ACCOUNT_ID"},
 			{"bad bucket", account, "Locker_Photos", "key-id", secret, "R2_PHOTOS_BUCKET"},
+			// A secret pasted into the wrong variable must not reach the logs.
+			{"secret as account", secret, "locker-photos", "key-id", secret, "R2_ACCOUNT_ID"},
+			{"secret as bucket", account, secret, "key-id", secret, "R2_PHOTOS_BUCKET"},
 		} {
 			vars := maps.Clone(valid)
 			vars["R2_ACCOUNT_ID"], vars["R2_PHOTOS_BUCKET"] = tc.account, tc.bucket

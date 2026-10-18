@@ -201,9 +201,11 @@ func loadConfig(getenv func(string) string) (config, error) {
 	case set < 4:
 		errs = append(errs, errors.New("set all of R2_ACCOUNT_ID, R2_PHOTOS_BUCKET, R2_PHOTOS_ACCESS_KEY_ID and R2_PHOTOS_SECRET_ACCESS_KEY, or none"))
 	case !r2AccountIDPattern.MatchString(photos.AccountID):
-		errs = append(errs, fmt.Errorf("R2_ACCOUNT_ID must be 32 lowercase hex characters, got %q", photos.AccountID))
+		// R2 values are never echoed: a secret pasted into the wrong
+		// variable would otherwise land in the deploy logs.
+		errs = append(errs, fmt.Errorf("R2_ACCOUNT_ID must be 32 lowercase hex characters, got %d characters", len(photos.AccountID)))
 	case !r2BucketPattern.MatchString(photos.Bucket):
-		errs = append(errs, fmt.Errorf("R2_PHOTOS_BUCKET must be 3 to 63 lowercase letters, digits or hyphens, got %q", photos.Bucket))
+		errs = append(errs, fmt.Errorf("R2_PHOTOS_BUCKET must be 3 to 63 lowercase letters, digits or hyphens, got %d characters", len(photos.Bucket)))
 	default:
 		cfg.Photos = photos
 	}

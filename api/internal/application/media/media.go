@@ -28,6 +28,9 @@ const (
 	// deleteBatch caps the keys one DeleteUnused run removes, so a backlog
 	// cannot hold the ticker for long; the next tick takes the rest.
 	deleteBatch = 100
+	// deleteBudget bounds one DeleteUnused run, so an R2 outage cannot hold
+	// the jobs that run after it on the same ticker.
+	deleteBudget = 30 * time.Second
 )
 
 var (
@@ -44,8 +47,8 @@ var extensions = map[string]string{"image/jpeg": ".jpg", "image/png": ".png"}
 
 // Storage is the photo bucket.
 type Storage interface {
-	// PresignPut returns a URL that accepts one PUT of exactly size bytes of
-	// contentType to key, until ttl passes.
+	// PresignPut returns a URL that accepts PUTs of exactly size bytes of
+	// contentType to key until ttl passes; each PUT replaces the object.
 	PresignPut(ctx context.Context, key, contentType string, size int64, ttl time.Duration) (string, error)
 	// Delete removes the object; a key never uploaded is not an error.
 	Delete(ctx context.Context, key string) error
@@ -146,6 +149,8 @@ func (s *Service) DeleteUnused(ctx context.Context) (int64, error) {
 	if s.storage == nil {
 		return 0, nil
 	}
+	ctx, cancel := context.WithTimeout(ctx, deleteBudget)
+	defer cancel()
 	keys, err := s.uploads.DeleteUnused(ctx, s.now().Add(-UnusedTTL), deleteBatch)
 	if err != nil {
 		return 0, err

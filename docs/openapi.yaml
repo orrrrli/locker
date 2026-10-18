@@ -2385,7 +2385,7 @@ paths:
                         upload_url:
                           type: string
                           format: uri
-                          description: Takes one PUT of the photo's bytes.
+                          description: Takes PUTs of the photo's bytes until `expires_at`; each PUT replaces the object.
                         headers:
                           type: object
                           required: [Content-Type, Content-Length]
