@@ -44,6 +44,8 @@ tags:
   - name: venues
   - name: public
     description: Public team, venue and league pages (R17), for any signed-in user.
+  - name: social
+    description: Follows of teams and leagues (R20).
   - name: moderation
     description: One-way user blocks (R23).
   - name: operator
@@ -2313,6 +2315,68 @@ paths:
           $ref: "#/components/responses/NotFound"
         "500":
           $ref: "#/components/responses/Internal"
+  /follows/{kind}/{id}:
+    parameters:
+      - name: kind
+        in: path
+        required: true
+        schema:
+          type: string
+          enum: [team, league]
+      - name: id
+        in: path
+        required: true
+        description: The team or league.
+        schema:
+          type: integer
+          format: int64
+          minimum: 1
+    put:
+      tags: [social]
+      operationId: follow
+      summary: Follow a team or a league
+      description: |
+        The caller follows the team or league (R20.1). Following again
+        answers 204 and keeps one follow (R20.2). It grants no access to a team's member-only content: those
+        routes still need an active membership (R20.5). A dissolved team
+        cannot be followed (R6.10).
+      security:
+        - bearerAuth: []
+      responses:
+        "204":
+          description: Followed, or already followed.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          description: "`not_found`: unknown kind, unknown team or league, dissolved team, or an id that is not a positive integer."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          $ref: "#/components/responses/Internal"
+    delete:
+      tags: [social]
+      operationId: unfollow
+      summary: Stop following a team or a league
+      description: |
+        Removes the caller's follow (R20.3). With no follow, or an unknown
+        team or league, it also answers 204 and removes nothing.
+      security:
+        - bearerAuth: []
+      responses:
+        "204":
+          description: Unfollowed, or there was no follow.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          description: "`not_found`: unknown kind, or an id that is not a positive integer."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          $ref: "#/components/responses/Internal"
   /users/{id}/block:
     parameters:
       - name: id
@@ -4413,7 +4477,7 @@ components:
     PublicTeam:
       type: object
       additionalProperties: false
-      required: [id, name, initials, active_members, captains, leagues, viewer_status]
+      required: [id, name, initials, active_members, followers, captains, leagues, viewer_status]
       properties:
         id:
           type: integer
@@ -4425,6 +4489,9 @@ components:
           description: First letters of the first two words ("Atlético Narvarte" is "AN"), or the first two letters of a one-word name, uppercased.
         active_members:
           type: integer
+        followers:
+          type: integer
+          description: How many users follow the team (R20.4). Who they are is never shown.
         captains:
           type: array
           description: The active admins' names, by name. The app labels them "Capitán".
@@ -4502,8 +4569,11 @@ components:
                       $ref: "#/components/schemas/TimeOfDay"
     LeaguePage:
       type: object
-      required: [id, name, weekday, start_time, end_time, season_name, season_starts_on, season_ends_on, venue]
+      required: [id, name, weekday, start_time, end_time, season_name, season_starts_on, season_ends_on, venue, followers]
       properties:
+        followers:
+          type: integer
+          description: How many users follow the league (R20.4). Who they are is never shown.
         id:
           type: integer
           format: int64

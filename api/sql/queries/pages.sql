@@ -5,7 +5,8 @@
 -- name: GetPublicTeam :one
 -- A dissolved team has no public page (R6.10).
 SELECT t.id, t.name,
-       (SELECT count(*) FROM membership m WHERE m.team_id = t.id AND m.status = 'active') AS active_members
+       (SELECT count(*) FROM membership m WHERE m.team_id = t.id AND m.status = 'active') AS active_members,
+       (SELECT count(*) FROM follow f WHERE f.team_id = t.id) AS followers -- R20.4: the count, never who
 FROM team t
 WHERE t.id = $1 AND t.dissolved_at IS NULL;
 
@@ -37,6 +38,10 @@ WHERE id = $1;
 SELECT id, name, weekday, start_time, end_time FROM league
 WHERE venue_id = $1
 ORDER BY weekday, start_time, id;
+
+-- name: CountLeagueFollowers :one
+-- R20.4: the count, never who.
+SELECT count(*) FROM follow WHERE league_id = $1;
 
 -- name: GetLeagueVenue :one
 SELECT v.id, v.name, v.address, v.timezone

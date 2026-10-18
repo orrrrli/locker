@@ -11,6 +11,18 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const countLeagueFollowers = `-- name: CountLeagueFollowers :one
+SELECT count(*) FROM follow WHERE league_id = $1
+`
+
+// R20.4: the count, never who.
+func (q *Queries) CountLeagueFollowers(ctx context.Context, leagueID pgtype.Int8) (int64, error) {
+	row := q.db.QueryRow(ctx, countLeagueFollowers, leagueID)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const getLeagueVenue = `-- name: GetLeagueVenue :one
 SELECT v.id, v.name, v.address, v.timezone
 FROM league l JOIN venue v ON v.id = l.venue_id
@@ -39,7 +51,8 @@ func (q *Queries) GetLeagueVenue(ctx context.Context, id int64) (GetLeagueVenueR
 const getPublicTeam = `-- name: GetPublicTeam :one
 
 SELECT t.id, t.name,
-       (SELECT count(*) FROM membership m WHERE m.team_id = t.id AND m.status = 'active') AS active_members
+       (SELECT count(*) FROM membership m WHERE m.team_id = t.id AND m.status = 'active') AS active_members,
+       (SELECT count(*) FROM follow f WHERE f.team_id = t.id) AS followers -- R20.4: the count, never who
 FROM team t
 WHERE t.id = $1 AND t.dissolved_at IS NULL
 `
@@ -48,6 +61,7 @@ type GetPublicTeamRow struct {
 	ID            int64
 	Name          string
 	ActiveMembers int64
+	Followers     int64
 }
 
 // Public pages (R17): what any signed-in user may see about a team, a venue
@@ -57,7 +71,12 @@ type GetPublicTeamRow struct {
 func (q *Queries) GetPublicTeam(ctx context.Context, id int64) (GetPublicTeamRow, error) {
 	row := q.db.QueryRow(ctx, getPublicTeam, id)
 	var i GetPublicTeamRow
-	err := row.Scan(&i.ID, &i.Name, &i.ActiveMembers)
+	err := row.Scan(
+		&i.ID,
+		&i.Name,
+		&i.ActiveMembers,
+		&i.Followers,
+	)
 	return i, err
 }
 

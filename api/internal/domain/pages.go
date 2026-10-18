@@ -14,6 +14,7 @@ type PublicTeam struct {
 	Name          string
 	Initials      string
 	ActiveMembers int
+	Followers     int      // R20.4: the count, never who
 	Captains      []string // the active admins' names, shown as "Capitán"
 	Leagues       []TeamLeague
 	// ViewerStatus is the viewer's own membership, active or pending; nil
@@ -43,7 +44,8 @@ type VenuePage struct {
 // LeaguePage is a league's public page (R17.8) with its venue.
 type LeaguePage struct {
 	League
-	Venue Venue // only ID, Name, Address and Timezone are set
+	Venue     Venue // only ID, Name, Address and Timezone are set
+	Followers int   // R20.4: the count, never who
 }
 
 // LeagueTeam is a team on a league's page.
