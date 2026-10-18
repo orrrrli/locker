@@ -179,6 +179,31 @@ type NotificationRecipient struct {
 	ReadAt         pgtype.Timestamptz
 }
 
+type Post struct {
+	ID            int64
+	AuthorUserID  int64
+	AsKind        string
+	TeamID        pgtype.Int8
+	LeagueID      pgtype.Int8
+	VenueID       pgtype.Int8
+	Body          pgtype.Text
+	ShareToken    string
+	RemovedAt     pgtype.Timestamptz
+	RemovedBy     pgtype.Int8
+	RemovalReason pgtype.Text
+	CreatedAt     pgtype.Timestamptz
+}
+
+type PostMedium struct {
+	ID          int64
+	PostID      int64
+	StorageKey  string
+	Position    int16
+	ContentType string
+	SizeBytes   int64
+	CreatedAt   pgtype.Timestamptz
+}
+
 type Rsvp struct {
 	MatchID      int64
 	MembershipID int64
