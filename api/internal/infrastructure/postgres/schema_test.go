@@ -175,6 +175,7 @@ func TestDomainEnumsMatchCheckConstraints(t *testing.T) {
 		{"rsvp", "answer", []string{string(domain.RSVPGoing), string(domain.RSVPNotGoing)}},
 		{"notification", "kind", []string{string(domain.NotificationManual), string(domain.NotificationMatchCreated), string(domain.NotificationMatchChanged), string(domain.NotificationRSVPReminder)}},
 		{"charge_member", "status", []string{string(domain.ChargePending), string(domain.ChargePaid)}},
+		{"post", "as_kind", []string{string(domain.PostAsTeam), string(domain.PostAsPlayer), string(domain.PostAsLeague), string(domain.PostAsVenue)}},
 	}
 	for _, e := range enums {
 		// The column's own CHECK is the one that lists every value with = ANY.
