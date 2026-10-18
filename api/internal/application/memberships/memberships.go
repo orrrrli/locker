@@ -35,7 +35,7 @@ const maxShirtNumber = 99
 
 // Memberships is what the membership use cases need from the membership table.
 type Memberships interface {
-	application.AdminLocker
+	application.TeamLocker
 	// ApprovePending and RejectPending return domain.ErrNotFound when the row
 	// is no longer pending.
 	ApprovePending(ctx context.Context, id int64) (domain.Membership, error)
@@ -68,24 +68,16 @@ func NewService(d Deps) *Service {
 // team (R6.2, R6.3), but never demotes another admin (R6.12). It rejects a
 // demotion that would leave the team with no active admin, checked under the
 // team lock in the same transaction as the write (R6.4). callerID is the
-// caller's active membership, from requireActiveMember; LockTeamAsAdmin
-// checks it is an admin.
+// caller's active membership, from requireActiveMember; WithTeamLock checks
+// it is an admin.
 func (s *Service) ChangeRole(ctx context.Context, teamID, callerID, membershipID int64, role domain.Role) (domain.Membership, error) {
 	if role != domain.RoleAdmin && role != domain.RolePlayer {
 		return domain.Membership{}, ErrInvalidRole
 	}
 	var out domain.Membership
-	err := s.tx.InTx(ctx, func(ctx context.Context) error {
-		// Lock first, then read the target: a target read before the lock
-		// can be stale and let the last admin go.
-		admins, err := application.LockTeamAsAdmin(ctx, s.memberships, teamID, callerID)
-		if err != nil {
-			return err
-		}
-		m, err := s.memberships.MembershipInTeam(ctx, teamID, membershipID)
-		if err != nil {
-			return err
-		}
+	lock := application.TeamLock{AdminID: callerID, TargetID: membershipID, LosesAdmin: role == domain.RolePlayer}
+	err := application.WithTeamLock(ctx, s.tx, s.memberships, teamID, lock, func(ctx context.Context, l application.Locked) error {
+		m := l.Target
 		if m.Status != domain.MembershipActive {
 			return ErrNotActive
 		}
@@ -97,10 +89,8 @@ func (s *Service) ChangeRole(ctx context.Context, teamID, callerID, membershipID
 			if err := checkNotOtherAdmin(m, callerID); err != nil {
 				return err
 			}
-			if err := domain.CheckAdminLoss(m, admins); err != nil {
-				return err
-			}
 		}
+		var err error
 		out, err = s.memberships.UpdateRole(ctx, m.ID, role)
 		return err
 	})
@@ -157,35 +147,21 @@ func (s *Service) lockAndCheckPending(ctx context.Context, teamID, callerID, mem
 
 // Leave sets an active membership of the team to left, keeping its row and
 // history (R8.3): the member leaves when callerID is membershipID, otherwise
-// the admin callerID removes them, players only (R6.12). Either way it rejects losing the team's
-// last active admin, checked under the team lock in the same transaction as
-// the write (R6.4). callerID is the caller's active membership, from
-// requireActiveMember.
+// the admin callerID removes them, players only (R6.12). Either way it rejects
+// losing the team's last active admin, checked under the team lock in the
+// same transaction as the write (R6.4). callerID is the caller's active
+// membership, from requireActiveMember.
 func (s *Service) Leave(ctx context.Context, teamID, callerID, membershipID int64) error {
-	return s.tx.InTx(ctx, func(ctx context.Context) error {
-		var admins int
-		var err error
-		if callerID == membershipID {
-			// No admin caller: lock even for a player, since a role read
-			// before the lock can be stale.
-			admins, err = s.memberships.LockTeamForAdminChange(ctx, teamID)
-		} else {
-			admins, err = application.LockTeamAsAdmin(ctx, s.memberships, teamID, callerID)
-		}
-		if err != nil {
-			return err
-		}
-		m, err := s.memberships.MembershipInTeam(ctx, teamID, membershipID)
-		if err != nil {
-			return err
-		}
+	lock := application.TeamLock{TargetID: membershipID, LosesAdmin: true, NoAdminCaller: true}
+	if callerID != membershipID {
+		lock.AdminID, lock.NoAdminCaller = callerID, false
+	}
+	return application.WithTeamLock(ctx, s.tx, s.memberships, teamID, lock, func(ctx context.Context, l application.Locked) error {
+		m := l.Target
 		if m.Status != domain.MembershipActive {
 			return ErrNotActive
 		}
 		if err := checkNotOtherAdmin(m, callerID); err != nil {
-			return err
-		}
-		if err := domain.CheckAdminLoss(m, admins); err != nil {
 			return err
 		}
 		return s.memberships.SetLeft(ctx, m.ID)

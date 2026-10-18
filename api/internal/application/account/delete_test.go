@@ -4,9 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"sync"
 	"testing"
-	"time"
 
 	"github.com/orrrrli/locker/api/internal/domain"
 	"github.com/orrrrli/locker/api/internal/infrastructure/postgres"
@@ -201,76 +199,6 @@ func TestDeleteTeamJoinedMeanwhileIsBusy(t *testing.T) {
 	}
 	if n := f.count(t, `SELECT count(*) FROM membership WHERE id = $1 AND user_id = $2 AND display_name_override IS NULL`, asLeft, u); n != 1 {
 		t.Errorf("left membership anonymized despite the rollback")
-	}
-}
-
-// pausedLocker holds each deletion right after it locks a team and counts its
-// admins, until the other deletion has counted too or wait runs out. With the
-// lock the second is still blocked, so the first goes on after the wait;
-// without it both count 2 and both delete.
-type pausedLocker struct {
-	*postgres.Memberships
-	mu   sync.Mutex
-	n    int
-	all  chan struct{}
-	wait time.Duration
-}
-
-func (p *pausedLocker) LockTeamForAdminChange(ctx context.Context, teamID int64) (int, error) {
-	n, err := p.Memberships.LockTeamForAdminChange(ctx, teamID)
-	if err == nil {
-		p.mu.Lock()
-		if p.n++; p.n == 2 {
-			close(p.all)
-		}
-		p.mu.Unlock()
-		select {
-		case <-p.all:
-		case <-time.After(p.wait):
-		}
-	}
-	return n, err
-}
-
-// TestConcurrentDeletesKeepAnAdmin: the team's two admins delete their
-// accounts at once; exactly one succeeds and the team keeps a real admin
-// (R5.4, R6.4).
-func TestConcurrentDeletesKeepAnAdmin(t *testing.T) {
-	f := newFixture(t)
-	a, b := f.user(t), f.user(t)
-	team := f.team(t, "Co")
-	f.member(t, team, a, domain.RoleAdmin, domain.MembershipActive)
-	f.member(t, team, b, domain.RoleAdmin, domain.MembershipActive)
-	f.svc.memberships = &pausedLocker{Memberships: postgres.NewMemberships(f.pool), all: make(chan struct{}), wait: 500 * time.Millisecond}
-
-	errs := make([]error, 2)
-	var wg sync.WaitGroup
-	for i, u := range []int64{a, b} {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			errs[i] = f.svc.Delete(context.Background(), u)
-		}()
-	}
-	wg.Wait()
-
-	ok, blocked := 0, 0
-	for _, err := range errs {
-		var lae *LastAdminError
-		switch {
-		case err == nil:
-			ok++
-		case errors.As(err, &lae):
-			blocked++
-		default:
-			t.Fatalf("unexpected err: %v", err)
-		}
-	}
-	if ok != 1 || blocked != 1 {
-		t.Fatalf("errs = %v, want one success and one LastAdminError", errs)
-	}
-	if n := f.count(t, `SELECT count(*) FROM membership WHERE team_id = $1 AND role = 'admin' AND status = 'active' AND user_id IS NOT NULL`, team); n != 1 {
-		t.Errorf("real active admins = %d, want 1", n)
 	}
 }
 

@@ -60,12 +60,22 @@ func (f *fixture) member(t *testing.T, teamID, userID int64, role domain.Role, s
 		teamID, userID, role, status)
 }
 
+var errRollback = errors.New("rollback")
+
+// check runs Delete in a transaction it always rolls back, so a deletion the
+// last-admin check lets through changes nothing.
 func (f *fixture) check(t *testing.T, userID int64) error {
 	t.Helper()
-	return f.svc.tx.InTx(context.Background(), func(ctx context.Context) error {
-		_, err := f.svc.checkLastAdmin(ctx, userID)
-		return err
+	err := f.svc.tx.InTx(context.Background(), func(ctx context.Context) error {
+		if err := f.svc.Delete(ctx, userID); err != nil {
+			return err
+		}
+		return errRollback
 	})
+	if errors.Is(err, errRollback) {
+		return nil
+	}
+	return err
 }
 
 // lockProbe records, for each team, whether its lock was held when the
@@ -141,5 +151,48 @@ func TestCheckLastAdmin(t *testing.T) {
 	f.member(t, alone, f.user(t), domain.RoleAdmin, domain.MembershipActive)
 	if err := f.check(t, u); err != nil {
 		t.Fatalf("after a second admin: err = %v, want nil", err)
+	}
+}
+
+// anonymizeProbe records, for each team, whether its lock was held when the
+// user's memberships were anonymized.
+type anonymizeProbe struct {
+	*postgres.Memberships
+	t      *testing.T
+	pool   *pgxpool.Pool
+	locked map[int64]bool
+}
+
+func (p anonymizeProbe) AnonymizeForUser(ctx context.Context, userID int64, teamIDs []int64) (int, error) {
+	for _, id := range teamIDs {
+		p.locked[id] = testdb.TeamLocked(p.t, p.pool, id)
+	}
+	return p.Memberships.AnonymizeForUser(ctx, userID, teamIDs)
+}
+
+// TestDeleteWritesUnderTheLocks: the memberships are anonymized while every
+// lock the last-admin check took is still held, so no admin can leave or be
+// demoted between the check and the write (R6.4). It calls Delete directly:
+// an outer transaction would hold the locks even if Delete dropped them.
+func TestDeleteWritesUnderTheLocks(t *testing.T) {
+	f := newFixture(t)
+	probe := anonymizeProbe{Memberships: postgres.NewMemberships(f.pool), t: t, pool: f.pool, locked: map[int64]bool{}}
+	f.svc.memberships = probe
+	u, other := f.user(t), f.user(t)
+
+	coAdmin := f.team(t, "Co")
+	f.member(t, coAdmin, u, domain.RoleAdmin, domain.MembershipActive)
+	f.member(t, coAdmin, other, domain.RoleAdmin, domain.MembershipActive)
+	asPlayer := f.team(t, "Player")
+	f.member(t, asPlayer, other, domain.RoleAdmin, domain.MembershipActive)
+	f.member(t, asPlayer, u, domain.RolePlayer, domain.MembershipActive)
+
+	if err := f.svc.Delete(context.Background(), u); err != nil {
+		t.Fatal(err)
+	}
+	for _, id := range []int64{coAdmin, asPlayer} {
+		if !probe.locked[id] {
+			t.Errorf("team %d: memberships anonymized without its lock", id)
+		}
 	}
 }

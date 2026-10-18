@@ -673,6 +673,16 @@ func TestLeaveWritesUnderTheTeamLock(t *testing.T) {
 	}
 }
 
+func (f *fixture) activeAdmins(t *testing.T, team int64) int {
+	t.Helper()
+	var n int
+	if err := f.pool.QueryRow(context.Background(),
+		`SELECT count(*) FROM membership WHERE team_id = $1 AND role = 'admin' AND status = 'active'`, team).Scan(&n); err != nil {
+		t.Fatal(err)
+	}
+	return n
+}
+
 // TestLeaveLastAdmin: the team's only active admin cannot leave (R6.4). An
 // admin who left keeps role admin on the left row, and that row must not
 // count as an admin.
