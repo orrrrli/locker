@@ -33,20 +33,14 @@ func (e *LastAdminError) Unwrap() error { return domain.ErrLastAdmin }
 
 // Teams is what the account use cases need from the team table.
 type Teams interface {
-	// ListActiveForUser returns the user's teams with an active membership,
-	// ordered by id. checkLastAdmin locks them in that order.
+	// ListActiveForUser returns the user's teams with an active membership.
 	ListActiveForUser(ctx context.Context, userID int64) ([]domain.Team, error)
 	CountActiveMembers(ctx context.Context, teamID int64) (int, error)
 }
 
 // Memberships is what the account use cases need from the membership table.
 type Memberships interface {
-	// LockTeamForAdminChange locks the team and returns its active admin
-	// count; domain.ErrNotFound for an unknown team.
-	LockTeamForAdminChange(ctx context.Context, teamID int64) (int, error)
-	// MembershipByTeamAndUser returns domain.ErrNotFound when the user has no
-	// membership in the team.
-	MembershipByTeamAndUser(ctx context.Context, teamID, userID int64) (domain.Membership, error)
+	application.TeamsLocker
 	// AnonymizeForUser deletes the user's never-joined pending rows and
 	// turns the rest into left players named "Ex-jugador #<id>" with no
 	// user; an active row only in lockedTeamIDs. It returns how many rows
@@ -108,59 +102,53 @@ func (s *Service) Me(ctx context.Context, userID int64) (domain.User, error) {
 // membership writes still need to check user.deleted_at.
 func (s *Service) Delete(ctx context.Context, userID int64) error {
 	return s.tx.InTx(ctx, func(ctx context.Context) error {
-		locked, err := s.checkLastAdmin(ctx, userID)
+		teams, err := s.teams.ListActiveForUser(ctx, userID)
 		if err != nil {
 			return err
 		}
-		stillLinked, err := s.memberships.AnonymizeForUser(ctx, userID, locked)
-		if err != nil {
-			return err
+		byID := make(map[int64]domain.Team, len(teams))
+		ids := make([]int64, 0, len(teams))
+		for _, t := range teams {
+			byID[t.ID] = t
+			ids = append(ids, t.ID)
 		}
-		if stillLinked > 0 {
-			return domain.ErrTeamBusy
-		}
-		return s.users.DeletePersonalData(ctx, userID)
+		// It locks every active team of the user, not only those where they
+		// are an admin: a role read before the lock can be stale. The locks
+		// hold until the deletion commits, so no admin leaves or is demoted
+		// meanwhile (R6.4).
+		return application.WithTeamsLocked(ctx, s.tx, s.memberships, userID, ids, func(ctx context.Context, locked []application.LockedTeam) error {
+			if err := s.checkLastAdmin(ctx, byID, locked); err != nil {
+				return err
+			}
+			stillLinked, err := s.memberships.AnonymizeForUser(ctx, userID, ids)
+			if err != nil {
+				return err
+			}
+			if stillLinked > 0 {
+				return domain.ErrTeamBusy
+			}
+			return s.users.DeletePersonalData(ctx, userID)
+		})
 	})
 }
 
-// checkLastAdmin returns the ids of the teams it locked, or a *LastAdminError
-// listing every team where the user is the only active admin (R5.4), each
-// marked when the user is its only active member (R6.8). It must
-// run inside the deletion's
-// transaction: it locks each of the user's teams and keeps the locks, so no
-// admin leaves or is demoted before the deletion commits (R6.4).
-//
-// It locks every active team of the user, not only those where they are an
-// admin: a role read before the lock can be stale. The teams come ordered by
-// id, so two deletions that share teams lock them in the same order and
-// cannot deadlock.
-func (s *Service) checkLastAdmin(ctx context.Context, userID int64) ([]int64, error) {
-	teams, err := s.teams.ListActiveForUser(ctx, userID)
-	if err != nil {
-		return nil, err
-	}
-	locked := make([]int64, 0, len(teams))
+// checkLastAdmin returns a *LastAdminError listing every locked team where
+// the user is the only active admin (R5.4), each marked when the user is its
+// only active member (R6.8).
+func (s *Service) checkLastAdmin(ctx context.Context, byID map[int64]domain.Team, locked []application.LockedTeam) error {
 	var blocked []BlockedTeam
-	for _, t := range teams {
-		admins, err := s.memberships.LockTeamForAdminChange(ctx, t.ID)
+	for _, t := range locked {
+		if !t.LastAdmin {
+			continue
+		}
+		n, err := s.teams.CountActiveMembers(ctx, t.TeamID)
 		if err != nil {
-			return nil, err
+			return err
 		}
-		locked = append(locked, t.ID)
-		m, err := s.memberships.MembershipByTeamAndUser(ctx, t.ID, userID)
-		if err != nil {
-			return nil, err
-		}
-		if domain.CheckAdminLoss(m, admins) != nil {
-			n, err := s.teams.CountActiveMembers(ctx, t.ID)
-			if err != nil {
-				return nil, err
-			}
-			blocked = append(blocked, BlockedTeam{Team: t, SoleMember: n == 1})
-		}
+		blocked = append(blocked, BlockedTeam{Team: byID[t.TeamID], SoleMember: n == 1})
 	}
 	if len(blocked) > 0 {
-		return nil, &LastAdminError{Teams: blocked}
+		return &LastAdminError{Teams: blocked}
 	}
-	return locked, nil
+	return nil
 }
