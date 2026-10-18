@@ -19,15 +19,18 @@ INSERT INTO post_media (post_id, storage_key, position, content_type, size_bytes
 VALUES ($1, $2, $3, $4, $5);
 
 -- name: AttachMediaUploads :execrows
--- Only keys issued to the author that no post uses yet. A key the cleanup
--- job holds waits here for its lock, then is gone or still unused.
+-- Only keys issued to the author after issued_after (media.AttachTTL) that no
+-- post uses yet; the cleanup job only takes keys older than that, so the two
+-- never meet on a row.
 UPDATE media_upload
 SET post_id = sqlc.arg(post_id)
 WHERE storage_key = ANY(sqlc.arg(storage_keys)::text[])
-  AND user_id = sqlc.arg(user_id) AND post_id IS NULL;
+  AND user_id = sqlc.arg(user_id) AND post_id IS NULL
+  AND created_at > sqlc.arg(issued_after)::timestamptz;
 
 -- name: CountUnusedMediaUploads :one
 -- The read-only check before R2 is asked about any key.
 SELECT count(*) FROM media_upload
 WHERE storage_key = ANY(sqlc.arg(storage_keys)::text[])
-  AND user_id = sqlc.arg(user_id) AND post_id IS NULL;
+  AND user_id = sqlc.arg(user_id) AND post_id IS NULL
+  AND created_at > sqlc.arg(issued_after)::timestamptz;

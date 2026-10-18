@@ -413,3 +413,38 @@ func TestPublishAsksR2OnlyAboutOwnUnusedKeys(t *testing.T) {
 		t.Fatalf("R2 was asked about %v", rec.asked)
 	}
 }
+
+// A key older than media.AttachTTL may be in the cleanup job's hands, so it
+// no longer goes into a post, and R2 is not asked about it.
+func TestPublishRejectsKeysPastAttachTTL(t *testing.T) {
+	f := setup(t)
+	rec := &recordingPhotos{fakePhotos: f.photos}
+	svc := f.service(rec)
+	issued := *f.now
+	f.upload(t, f.admin, "photos/old")
+	f.upload(t, f.admin, "photos/fresh")
+	in := asTeam(f.team, "Hola")
+
+	*f.now = issued.Add(media.AttachTTL)
+	in.Keys = []string{"photos/old"}
+	if _, err := svc.Publish(context.Background(), f.admin, in); !errors.Is(err, posts.ErrInvalidPhoto) {
+		t.Fatalf("key exactly AttachTTL old: err = %v, want ErrInvalidPhoto", err)
+	}
+	if len(rec.asked) != 0 {
+		t.Fatalf("R2 was asked about %v", rec.asked)
+	}
+
+	*f.now = issued.Add(media.AttachTTL - time.Second)
+	in.Keys = []string{"photos/fresh"}
+	p, err := svc.Publish(context.Background(), f.admin, in)
+	if err != nil {
+		t.Fatalf("key just under AttachTTL: %v", err)
+	}
+
+	// The attach applies the bound too, not only the check before R2: a key
+	// that crosses it between the two still stays out.
+	n, err := postgres.NewPosts(f.pool).AttachUploads(context.Background(), p.ID, f.admin, []string{"photos/old"}, issued)
+	if err != nil || n != 0 {
+		t.Fatalf("attach of a key issued at the bound = %d, %v; want 0", n, err)
+	}
+}

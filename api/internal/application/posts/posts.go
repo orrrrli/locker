@@ -23,8 +23,6 @@ const (
 	MaxBodyLen = 500
 	// MaxPerDay is how many posts one user may publish in 24 hours (NFR 9).
 	MaxPerDay = 20
-	// maxSmallBytes caps a photo's small version (design.md Photo upload flow).
-	maxSmallBytes = 1 << 20
 	// maxKeyLen bounds a storage key before it reaches R2; issued keys are
 	// far shorter.
 	maxKeyLen = 200
@@ -51,12 +49,12 @@ type Posts interface {
 	// Create stores p and its media; domain.ErrNotFound when its team, league
 	// or venue does not exist.
 	Create(ctx context.Context, p domain.Post) (domain.Post, error)
-	// AttachUploads marks the keys issued to userID that no post uses as used
-	// by postID, and returns how many it marked.
-	AttachUploads(ctx context.Context, postID, userID int64, keys []string) (int, error)
-	// CountUnusedUploads counts the keys issued to userID that no post uses,
-	// without locking them.
-	CountUnusedUploads(ctx context.Context, userID int64, keys []string) (int, error)
+	// AttachUploads marks the keys issued to userID after issuedAfter that no
+	// post uses as used by postID, and returns how many it marked.
+	AttachUploads(ctx context.Context, postID, userID int64, keys []string, issuedAfter time.Time) (int, error)
+	// CountUnusedUploads counts the keys issued to userID after issuedAfter
+	// that no post uses, without locking them.
+	CountUnusedUploads(ctx context.Context, userID int64, keys []string, issuedAfter time.Time) (int, error)
 }
 
 // Memberships is what the author checks need from the membership table.
@@ -135,13 +133,15 @@ func (s *Service) Publish(ctx context.Context, userID int64, in NewPost) (domain
 	if err != nil {
 		return domain.Post{}, err
 	}
-	if p.Media, err = s.checkPhotos(ctx, userID, in.Keys); err != nil {
+	now := s.now().UTC()
+	// Older keys may be in the cleanup job's hands (media.AttachTTL).
+	issuedAfter := now.Add(-media.AttachTTL)
+	if p.Media, err = s.checkPhotos(ctx, userID, in.Keys, issuedAfter); err != nil {
 		return domain.Post{}, err
 	}
 	if p.ShareToken, _, err = token.New(); err != nil {
 		return domain.Post{}, err
 	}
-	now := s.now().UTC()
 	p.AuthorUserID, p.CreatedAt = userID, now
 
 	var out domain.Post
@@ -169,7 +169,7 @@ func (s *Service) Publish(ctx context.Context, userID int64, in NewPost) (domain
 		if len(in.Keys) == 0 {
 			return nil
 		}
-		attached, err := s.posts.AttachUploads(ctx, out.ID, userID, in.Keys)
+		attached, err := s.posts.AttachUploads(ctx, out.ID, userID, in.Keys, issuedAfter)
 		if err != nil {
 			return err
 		}
@@ -218,7 +218,7 @@ func (s *Service) checkAuthor(ctx context.Context, userID int64, p domain.Post) 
 // objects of each and returns the media rows, in the order of keys. Both
 // versions must share one accepted type and fit their size limits (R18.8,
 // NFR 8).
-func (s *Service) checkPhotos(ctx context.Context, userID int64, keys []string) ([]domain.PostMedia, error) {
+func (s *Service) checkPhotos(ctx context.Context, userID int64, keys []string, issuedAfter time.Time) ([]domain.PostMedia, error) {
 	if len(keys) == 0 {
 		return nil, nil
 	}
@@ -227,7 +227,7 @@ func (s *Service) checkPhotos(ctx context.Context, userID int64, keys []string) 
 	}
 	// ponytail: no key format check; R2 only sees keys this query found,
 	// which the API generated itself.
-	n, err := s.posts.CountUnusedUploads(ctx, userID, keys)
+	n, err := s.posts.CountUnusedUploads(ctx, userID, keys, issuedAfter)
 	if err != nil {
 		return nil, err
 	}
@@ -236,16 +236,16 @@ func (s *Service) checkPhotos(ctx context.Context, userID int64, keys []string) 
 	}
 	out := make([]domain.PostMedia, len(keys))
 	for i, k := range keys {
-		largeType, largeSize, err := s.head(ctx, k+"/large")
+		largeType, largeSize, err := s.head(ctx, media.Large(k))
 		if err != nil {
 			return nil, err
 		}
-		smallType, smallSize, err := s.head(ctx, k+"/small")
+		smallType, smallSize, err := s.head(ctx, media.Small(k))
 		if err != nil {
 			return nil, err
 		}
-		if (largeType != "image/jpeg" && largeType != "image/png") || smallType != largeType ||
-			largeSize < 1 || largeSize > media.MaxPhotoBytes || smallSize < 1 || smallSize > maxSmallBytes {
+		if !media.AcceptedType(largeType) || smallType != largeType ||
+			largeSize < 1 || largeSize > media.MaxPhotoBytes || smallSize < 1 || smallSize > media.MaxSmallBytes {
 			return nil, ErrInvalidPhoto
 		}
 		out[i] = domain.PostMedia{StorageKey: k, Position: i, ContentType: largeType, SizeBytes: largeSize}

@@ -16,18 +16,26 @@ UPDATE media_upload
 SET post_id = $1
 WHERE storage_key = ANY($2::text[])
   AND user_id = $3 AND post_id IS NULL
+  AND created_at > $4::timestamptz
 `
 
 type AttachMediaUploadsParams struct {
 	PostID      pgtype.Int8
 	StorageKeys []string
 	UserID      int64
+	IssuedAfter pgtype.Timestamptz
 }
 
-// Only keys issued to the author that no post uses yet. A key the cleanup
-// job holds waits here for its lock, then is gone or still unused.
+// Only keys issued to the author after issued_after (media.AttachTTL) that no
+// post uses yet; the cleanup job only takes keys older than that, so the two
+// never meet on a row.
 func (q *Queries) AttachMediaUploads(ctx context.Context, arg AttachMediaUploadsParams) (int64, error) {
-	result, err := q.db.Exec(ctx, attachMediaUploads, arg.PostID, arg.StorageKeys, arg.UserID)
+	result, err := q.db.Exec(ctx, attachMediaUploads,
+		arg.PostID,
+		arg.StorageKeys,
+		arg.UserID,
+		arg.IssuedAfter,
+	)
 	if err != nil {
 		return 0, err
 	}
@@ -55,16 +63,18 @@ const countUnusedMediaUploads = `-- name: CountUnusedMediaUploads :one
 SELECT count(*) FROM media_upload
 WHERE storage_key = ANY($1::text[])
   AND user_id = $2 AND post_id IS NULL
+  AND created_at > $3::timestamptz
 `
 
 type CountUnusedMediaUploadsParams struct {
 	StorageKeys []string
 	UserID      int64
+	IssuedAfter pgtype.Timestamptz
 }
 
 // The read-only check before R2 is asked about any key.
 func (q *Queries) CountUnusedMediaUploads(ctx context.Context, arg CountUnusedMediaUploadsParams) (int64, error) {
-	row := q.db.QueryRow(ctx, countUnusedMediaUploads, arg.StorageKeys, arg.UserID)
+	row := q.db.QueryRow(ctx, countUnusedMediaUploads, arg.StorageKeys, arg.UserID, arg.IssuedAfter)
 	var count int64
 	err := row.Scan(&count)
 	return count, err

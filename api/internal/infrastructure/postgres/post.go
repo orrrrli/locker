@@ -79,11 +79,11 @@ func (r *Posts) Create(ctx context.Context, p domain.Post) (domain.Post, error) 
 	return p, nil
 }
 
-// AttachUploads marks the keys issued to userID that no post uses as used by
-// postID, and returns how many rows it marked.
-func (r *Posts) AttachUploads(ctx context.Context, postID, userID int64, keys []string) (int, error) {
+// AttachUploads marks the keys issued to userID after issuedAfter that no post
+// uses as used by postID, and returns how many rows it marked.
+func (r *Posts) AttachUploads(ctx context.Context, postID, userID int64, keys []string, issuedAfter time.Time) (int, error) {
 	n, err := sqlcdb.New(Conn(ctx, r.pool)).AttachMediaUploads(ctx, sqlcdb.AttachMediaUploadsParams{
-		PostID: pgInt8(postID), StorageKeys: keys, UserID: userID,
+		PostID: pgInt8(postID), StorageKeys: keys, UserID: userID, IssuedAfter: timestamptz(issuedAfter),
 	})
 	if err != nil {
 		return 0, fmt.Errorf("postgres: attach media uploads: %w", err)
@@ -91,9 +91,12 @@ func (r *Posts) AttachUploads(ctx context.Context, postID, userID int64, keys []
 	return int(n), nil
 }
 
-// CountUnusedUploads counts the keys issued to userID that no post uses.
-func (r *Posts) CountUnusedUploads(ctx context.Context, userID int64, keys []string) (int, error) {
-	n, err := sqlcdb.New(Conn(ctx, r.pool)).CountUnusedMediaUploads(ctx, sqlcdb.CountUnusedMediaUploadsParams{StorageKeys: keys, UserID: userID})
+// CountUnusedUploads counts the keys issued to userID after issuedAfter that
+// no post uses.
+func (r *Posts) CountUnusedUploads(ctx context.Context, userID int64, keys []string, issuedAfter time.Time) (int, error) {
+	n, err := sqlcdb.New(Conn(ctx, r.pool)).CountUnusedMediaUploads(ctx, sqlcdb.CountUnusedMediaUploadsParams{
+		StorageKeys: keys, UserID: userID, IssuedAfter: timestamptz(issuedAfter),
+	})
 	if err != nil {
 		return 0, fmt.Errorf("postgres: count unused media uploads: %w", err)
 	}
