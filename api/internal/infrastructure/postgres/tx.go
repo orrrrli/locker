@@ -31,7 +31,7 @@ func NewTxRunner(pool *pgxpool.Pool) *TxRunner {
 // a second one, so a use case calling another stays in a single transaction.
 //
 // The isolation is pinned to READ COMMITTED, whatever the server default:
-// the lock-then-read pattern (LockTeamForAdminChange, LockTeamAsAdmin) needs
+// the lock-then-read pattern (LockTeamForAdminChange, WithTeamLock) needs
 // each statement after the lock to see what committed while it waited.
 func (r *TxRunner) InTx(ctx context.Context, fn func(ctx context.Context) error) error {
 	if _, ok := ctx.Value(txKey{}).(pgx.Tx); ok {

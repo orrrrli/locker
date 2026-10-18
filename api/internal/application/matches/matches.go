@@ -69,7 +69,7 @@ type Notices interface {
 type Deps struct {
 	Tx          application.TxRunner
 	Matches     Matches
-	Memberships application.AdminLocker
+	Memberships application.TeamLocker
 	Teams       Teams
 	Notices     Notices
 	Now         func() time.Time // nil means time.Now
@@ -78,7 +78,7 @@ type Deps struct {
 type Service struct {
 	tx          application.TxRunner
 	matches     Matches
-	memberships application.AdminLocker
+	memberships application.TeamLocker
 	teams       Teams
 	notices     Notices
 	now         func() time.Time
@@ -110,10 +110,7 @@ func (s *Service) Create(ctx context.Context, teamID, callerID int64, startsAt t
 	}
 	var out domain.Match
 	var notice domain.Notification
-	err := s.tx.InTx(ctx, func(ctx context.Context) error {
-		if _, err := application.LockTeamAsAdmin(ctx, s.memberships, teamID, callerID); err != nil {
-			return err
-		}
+	err := application.WithTeamLock(ctx, s.tx, s.memberships, teamID, application.TeamLock{AdminID: callerID}, func(ctx context.Context, _ application.Locked) error {
 		m, err := s.matches.CreateMatch(ctx, teamID, startsAt.UTC(), rival, location, callerID)
 		if err != nil {
 			return err
@@ -178,10 +175,7 @@ func (s *Service) Update(ctx context.Context, teamID, callerID, matchID int64, s
 	}
 	var out domain.Match
 	var notice *domain.Notification
-	err := s.tx.InTx(ctx, func(ctx context.Context) error {
-		if _, err := application.LockTeamAsAdmin(ctx, s.memberships, teamID, callerID); err != nil {
-			return err
-		}
+	err := application.WithTeamLock(ctx, s.tx, s.memberships, teamID, application.TeamLock{AdminID: callerID}, func(ctx context.Context, _ application.Locked) error {
 		cur, err := s.matches.LockMatchInTeam(ctx, teamID, matchID)
 		if err != nil {
 			return err

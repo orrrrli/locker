@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 
+	"github.com/orrrrli/locker/api/internal/application"
 	"github.com/orrrrli/locker/api/internal/domain"
 )
 
@@ -28,10 +29,7 @@ func (s *Service) RequestToJoin(ctx context.Context, teamID, userID int64) (out 
 		err = s.notMemberYet(ctx, teamID, userID)
 	}
 	if err == nil {
-		err = s.tx.InTx(ctx, func(ctx context.Context) error {
-			if _, err := s.memberships.LockTeamForAdminChange(ctx, teamID); err != nil {
-				return err
-			}
+		err = application.WithTeamLock(ctx, s.tx, s.memberships, teamID, application.TeamLock{NoAdminCaller: true}, func(ctx context.Context, _ application.Locked) error {
 			if _, err := s.openTeam(ctx, teamID); err != nil {
 				return err
 			}

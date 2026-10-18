@@ -51,10 +51,7 @@ func (s *Service) CloseDueAttendance(ctx context.Context) (int64, error) {
 func (s *Service) SaveAttendance(ctx context.Context, teamID, callerID, matchID int64, ids []int64) (Attendance, error) {
 	ids = slices.Compact(slices.Sorted(slices.Values(ids)))
 	var out Attendance
-	err := s.tx.InTx(ctx, func(ctx context.Context) error {
-		if _, err := application.LockTeamAsAdmin(ctx, s.memberships, teamID, callerID); err != nil {
-			return err
-		}
+	err := application.WithTeamLock(ctx, s.tx, s.memberships, teamID, application.TeamLock{AdminID: callerID}, func(ctx context.Context, _ application.Locked) error {
 		m, err := s.matches.LockMatchInTeam(ctx, teamID, matchID)
 		if err != nil {
 			return err

@@ -110,7 +110,7 @@ type Deps struct {
 	Push          Pusher // nil means inbox only: APNs is not configured
 	// Memberships, Teams and Now serve SendManual: the admin check under the
 	// team lock, the team's timezone, and the clock (nil means time.Now).
-	Memberships application.AdminLocker
+	Memberships application.TeamLocker
 	Teams       Teams
 	Now         func() time.Time
 	// Matches serves SendDueReminders.
@@ -121,7 +121,7 @@ type Service struct {
 	tx            application.TxRunner
 	notifications Notifications
 	push          Pusher
-	memberships   application.AdminLocker
+	memberships   application.TeamLocker
 	teams         Teams
 	matches       Matches
 	now           func() time.Time
@@ -190,10 +190,7 @@ func (s *Service) sendManual(ctx context.Context, teamID, callerID int64, title,
 		return domain.Notification{}, ErrInvalidBody
 	}
 	var out domain.Notification
-	err := s.tx.InTx(ctx, func(ctx context.Context) error {
-		if _, err := application.LockTeamAsAdmin(ctx, s.memberships, teamID, callerID); err != nil {
-			return err
-		}
+	err := application.WithTeamLock(ctx, s.tx, s.memberships, teamID, application.TeamLock{AdminID: callerID}, func(ctx context.Context, _ application.Locked) error {
 		team, err := s.teams.GetTeam(ctx, teamID)
 		if err != nil {
 			return err

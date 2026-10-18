@@ -108,7 +108,7 @@ const (
 // update runs behind requireActiveMember(teamFromMembership), because a
 // member edits their own profile. Role, approve, reject and editing someone
 // else stay admin-only: those use cases check the caller with
-// LockTeamAsAdmin, which answers a valid request from a non-admin with the
+// WithTeamLock (TeamLock.AdminID), which answers a valid request from a non-admin with the
 // same 403 requireRole would. An invalid body gets its 422 first.
 func (h membershipHandlers) update(w http.ResponseWriter, r *http.Request) {
 	var req updateMembershipRequest
@@ -172,7 +172,7 @@ func (h membershipHandlers) update(w http.ResponseWriter, r *http.Request) {
 
 // leave runs behind requireActiveMember(teamFromMembership): a member leaves
 // with their own id; removing anyone else is admin-only, checked by the use
-// case with LockTeamAsAdmin (R8.3).
+// case with WithTeamLock (R8.3).
 func (h membershipHandlers) leave(w http.ResponseWriter, r *http.Request) {
 	id, err := idFromPath(r, "id")
 	if err != nil {

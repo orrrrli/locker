@@ -8,6 +8,9 @@ import (
 	"github.com/orrrrli/locker/api/internal/domain"
 )
 
+// ErrNotAdmin rejects an active member of the team who is not an admin.
+var ErrNotAdmin = errors.New("the caller is not an admin of the team")
+
 // TeamLocker is what WithTeamLock needs from the membership table.
 type TeamLocker interface {
 	// LockTeamForAdminChange locks the team and returns its active admin

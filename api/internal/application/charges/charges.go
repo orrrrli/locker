@@ -89,7 +89,7 @@ type Deps struct {
 	Tx          application.TxRunner
 	Charges     Charges
 	Matches     Matches
-	Memberships application.AdminLocker
+	Memberships application.TeamLocker
 	Notifier    Notifier         // serves Remind
 	Now         func() time.Time // nil means time.Now
 }
@@ -98,7 +98,7 @@ type Service struct {
 	tx          application.TxRunner
 	charges     Charges
 	matches     Matches
-	memberships application.AdminLocker
+	memberships application.TeamLocker
 	notifier    Notifier
 	now         func() time.Time
 }
@@ -170,10 +170,7 @@ func (s *Service) Create(ctx context.Context, teamID, callerID int64, in Input) 
 		return Detail{}, ErrInvalidTarget
 	}
 	var out Detail
-	err := s.tx.InTx(ctx, func(ctx context.Context) error {
-		if _, err := application.LockTeamAsAdmin(ctx, s.memberships, teamID, callerID); err != nil {
-			return err
-		}
+	err := application.WithTeamLock(ctx, s.tx, s.memberships, teamID, application.TeamLock{AdminID: callerID}, func(ctx context.Context, _ application.Locked) error {
 		if in.Target == TargetMatchAttendees {
 			m, err := s.matches.LockMatchInTeam(ctx, teamID, *in.MatchID)
 			if errors.Is(err, domain.ErrNotFound) {
@@ -261,10 +258,7 @@ func (s *Service) SetStatus(ctx context.Context, teamID, callerID, chargeID, mem
 		return domain.ChargeMember{}, ErrInvalidStatus
 	}
 	var out domain.ChargeMember
-	err := s.tx.InTx(ctx, func(ctx context.Context) error {
-		if _, err := application.LockTeamAsAdmin(ctx, s.memberships, teamID, callerID); err != nil {
-			return err
-		}
+	err := application.WithTeamLock(ctx, s.tx, s.memberships, teamID, application.TeamLock{AdminID: callerID}, func(ctx context.Context, _ application.Locked) error {
 		if _, err := s.charges.ChargeInTeam(ctx, teamID, chargeID); err != nil {
 			return err
 		}

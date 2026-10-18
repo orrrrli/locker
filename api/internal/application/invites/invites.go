@@ -61,7 +61,7 @@ type Invites interface {
 
 // Memberships is what the invite use cases need from the membership table.
 type Memberships interface {
-	application.AdminLocker
+	application.TeamLocker
 	// MembershipByTeamAndUser returns domain.ErrNotFound when there is none.
 	MembershipByTeamAndUser(ctx context.Context, teamID, userID int64) (domain.Membership, error)
 	// CreateMembership returns domain.ErrAlreadyExists when the user already
@@ -125,10 +125,7 @@ func (s *Service) Create(ctx context.Context, teamID, createdBy int64) (Created,
 	now := s.now()
 	expires := now.Add(Lifetime)
 	var id int64
-	err = s.tx.InTx(ctx, func(ctx context.Context) error {
-		if _, err := application.LockTeamAsAdmin(ctx, s.memberships, teamID, createdBy); err != nil {
-			return err
-		}
+	err = application.WithTeamLock(ctx, s.tx, s.memberships, teamID, application.TeamLock{AdminID: createdBy}, func(ctx context.Context, _ application.Locked) error {
 		live, err := s.invites.CountLiveInvites(ctx, teamID, now)
 		if err != nil {
 			return err
@@ -151,10 +148,7 @@ func (s *Service) Create(ctx context.Context, teamID, createdBy int64) (Created,
 // team lock. An invite of another team is ErrInviteNotFound, so a check on
 // the wrong team fails closed.
 func (s *Service) Revoke(ctx context.Context, teamID, callerID, inviteID int64) error {
-	return s.tx.InTx(ctx, func(ctx context.Context) error {
-		if _, err := application.LockTeamAsAdmin(ctx, s.memberships, teamID, callerID); err != nil {
-			return err
-		}
+	return application.WithTeamLock(ctx, s.tx, s.memberships, teamID, application.TeamLock{AdminID: callerID}, func(ctx context.Context, _ application.Locked) error {
 		err := s.invites.RevokeInvite(ctx, teamID, inviteID, s.now())
 		if errors.Is(err, domain.ErrNotFound) {
 			return ErrInviteNotFound

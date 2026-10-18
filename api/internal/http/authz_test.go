@@ -174,7 +174,7 @@ func TestTeamFromMembership(t *testing.T) {
 	}
 }
 
-// TestAdminWritesMapLockErrors: what LockTeamAsAdmin can return inside an
+// TestAdminWritesMapLockErrors: what WithTeamLock can return inside an
 // admin write maps to the same answers requireRole gives, in every admin
 // feature. These errors only show up under a race, so the maps are checked
 // directly.

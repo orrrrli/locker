@@ -36,7 +36,7 @@ type Teams interface {
 
 // Memberships is what the team use cases need from the membership table.
 type Memberships interface {
-	application.AdminLocker
+	application.TeamLocker
 	CreateMembership(ctx context.Context, teamID, userID int64, role domain.Role, status domain.MembershipStatus) (int64, error)
 }
 
@@ -130,10 +130,7 @@ func (s *Service) Update(ctx context.Context, teamID, callerID int64, name, time
 		}
 	}
 	var team domain.Team
-	err := s.tx.InTx(ctx, func(ctx context.Context) error {
-		if _, err := application.LockTeamAsAdmin(ctx, s.memberships, teamID, callerID); err != nil {
-			return err
-		}
+	err := application.WithTeamLock(ctx, s.tx, s.memberships, teamID, application.TeamLock{AdminID: callerID}, func(ctx context.Context, _ application.Locked) error {
 		t, err := s.teams.UpdateTeam(ctx, teamID, name, timezone)
 		team = t
 		return err
@@ -154,10 +151,7 @@ func (s *Service) Update(ctx context.Context, teamID, callerID int64, name, time
 // both sides; each rival gets its notice after commit (#421).
 func (s *Service) Dissolve(ctx context.Context, teamID, callerID int64) error {
 	var notices []domain.Notification
-	err := s.tx.InTx(ctx, func(ctx context.Context) error {
-		if _, err := application.LockTeamAsAdmin(ctx, s.memberships, teamID, callerID); err != nil {
-			return err
-		}
+	err := application.WithTeamLock(ctx, s.tx, s.memberships, teamID, application.TeamLock{AdminID: callerID}, func(ctx context.Context, _ application.Locked) error {
 		n, err := s.teams.CountActiveMembers(ctx, teamID)
 		if err != nil {
 			return err

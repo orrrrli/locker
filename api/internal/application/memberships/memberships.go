@@ -104,9 +104,9 @@ func (s *Service) ChangeRole(ctx context.Context, teamID, callerID, membershipID
 // active player (R7.3), whether it came from an invite or a join request.
 func (s *Service) Approve(ctx context.Context, teamID, callerID, membershipID int64) (domain.Membership, error) {
 	var out domain.Membership
-	err := s.tx.InTx(ctx, func(ctx context.Context) error {
-		if err := s.lockAndCheckPending(ctx, teamID, callerID, membershipID); err != nil {
-			return err
+	err := application.WithTeamLock(ctx, s.tx, s.memberships, teamID, application.TeamLock{AdminID: callerID, TargetID: membershipID}, func(ctx context.Context, l application.Locked) error {
+		if l.Target.Status != domain.MembershipPending {
+			return ErrNotPending
 		}
 		m, err := s.memberships.ApprovePending(ctx, membershipID)
 		out = m
@@ -121,28 +121,12 @@ func (s *Service) Approve(ctx context.Context, teamID, callerID, membershipID in
 // Reject lets the admin callerID discard a pending membership of the team
 // (R7.4). The user can ask to join again (R13.6).
 func (s *Service) Reject(ctx context.Context, teamID, callerID, membershipID int64) error {
-	return s.tx.InTx(ctx, func(ctx context.Context) error {
-		if err := s.lockAndCheckPending(ctx, teamID, callerID, membershipID); err != nil {
-			return err
+	return application.WithTeamLock(ctx, s.tx, s.memberships, teamID, application.TeamLock{AdminID: callerID, TargetID: membershipID}, func(ctx context.Context, l application.Locked) error {
+		if l.Target.Status != domain.MembershipPending {
+			return ErrNotPending
 		}
 		return s.memberships.RejectPending(ctx, membershipID)
 	})
-}
-
-// lockAndCheckPending checks the caller under the team lock, then that the
-// target is a pending membership of the team.
-func (s *Service) lockAndCheckPending(ctx context.Context, teamID, callerID, membershipID int64) error {
-	if _, err := application.LockTeamAsAdmin(ctx, s.memberships, teamID, callerID); err != nil {
-		return err
-	}
-	m, err := s.memberships.MembershipInTeam(ctx, teamID, membershipID)
-	if err != nil {
-		return err
-	}
-	if m.Status != domain.MembershipPending {
-		return ErrNotPending
-	}
-	return nil
 }
 
 // Leave sets an active membership of the team to left, keeping its row and
@@ -207,7 +191,7 @@ func (s *Service) UpdateProfile(ctx context.Context, teamID, callerID, membershi
 	if p.Position != nil && !p.Position.Valid() {
 		return domain.Membership{}, ErrInvalidPosition
 	}
-	update := func(ctx context.Context) (domain.Membership, error) {
+	if callerID == membershipID {
 		m, err := s.memberships.MembershipInTeam(ctx, teamID, membershipID)
 		if err != nil {
 			return domain.Membership{}, err
@@ -217,16 +201,13 @@ func (s *Service) UpdateProfile(ctx context.Context, teamID, callerID, membershi
 		}
 		return s.memberships.UpdateProfile(ctx, m.ID, p)
 	}
-	if callerID == membershipID {
-		return update(ctx)
-	}
 	var out domain.Membership
-	err := s.tx.InTx(ctx, func(ctx context.Context) error {
-		if _, err := application.LockTeamAsAdmin(ctx, s.memberships, teamID, callerID); err != nil {
-			return err
+	err := application.WithTeamLock(ctx, s.tx, s.memberships, teamID, application.TeamLock{AdminID: callerID, TargetID: membershipID}, func(ctx context.Context, l application.Locked) error {
+		if l.Target.Status != domain.MembershipActive {
+			return ErrNotActive
 		}
 		var err error
-		out, err = update(ctx)
+		out, err = s.memberships.UpdateProfile(ctx, l.Target.ID, p)
 		return err
 	})
 	if err != nil {
