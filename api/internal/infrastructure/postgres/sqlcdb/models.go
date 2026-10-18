@@ -77,6 +77,13 @@ type Fixture struct {
 	CreatedAt   pgtype.Timestamptz
 }
 
+type Follow struct {
+	UserID    int64
+	TeamID    pgtype.Int8
+	LeagueID  pgtype.Int8
+	CreatedAt pgtype.Timestamptz
+}
+
 type Invite struct {
 	ID        int64
 	TeamID    int64

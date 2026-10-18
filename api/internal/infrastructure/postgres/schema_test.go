@@ -332,6 +332,13 @@ func TestSchemaConstraints(t *testing.T) {
 			 INSERT INTO user_block (blocker_id, blocked_id) SELECT $1, id FROM b`,
 			`INSERT INTO user_block (blocker_id, blocked_id) SELECT $1, id FROM "user" WHERE name = 'Beto'`,
 			[]any{f.user}, uniqueViolation},
+		{"follow needs exactly one target", "",
+			`INSERT INTO follow (user_id) VALUES ($1)`,
+			[]any{f.user}, checkViolation},
+		{"follow UNIQUE (team_id, user_id)",
+			`INSERT INTO follow (user_id, team_id) VALUES ($1, $2)`,
+			`INSERT INTO follow (user_id, team_id) VALUES ($1, $2)`,
+			[]any{f.user, f.team}, uniqueViolation},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
