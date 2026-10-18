@@ -1,8 +1,10 @@
-// Package media issues photo uploads (BE-FEED-1). The app asks for one
-// upload per photo; the API checks the limits, records the new storage key
-// for the caller and returns a short-lived URL that accepts exactly that
-// photo. The app then PUTs the bytes straight to R2. Keys that no post uses
-// within UnusedTTL are deleted by DeleteUnused, run by the ticker.
+// Package media issues photo uploads (BE-FEED-1, BE-FEED-7). The app resizes
+// each photo on the device into a large and a small version and asks for one
+// upload per photo; the API checks the limits, records one new storage key
+// for the caller and returns two short-lived URLs, one per version, each
+// accepting exactly that version, once. The app then PUTs the bytes straight
+// to R2, at {key}/large and {key}/small. Keys that no post uses within
+// UnusedTTL are deleted, both objects, by DeleteUnused, run by the ticker.
 package media
 
 import (
@@ -20,13 +22,20 @@ const (
 	// MaxPhotos is the most photos one request (and so one post) may carry
 	// (R18.8).
 	MaxPhotos = 4
-	// MaxPhotoBytes is the largest photo accepted (NFR 8).
+	// MaxPhotoBytes is the largest photo accepted, its large version (NFR 8).
 	MaxPhotoBytes = 10 << 20
+	// MaxSmallBytes is the largest small version: about 1080 px, for the feed
+	// (design.md Photo upload flow).
+	MaxSmallBytes = 1 << 20
 	// URLTTL is how long an upload URL works.
 	URLTTL = 15 * time.Minute
 	// UnusedTTL is how long a key waits for a post before it is deleted
 	// (open question 30).
 	UnusedTTL = 24 * time.Hour
+	// AttachTTL is how long a key can still go into a post. It ends an hour
+	// before UnusedTTL, so POST /posts never attaches a key the cleanup job
+	// may be deleting, even when only one of its two objects went.
+	AttachTTL = UnusedTTL - time.Hour
 	// deleteBatch caps the keys one DeleteUnused run locks and removes; the
 	// next tick takes the rest.
 	deleteBatch = 20
@@ -41,17 +50,26 @@ var (
 	ErrUnsupportedType   = errors.New("photos must be image/jpeg or image/png")
 	ErrInvalidSize       = errors.New("size must be a whole number of bytes above 0")
 	ErrPhotoTooLarge     = fmt.Errorf("each photo must be at most %d bytes", MaxPhotoBytes)
+	ErrSmallTooLarge     = fmt.Errorf("each small version must be at most %d bytes", MaxSmallBytes)
 	// ErrUnavailable means the bucket is not configured yet.
 	ErrUnavailable = errors.New("photo uploads are not available yet")
 )
 
-// extensions are the accepted types and the key suffix of each.
-var extensions = map[string]string{"image/jpeg": ".jpg", "image/png": ".png"}
+// AcceptedType reports whether photos of contentType are accepted (NFR 8).
+func AcceptedType(contentType string) bool {
+	return contentType == "image/jpeg" || contentType == "image/png"
+}
+
+// Large is the photo's 2048 px object, under its storage key.
+func Large(key string) string { return key + "/large" }
+
+// Small is the photo's feed-size object, under its storage key.
+func Small(key string) string { return key + "/small" }
 
 // Storage is the photo bucket.
 type Storage interface {
-	// PresignPut returns a URL that accepts PUTs of exactly size bytes of
-	// contentType to key until ttl passes; each PUT replaces the object.
+	// PresignPut returns a URL that accepts one PUT of exactly size bytes of
+	// contentType to key until ttl passes, and only while key has no object.
 	PresignPut(ctx context.Context, key, contentType string, size int64, ttl time.Duration) (string, error)
 	// Delete removes the object; a key never uploaded is not an error.
 	Delete(ctx context.Context, key string) error
@@ -91,24 +109,32 @@ func NewService(d Deps) *Service {
 	return &Service{tx: d.Tx, uploads: d.Uploads, storage: d.Storage, now: d.Now}
 }
 
-// Photo is one photo the app wants to upload.
+// Photo is one photo the app wants to upload: its type, shared by both
+// versions, and the size of each.
 type Photo struct {
 	ContentType string
-	Size        int64
+	LargeSize   int64
+	SmallSize   int64
 }
 
-// Upload is where and until when the app may PUT one photo. The PUT must
-// send Content-Type and Content-Length equal to the photo's.
+// Upload is where and until when the app may PUT both versions of one photo.
 type Upload struct {
 	StorageKey  string
-	URL         string
 	ContentType string
-	Size        int64
+	Large       Target
+	Small       Target
 	ExpiresAt   time.Time
 }
 
+// Target is one version's URL. The PUT must send Content-Type and
+// Content-Length equal to the photo's, and If-None-Match: *.
+type Target struct {
+	URL  string
+	Size int64
+}
+
 // Request checks every photo before it signs anything (R18.8, NFR 8), then
-// records a new random key per photo for userID and returns its upload
+// records a new random key per photo for userID and returns its two URLs
 // (R18.7). Uploads come back in the order of photos.
 func (s *Service) Request(ctx context.Context, userID int64, photos []Photo) ([]Upload, error) {
 	if s.storage == nil {
@@ -118,21 +144,24 @@ func (s *Service) Request(ctx context.Context, userID int64, photos []Photo) ([]
 		return nil, ErrInvalidPhotoCount
 	}
 	for _, p := range photos {
-		if _, ok := extensions[p.ContentType]; !ok {
+		if !AcceptedType(p.ContentType) {
 			return nil, ErrUnsupportedType
 		}
-		if p.Size < 1 {
+		if p.LargeSize < 1 || p.SmallSize < 1 {
 			return nil, ErrInvalidSize
 		}
-		if p.Size > MaxPhotoBytes {
+		if p.LargeSize > MaxPhotoBytes {
 			return nil, ErrPhotoTooLarge
+		}
+		if p.SmallSize > MaxSmallBytes {
+			return nil, ErrSmallTooLarge
 		}
 	}
 
 	now := s.now()
 	out := make([]Upload, len(photos))
 	for i, p := range photos {
-		key, err := newKey(extensions[p.ContentType])
+		key, err := newKey()
 		if err != nil {
 			return nil, err
 		}
@@ -141,21 +170,28 @@ func (s *Service) Request(ctx context.Context, userID int64, photos []Photo) ([]
 		if err := s.uploads.Create(ctx, key, userID, now); err != nil {
 			return nil, err
 		}
-		url, err := s.storage.PresignPut(ctx, key, p.ContentType, p.Size, URLTTL)
+		large, err := s.storage.PresignPut(ctx, Large(key), p.ContentType, p.LargeSize, URLTTL)
 		if err != nil {
 			return nil, err
 		}
-		out[i] = Upload{StorageKey: key, URL: url, ContentType: p.ContentType, Size: p.Size, ExpiresAt: now.Add(URLTTL)}
+		small, err := s.storage.PresignPut(ctx, Small(key), p.ContentType, p.SmallSize, URLTTL)
+		if err != nil {
+			return nil, err
+		}
+		out[i] = Upload{
+			StorageKey: key, ContentType: p.ContentType, ExpiresAt: now.Add(URLTTL),
+			Large: Target{URL: large, Size: p.LargeSize}, Small: Target{URL: small, Size: p.SmallSize},
+		}
 	}
 	return out, nil
 }
 
 // DeleteUnused deletes keys that no post used within UnusedTTL and reports
-// how many it removed. In one transaction it locks the rows, deletes each
-// object from R2, and deletes only the rows whose object went: a failed
-// object delete keeps its row, so the next tick retries it. A post attaching
-// a key meanwhile waits for the lock, then finds both row and object, or
-// neither.
+// how many it removed. In one transaction it locks the rows, deletes both
+// objects of each key from R2, and deletes only the rows whose two objects
+// went: a failed object delete keeps its row, so the next tick retries it,
+// even when its other object is already gone. POST /posts takes only keys
+// younger than AttachTTL, so it never attaches a key this job can take.
 //
 // If the commit fails after objects went, their rows stay and the next run
 // deletes them; deleting a missing object is not an error.
@@ -176,7 +212,8 @@ func (s *Service) DeleteUnused(ctx context.Context) (int64, error) {
 		r2ctx, cancel := context.WithTimeout(ctx, deleteBudget)
 		defer cancel()
 		for _, k := range keys {
-			if err := s.storage.Delete(r2ctx, k); err != nil {
+			err := errors.Join(s.storage.Delete(r2ctx, Large(k)), s.storage.Delete(r2ctx, Small(k)))
+			if err != nil {
 				r2Errs = append(r2Errs, fmt.Errorf("%s: %w", k, err))
 				continue
 			}
@@ -194,11 +231,11 @@ func (s *Service) DeleteUnused(ctx context.Context) (int64, error) {
 }
 
 // newKey is a fresh random storage key: 128 random bits, so keys cannot be
-// guessed or collide.
-func newKey(ext string) (string, error) {
+// guessed or collide. It has no extension: the type is stored with the post.
+func newKey() (string, error) {
 	var b [16]byte
 	if _, err := rand.Read(b[:]); err != nil {
 		return "", fmt.Errorf("media: new key: %w", err)
 	}
-	return "photos/" + hex.EncodeToString(b[:]) + ext, nil
+	return "photos/" + hex.EncodeToString(b[:]), nil
 }

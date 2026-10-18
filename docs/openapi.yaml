@@ -2323,18 +2323,22 @@ paths:
       operationId: requestPhotoUploads
       summary: Get upload URLs for the photos of a post
       description: |
-        Send the type and size of each photo; the API answers one new random
-        `storage_key` and one upload URL per photo, in the same order (R18.7).
-        The app then PUTs each photo straight to the URL before
-        `expires_at` (15 minutes), sending exactly the `headers` given: they
-        are part of the URL's signature, so another type or size is
-        rejected by the storage. The key is recorded for the caller, so a
-        post can later use only keys issued to its author. A key no post uses
-        within 24 hours is deleted.
+        The app resizes each photo on the device into a `large` version
+        (2048 px on the longest side) and a `small` one (about 1080 px, for
+        the feed), same type. Send the type and both sizes of each photo;
+        the API answers one new random `storage_key` per photo, in the same
+        order (R18.7), with one upload URL per version. The app then PUTs
+        each version straight to its URL before `expires_at` (15 minutes),
+        sending exactly the `headers` given: they are part of the URL's
+        signature, so another type or size is rejected by the storage, and
+        `If-None-Match: *` makes each URL write its object once. A failed
+        upload asks for new URLs. The key is recorded for the caller, so a
+        post can later use only keys issued to its author. A key no post
+        uses within 24 hours is deleted, both versions.
 
         Limits, checked before any URL is signed (R18.8, NFR 8): 1 to 4
-        photos, each `image/jpeg` or `image/png`, each 1 byte to 10 MB
-        (10485760 bytes).
+        photos, each `image/jpeg` or `image/png`; `large_size` 1 byte to
+        10 MB (10485760 bytes), `small_size` 1 byte to 1 MB (1048576 bytes).
       security:
         - bearerAuth: []
       requestBody:
@@ -2353,20 +2357,26 @@ paths:
                   items:
                     type: object
                     additionalProperties: false
-                    required: [content_type, size]
+                    required: [content_type, large_size, small_size]
                     properties:
                       content_type:
                         type: string
                         enum: [image/jpeg, image/png]
-                      size:
+                      large_size:
                         type: integer
                         format: int64
                         minimum: 1
                         maximum: 10485760
-                        description: Bytes.
+                        description: Bytes of the large version.
+                      small_size:
+                        type: integer
+                        format: int64
+                        minimum: 1
+                        maximum: 1048576
+                        description: Bytes of the small version.
       responses:
         "201":
-          description: One upload per photo.
+          description: One upload per photo, with a URL per version.
           content:
             application/json:
               schema:
@@ -2377,23 +2387,15 @@ paths:
                     type: array
                     items:
                       type: object
-                      required: [storage_key, upload_url, headers, expires_at]
+                      required: [storage_key, large, small, expires_at]
                       properties:
                         storage_key:
                           type: string
-                          example: photos/3f1c0e9a5b7d4e2f8a6c1b0d9e7f5a3c.jpg
-                        upload_url:
-                          type: string
-                          format: uri
-                          description: Takes PUTs of the photo's bytes until `expires_at`; each PUT replaces the object.
-                        headers:
-                          type: object
-                          required: [Content-Type, Content-Length]
-                          properties:
-                            Content-Type:
-                              type: string
-                            Content-Length:
-                              type: string
+                          example: photos/3f1c0e9a5b7d4e2f8a6c1b0d9e7f5a3c
+                        large:
+                          $ref: "#/components/schemas/PhotoUploadTarget"
+                        small:
+                          $ref: "#/components/schemas/PhotoUploadTarget"
                         expires_at:
                           type: string
                           format: date-time
@@ -2406,8 +2408,9 @@ paths:
         "422":
           description: |
             `invalid_photo_count` (not 1 to 4 photos), `unsupported_photo_type`
-            (not JPEG or PNG), `invalid_photo_size` (under 1 byte) or
-            `photo_too_large` (over 10 MB). No key was issued.
+            (not JPEG or PNG), `invalid_photo_size` (a version under 1 byte),
+            `photo_too_large` (large over 10 MB) or `small_photo_too_large`
+            (small over 1 MB). No key was issued.
           content:
             application/json:
               schema:
@@ -3523,6 +3526,27 @@ components:
                     const: internal
 
   schemas:
+    PhotoUploadTarget:
+      type: object
+      description: Where to PUT one version of a photo, once, before `expires_at`.
+      required: [upload_url, headers]
+      properties:
+        upload_url:
+          type: string
+          format: uri
+          description: Takes one PUT of this version's bytes; once the object exists the storage answers 412.
+        headers:
+          type: object
+          description: Send each with exactly this value; all are signed.
+          required: [Content-Type, Content-Length, If-None-Match]
+          properties:
+            Content-Type:
+              type: string
+            Content-Length:
+              type: string
+            If-None-Match:
+              type: string
+              enum: ["*"]
     Role:
       type: string
       enum: [admin, player]

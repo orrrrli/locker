@@ -23,17 +23,29 @@ type mediaHandlers struct {
 type uploadRequest struct {
 	Photos []struct {
 		ContentType string `json:"content_type"`
-		Size        int64  `json:"size"`
+		LargeSize   int64  `json:"large_size"`
+		SmallSize   int64  `json:"small_size"`
 	} `json:"photos"`
 }
 
 type uploadJSON struct {
-	StorageKey string `json:"storage_key"`
-	URL        string `json:"upload_url"`
-	// Headers are the ones the PUT must send, with these exact values: both
+	StorageKey string     `json:"storage_key"`
+	Large      targetJSON `json:"large"`
+	Small      targetJSON `json:"small"`
+	ExpiresAt  time.Time  `json:"expires_at"`
+}
+
+type targetJSON struct {
+	URL string `json:"upload_url"`
+	// Headers are the ones the PUT must send, with these exact values: all
 	// are part of the URL's signature.
-	Headers   map[string]string `json:"headers"`
-	ExpiresAt time.Time         `json:"expires_at"`
+	Headers map[string]string `json:"headers"`
+}
+
+func target(contentType string, t media.Target) targetJSON {
+	return targetJSON{URL: t.URL, Headers: map[string]string{
+		"Content-Type": contentType, "Content-Length": strconv.FormatInt(t.Size, 10), "If-None-Match": "*",
+	}}
 }
 
 func (h mediaHandlers) requestUploads(w http.ResponseWriter, r *http.Request) {
@@ -43,7 +55,7 @@ func (h mediaHandlers) requestUploads(w http.ResponseWriter, r *http.Request) {
 	}
 	photos := make([]media.Photo, len(req.Photos))
 	for i, p := range req.Photos {
-		photos[i] = media.Photo{ContentType: p.ContentType, Size: p.Size}
+		photos[i] = media.Photo{ContentType: p.ContentType, LargeSize: p.LargeSize, SmallSize: p.SmallSize}
 	}
 	userID, _ := userIDFrom(r.Context())
 	ups, err := h.svc.Request(r.Context(), userID, photos)
@@ -61,8 +73,8 @@ func (h mediaHandlers) requestUploads(w http.ResponseWriter, r *http.Request) {
 	for i, u := range ups {
 		out[i] = uploadJSON{
 			StorageKey: u.StorageKey,
-			URL:        u.URL,
-			Headers:    map[string]string{"Content-Type": u.ContentType, "Content-Length": strconv.FormatInt(u.Size, 10)},
+			Large:      target(u.ContentType, u.Large),
+			Small:      target(u.ContentType, u.Small),
 			ExpiresAt:  apiTime(u.ExpiresAt),
 		}
 	}
@@ -74,4 +86,5 @@ var mediaErrors = errorMap{
 	{media.ErrUnsupportedType, http.StatusUnprocessableEntity, "unsupported_photo_type"},
 	{media.ErrInvalidSize, http.StatusUnprocessableEntity, "invalid_photo_size"},
 	{media.ErrPhotoTooLarge, http.StatusUnprocessableEntity, "photo_too_large"},
+	{media.ErrSmallTooLarge, http.StatusUnprocessableEntity, "small_photo_too_large"},
 }
