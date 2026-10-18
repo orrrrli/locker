@@ -12,6 +12,8 @@ import (
 	"errors"
 	"fmt"
 	"time"
+
+	"github.com/orrrrli/locker/api/internal/application"
 )
 
 const (
@@ -25,11 +27,12 @@ const (
 	// UnusedTTL is how long a key waits for a post before it is deleted
 	// (open question 30).
 	UnusedTTL = 24 * time.Hour
-	// deleteBatch caps the keys one DeleteUnused run removes, so a backlog
-	// cannot hold the ticker for long; the next tick takes the rest.
-	deleteBatch = 100
-	// deleteBudget bounds one DeleteUnused run, so an R2 outage cannot hold
-	// the jobs that run after it on the same ticker.
+	// deleteBatch caps the keys one DeleteUnused run locks and removes; the
+	// next tick takes the rest.
+	deleteBatch = 20
+	// deleteBudget bounds the R2 calls of one DeleteUnused run, so an R2
+	// outage cannot hold the row locks, the connection, or the jobs that run
+	// after it on the same ticker.
 	deleteBudget = 30 * time.Second
 )
 
@@ -57,12 +60,16 @@ type Storage interface {
 // Uploads is what the use cases need from the media_upload table.
 type Uploads interface {
 	Create(ctx context.Context, key string, userID int64, at time.Time) error
-	// DeleteUnused deletes up to limit rows no post uses that were issued
-	// at or before cutoff, and returns their keys.
-	DeleteUnused(ctx context.Context, cutoff time.Time, limit int) ([]string, error)
+	// LockUnused locks, until the transaction ends, up to limit rows no post
+	// uses that were issued at or before cutoff, skipping rows already
+	// locked, and returns their keys.
+	LockUnused(ctx context.Context, cutoff time.Time, limit int) ([]string, error)
+	// Delete removes the rows of keys, unless a post uses them.
+	Delete(ctx context.Context, keys []string) error
 }
 
 type Deps struct {
+	Tx      application.TxRunner
 	Uploads Uploads
 	// Storage nil means the bucket is not configured: Request answers
 	// ErrUnavailable and DeleteUnused does nothing.
@@ -71,6 +78,7 @@ type Deps struct {
 }
 
 type Service struct {
+	tx      application.TxRunner
 	uploads Uploads
 	storage Storage
 	now     func() time.Time
@@ -80,7 +88,7 @@ func NewService(d Deps) *Service {
 	if d.Now == nil {
 		d.Now = time.Now
 	}
-	return &Service{uploads: d.Uploads, storage: d.Storage, now: d.Now}
+	return &Service{tx: d.Tx, uploads: d.Uploads, storage: d.Storage, now: d.Now}
 }
 
 // Photo is one photo the app wants to upload.
@@ -142,26 +150,47 @@ func (s *Service) Request(ctx context.Context, userID int64, photos []Photo) ([]
 	return out, nil
 }
 
-// DeleteUnused deletes keys that no post used within UnusedTTL, row first
-// and then object, and reports how many keys it removed. A failed object
-// delete leaves an orphan object in R2 but never a post without its photo.
+// DeleteUnused deletes keys that no post used within UnusedTTL and reports
+// how many it removed. In one transaction it locks the rows, deletes each
+// object from R2, and deletes only the rows whose object went: a failed
+// object delete keeps its row, so the next tick retries it. A post attaching
+// a key meanwhile waits for the lock, then finds both row and object, or
+// neither.
+//
+// If the commit fails after objects went, their rows stay and the next run
+// deletes them; deleting a missing object is not an error.
 func (s *Service) DeleteUnused(ctx context.Context) (int64, error) {
 	if s.storage == nil {
 		return 0, nil
 	}
-	ctx, cancel := context.WithTimeout(ctx, deleteBudget)
-	defer cancel()
-	keys, err := s.uploads.DeleteUnused(ctx, s.now().Add(-UnusedTTL), deleteBatch)
-	if err != nil {
-		return 0, err
-	}
-	var errs []error
-	for _, k := range keys {
-		if err := s.storage.Delete(ctx, k); err != nil {
-			errs = append(errs, fmt.Errorf("%s: %w", k, err))
+	var gone []string
+	var r2Errs []error
+	err := s.tx.InTx(ctx, func(ctx context.Context) error {
+		gone, r2Errs = nil, nil
+		keys, err := s.uploads.LockUnused(ctx, s.now().Add(-UnusedTTL), deleteBatch)
+		if err != nil {
+			return err
 		}
+		// Only the R2 calls get the budget: the row deletes below must still
+		// run when it is spent.
+		r2ctx, cancel := context.WithTimeout(ctx, deleteBudget)
+		defer cancel()
+		for _, k := range keys {
+			if err := s.storage.Delete(r2ctx, k); err != nil {
+				r2Errs = append(r2Errs, fmt.Errorf("%s: %w", k, err))
+				continue
+			}
+			gone = append(gone, k)
+		}
+		if len(gone) == 0 {
+			return nil
+		}
+		return s.uploads.Delete(ctx, gone)
+	})
+	if err != nil {
+		return 0, errors.Join(append(r2Errs, err)...)
 	}
-	return int64(len(keys)), errors.Join(errs...)
+	return int64(len(gone)), errors.Join(r2Errs...)
 }
 
 // newKey is a fresh random storage key: 128 random bits, so keys cannot be

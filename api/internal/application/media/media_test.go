@@ -17,11 +17,13 @@ type row struct {
 }
 
 type fakeUploads struct {
-	rows      []row
-	cutoff    time.Time
-	limit     int
-	unused    []string
-	deleteErr error
+	rows    []row
+	cutoff  time.Time
+	limit   int
+	locked  []string
+	lockErr error
+	deleted []string
+	delErr  error
 }
 
 func (f *fakeUploads) Create(_ context.Context, key string, userID int64, at time.Time) error {
@@ -29,9 +31,26 @@ func (f *fakeUploads) Create(_ context.Context, key string, userID int64, at tim
 	return nil
 }
 
-func (f *fakeUploads) DeleteUnused(_ context.Context, cutoff time.Time, limit int) ([]string, error) {
+func (f *fakeUploads) LockUnused(_ context.Context, cutoff time.Time, limit int) ([]string, error) {
 	f.cutoff, f.limit = cutoff, limit
-	return f.unused, f.deleteErr
+	return f.locked, f.lockErr
+}
+
+func (f *fakeUploads) Delete(_ context.Context, keys []string) error {
+	if f.delErr != nil {
+		return f.delErr
+	}
+	f.deleted = append(f.deleted, keys...)
+	return nil
+}
+
+// fakeTx runs fn and records whether it would commit.
+type fakeTx struct{ committed bool }
+
+func (f *fakeTx) InTx(ctx context.Context, fn func(context.Context) error) error {
+	err := fn(ctx)
+	f.committed = err == nil
+	return err
 }
 
 type presign struct {
@@ -44,6 +63,7 @@ type fakeStorage struct {
 	presigned []presign
 	deleted   []string
 	failOn    string
+	deadlines []time.Duration // time left on each Delete's context
 }
 
 func (f *fakeStorage) PresignPut(_ context.Context, key, contentType string, size int64, ttl time.Duration) (string, error) {
@@ -51,7 +71,12 @@ func (f *fakeStorage) PresignPut(_ context.Context, key, contentType string, siz
 	return "https://r2.test/" + key, nil
 }
 
-func (f *fakeStorage) Delete(_ context.Context, key string) error {
+func (f *fakeStorage) Delete(ctx context.Context, key string) error {
+	if d, ok := ctx.Deadline(); ok {
+		f.deadlines = append(f.deadlines, time.Until(d))
+	} else {
+		f.deadlines = append(f.deadlines, -1)
+	}
 	if key == f.failOn {
 		return errors.New("r2 down")
 	}
@@ -60,7 +85,7 @@ func (f *fakeStorage) Delete(_ context.Context, key string) error {
 }
 
 func newService(u *fakeUploads, s Storage) *Service {
-	return NewService(Deps{Uploads: u, Storage: s, Now: func() time.Time { return now }})
+	return NewService(Deps{Tx: &fakeTx{}, Uploads: u, Storage: s, Now: func() time.Time { return now }})
 }
 
 func photos(n int, p Photo) []Photo {
@@ -142,8 +167,8 @@ func TestRequestIssuesOneKeyPerPhoto(t *testing.T) {
 }
 
 func TestWithoutBucket(t *testing.T) {
-	u := &fakeUploads{unused: []string{"photos/a.jpg"}}
-	svc := NewService(Deps{Uploads: u})
+	u := &fakeUploads{locked: []string{"photos/a.jpg"}}
+	svc := NewService(Deps{Tx: &fakeTx{}, Uploads: u})
 	if _, err := svc.Request(context.Background(), 7, []Photo{jpeg}); !errors.Is(err, ErrUnavailable) {
 		t.Fatalf("Request err %v, want ErrUnavailable", err)
 	}
@@ -155,42 +180,71 @@ func TestWithoutBucket(t *testing.T) {
 	}
 }
 
-// Open question 30: keys unused for 24 hours go, row and object.
+// Open question 30: keys unused for 24 hours go, object and row, in one
+// transaction; each R2 call has a deadline within the budget.
 func TestDeleteUnused(t *testing.T) {
-	u := &fakeUploads{unused: []string{"photos/a.jpg", "photos/b.png"}}
+	u := &fakeUploads{locked: []string{"photos/a.jpg", "photos/b.png"}}
 	s := &fakeStorage{}
-	n, err := newService(u, s).DeleteUnused(context.Background())
+	tx := &fakeTx{}
+	svc := NewService(Deps{Tx: tx, Uploads: u, Storage: s, Now: func() time.Time { return now }})
+	n, err := svc.DeleteUnused(context.Background())
 	if err != nil || n != 2 {
 		t.Fatalf("DeleteUnused = %d, %v; want 2, nil", n, err)
 	}
 	if !u.cutoff.Equal(now.Add(-24*time.Hour)) || u.limit != deleteBatch {
 		t.Fatalf("cutoff %v limit %d, want %v and %d", u.cutoff, u.limit, now.Add(-24*time.Hour), deleteBatch)
 	}
-	if len(s.deleted) != 2 || s.deleted[0] != "photos/a.jpg" || s.deleted[1] != "photos/b.png" {
-		t.Fatalf("deleted %v from R2, want both keys", s.deleted)
+	if len(s.deleted) != 2 || len(u.deleted) != 2 || !tx.committed {
+		t.Fatalf("objects %v, rows %v, committed %v; want both keys gone and a commit", s.deleted, u.deleted, tx.committed)
+	}
+	for i, left := range s.deadlines {
+		if left <= 0 || left > deleteBudget {
+			t.Errorf("R2 call %d had %v left, want a deadline within %v", i, left, deleteBudget)
+		}
 	}
 }
 
-// One failed object delete is reported but does not stop the others.
-func TestDeleteUnusedKeepsGoing(t *testing.T) {
-	u := &fakeUploads{unused: []string{"photos/a.jpg", "photos/b.png"}}
+// A failed object delete keeps its row for the next tick, and does not stop
+// the other keys.
+func TestDeleteUnusedKeepsRowOfFailedObject(t *testing.T) {
+	u := &fakeUploads{locked: []string{"photos/a.jpg", "photos/b.png"}}
 	s := &fakeStorage{failOn: "photos/a.jpg"}
 	n, err := newService(u, s).DeleteUnused(context.Background())
-	if err == nil || n != 2 {
-		t.Fatalf("DeleteUnused = %d, %v; want 2 and an error", n, err)
+	if err == nil || n != 1 {
+		t.Fatalf("DeleteUnused = %d, %v; want 1 and an error", n, err)
 	}
-	if len(s.deleted) != 1 || s.deleted[0] != "photos/b.png" {
-		t.Fatalf("deleted %v, want photos/b.png after the failure", s.deleted)
+	if len(u.deleted) != 1 || u.deleted[0] != "photos/b.png" {
+		t.Fatalf("rows deleted %v, want only photos/b.png", u.deleted)
 	}
 }
 
-func TestDeleteUnusedTableError(t *testing.T) {
-	u := &fakeUploads{deleteErr: errors.New("db down"), unused: []string{"photos/a.jpg"}}
+func TestDeleteUnusedAllObjectsFail(t *testing.T) {
+	u := &fakeUploads{locked: []string{"photos/a.jpg"}}
+	s := &fakeStorage{failOn: "photos/a.jpg"}
+	if n, err := newService(u, s).DeleteUnused(context.Background()); err == nil || n != 0 {
+		t.Fatalf("DeleteUnused = %d, %v; want 0 and an error", n, err)
+	}
+	if len(u.deleted) != 0 {
+		t.Fatalf("rows deleted %v, want none", u.deleted)
+	}
+}
+
+func TestDeleteUnusedTableErrors(t *testing.T) {
+	u := &fakeUploads{lockErr: errors.New("db down"), locked: []string{"photos/a.jpg"}}
 	s := &fakeStorage{}
 	if _, err := newService(u, s).DeleteUnused(context.Background()); err == nil {
-		t.Fatal("want the table error")
+		t.Fatal("want the lock error")
 	}
 	if len(s.deleted) != 0 {
-		t.Fatal("deleted objects whose rows were not deleted")
+		t.Fatal("deleted objects without holding their rows")
+	}
+
+	// The row delete failing rolls back: the count is 0, and the rows stay for
+	// the next run (deleting a missing object again is not an error).
+	u = &fakeUploads{locked: []string{"photos/a.jpg"}, delErr: errors.New("db down")}
+	tx := &fakeTx{}
+	svc := NewService(Deps{Tx: tx, Uploads: u, Storage: &fakeStorage{}, Now: func() time.Time { return now }})
+	if n, err := svc.DeleteUnused(context.Background()); err == nil || n != 0 || tx.committed {
+		t.Fatalf("DeleteUnused = %d, %v, committed %v; want 0, an error and a rollback", n, err, tx.committed)
 	}
 }

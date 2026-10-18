@@ -164,7 +164,7 @@ func start() error {
 	if cfg.Photos.Bucket != "" {
 		photos = r2.New(cfg.Photos)
 	}
-	mediaSvc := media.NewService(media.Deps{Uploads: postgres.NewMediaUploads(pool), Storage: photos})
+	mediaSvc := media.NewService(media.Deps{Tx: postgres.NewTxRunner(pool), Uploads: postgres.NewMediaUploads(pool), Storage: photos})
 	router := apihttp.NewRouter(apihttp.Deps{
 		Auth:               authSvc,
 		Teams:              teamSvc,

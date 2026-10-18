@@ -27,29 +27,38 @@ func (q *Queries) CreateMediaUpload(ctx context.Context, arg CreateMediaUploadPa
 	return err
 }
 
-const deleteUnusedMediaUploads = `-- name: DeleteUnusedMediaUploads :many
+const deleteMediaUploads = `-- name: DeleteMediaUploads :exec
 DELETE FROM media_upload
-WHERE storage_key IN (
-    SELECT u.storage_key FROM media_upload u
-    WHERE u.post_id IS NULL AND u.created_at <= $1
-    ORDER BY u.created_at
-    LIMIT $2
-    FOR UPDATE SKIP LOCKED
-) AND post_id IS NULL
-RETURNING storage_key
+WHERE storage_key = ANY($1::text[]) AND post_id IS NULL
 `
 
-type DeleteUnusedMediaUploadsParams struct {
+// Deletes the rows of keys whose objects are gone. post_id IS NULL is a
+// guard: the caller holds the row locks, so no post attached them.
+func (q *Queries) DeleteMediaUploads(ctx context.Context, storageKeys []string) error {
+	_, err := q.db.Exec(ctx, deleteMediaUploads, storageKeys)
+	return err
+}
+
+const lockUnusedMediaUploads = `-- name: LockUnusedMediaUploads :many
+SELECT storage_key FROM media_upload
+WHERE post_id IS NULL AND created_at <= $1
+ORDER BY created_at
+LIMIT $2
+FOR UPDATE SKIP LOCKED
+`
+
+type LockUnusedMediaUploadsParams struct {
 	Cutoff  pgtype.Timestamptz
 	MaxRows int32
 }
 
-// Deletes up to max_rows keys that no post uses and that were issued at or
-// before the cutoff, oldest first, and returns them so their R2 objects can
-// go too. The row goes first: a post that attaches the key at the same time
-// either wins (post_id is set, the row stays) or finds no row and fails.
-func (q *Queries) DeleteUnusedMediaUploads(ctx context.Context, arg DeleteUnusedMediaUploadsParams) ([]string, error) {
-	rows, err := q.db.Query(ctx, deleteUnusedMediaUploads, arg.Cutoff, arg.MaxRows)
+// Locks up to max_rows keys that no post uses and that were issued at or
+// before the cutoff, oldest first, until the transaction ends. A post that
+// attaches one of them meanwhile waits for the lock, then either finds the
+// row gone (its object is deleted) or still there (its object is too).
+// SKIP LOCKED passes over keys a post is attaching right now.
+func (q *Queries) LockUnusedMediaUploads(ctx context.Context, arg LockUnusedMediaUploadsParams) ([]string, error) {
+	rows, err := q.db.Query(ctx, lockUnusedMediaUploads, arg.Cutoff, arg.MaxRows)
 	if err != nil {
 		return nil, err
 	}
