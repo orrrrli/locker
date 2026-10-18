@@ -22,6 +22,7 @@ type Deps struct {
 	Pages         pageService
 	Leads         leadService
 	Blocks        blockService
+	Follows       followService
 	// MatchFinder resolves the team of routes on /matches/{id}.
 	MatchFinder matchFinder
 	// ChargeFinder resolves the team of routes on /charges/{id}.
@@ -153,6 +154,10 @@ func NewRouter(d Deps) http.Handler {
 
 	ld := leadHandlers{svc: d.Leads}
 	mux.Handle("POST /venue-leads", a.requireAuth(http.HandlerFunc(ld.send)))
+
+	fl := followHandlers{svc: d.Follows}
+	mux.Handle("PUT /follows/{kind}/{id}", a.requireAuth(http.HandlerFunc(fl.follow)))
+	mux.Handle("DELETE /follows/{kind}/{id}", a.requireAuth(http.HandlerFunc(fl.unfollow)))
 
 	bl := blockHandlers{svc: d.Blocks}
 	mux.Handle("PUT /users/{id}/block", a.requireAuth(http.HandlerFunc(bl.block)))
