@@ -26,6 +26,7 @@ import (
 	applicationmemberships "github.com/orrrrli/locker/api/internal/application/memberships"
 	"github.com/orrrrli/locker/api/internal/application/notifications"
 	"github.com/orrrrli/locker/api/internal/application/pages"
+	"github.com/orrrrli/locker/api/internal/application/posts"
 	"github.com/orrrrli/locker/api/internal/application/teams"
 	"github.com/orrrrli/locker/api/internal/application/venues"
 	apihttp "github.com/orrrrli/locker/api/internal/http"
@@ -159,12 +160,20 @@ func start() error {
 	})
 	pageSvc := pages.NewService(pages.Deps{Pages: postgres.NewPages(pool), Memberships: memberships})
 	leadSvc := leads.NewService(leads.Deps{Tx: postgres.NewTxRunner(pool), Leads: postgres.NewVenueLeads(pool)})
-	// Storage stays nil, uploads answer 503, until the R2 bucket is configured.
+	// Storage stays nil, uploads and photo posts answer 503, until the R2
+	// bucket is configured. Two interface vars, not one *r2.Client, so nil
+	// stays a nil interface.
 	var photos media.Storage
+	var postPhotos posts.Photos
 	if cfg.Photos.Bucket != "" {
-		photos = r2.New(cfg.Photos)
+		bucket := r2.New(cfg.Photos)
+		photos, postPhotos = bucket, bucket
 	}
 	mediaSvc := media.NewService(media.Deps{Tx: postgres.NewTxRunner(pool), Uploads: postgres.NewMediaUploads(pool), Storage: photos})
+	postSvc := posts.NewService(posts.Deps{
+		Tx: postgres.NewTxRunner(pool), Posts: postgres.NewPosts(pool), Memberships: memberships,
+		Users: postgres.NewUsers(pool), Photos: postPhotos,
+	})
 	router := apihttp.NewRouter(apihttp.Deps{
 		Auth:               authSvc,
 		Teams:              teamSvc,
@@ -181,6 +190,7 @@ func start() error {
 		Blocks:             blocks.NewService(postgres.NewBlocks(pool)),
 		Follows:            follows.NewService(postgres.NewFollows(pool)),
 		Media:              mediaSvc,
+		Posts:              postSvc,
 		MatchFinder:        matchRepo,
 		ChargeFinder:       chargeRepo,
 		AppleAppID:         cfg.AppleAppID,

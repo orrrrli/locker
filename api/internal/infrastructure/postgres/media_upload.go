@@ -31,12 +31,14 @@ func (r *MediaUploads) Create(ctx context.Context, key string, userID int64, at 
 	return nil
 }
 
-// LockUnused locks up to limit rows no post uses that were issued at or
-// before cutoff, oldest first, skipping rows already locked, and returns
-// their keys. The locks hold until the transaction in ctx ends.
-func (r *MediaUploads) LockUnused(ctx context.Context, cutoff time.Time, limit int) ([]string, error) {
+// LockUnused locks up to limit rows no post uses, issued at or before cutoff,
+// or released by a deleted post and issued at or before releasedCutoff;
+// released first, then oldest first, skipping rows already locked. It
+// returns their keys. The locks hold until the transaction in ctx ends.
+func (r *MediaUploads) LockUnused(ctx context.Context, cutoff, releasedCutoff time.Time, limit int) ([]string, error) {
 	keys, err := sqlcdb.New(Conn(ctx, r.pool)).LockUnusedMediaUploads(ctx, sqlcdb.LockUnusedMediaUploadsParams{
-		Cutoff: pgtype.Timestamptz{Time: cutoff, Valid: true}, MaxRows: int32(limit),
+		Cutoff: pgtype.Timestamptz{Time: cutoff, Valid: true}, ReleasedCutoff: pgtype.Timestamptz{Time: releasedCutoff, Valid: true},
+		MaxRows: int32(limit),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("postgres: lock unused media uploads: %w", err)

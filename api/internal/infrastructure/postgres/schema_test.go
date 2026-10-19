@@ -18,8 +18,9 @@ import (
 )
 
 const (
-	uniqueViolation = "23505"
-	checkViolation  = "23514"
+	uniqueViolation     = "23505"
+	checkViolation      = "23514"
+	foreignKeyViolation = "23503"
 )
 
 var phase1Tables = []string{
@@ -174,6 +175,7 @@ func TestDomainEnumsMatchCheckConstraints(t *testing.T) {
 		{"rsvp", "answer", []string{string(domain.RSVPGoing), string(domain.RSVPNotGoing)}},
 		{"notification", "kind", []string{string(domain.NotificationManual), string(domain.NotificationMatchCreated), string(domain.NotificationMatchChanged), string(domain.NotificationRSVPReminder)}},
 		{"charge_member", "status", []string{string(domain.ChargePending), string(domain.ChargePaid)}},
+		{"post", "as_kind", []string{string(domain.PostAsTeam), string(domain.PostAsPlayer), string(domain.PostAsLeague), string(domain.PostAsVenue)}},
 	}
 	for _, e := range enums {
 		// The column's own CHECK is the one that lists every value with = ANY.
@@ -220,7 +222,7 @@ func TestMigrationsRollBackAndReapply(t *testing.T) {
 // fixture holds one row of each parent table, inserted inside a transaction
 // that the test rolls back.
 type fixture struct {
-	user, team, admin, player, match, notification, charge int64
+	user, team, admin, player, match, notification, charge, venue, league, post int64
 }
 
 func seed(t *testing.T, ctx context.Context, tx pgx.Tx) fixture {
@@ -238,6 +240,10 @@ func seed(t *testing.T, ctx context.Context, tx pgx.Tx) fixture {
 	insert(&f.match, `INSERT INTO match (team_id, starts_at, rival_name, location, created_by) VALUES ($1, now(), 'Rival', 'Cancha 3', $2) RETURNING id`, f.team, f.admin)
 	insert(&f.notification, `INSERT INTO notification (team_id, kind, title, body, sent_by) VALUES ($1, 'manual', 't', 'b', $2) RETURNING id`, f.team, f.admin)
 	insert(&f.charge, `INSERT INTO charge (team_id, concept, amount_cents, created_by) VALUES ($1, 'Arbitraje', 5000, $2) RETURNING id`, f.team, f.admin)
+	insert(&f.venue, `INSERT INTO venue (name, address, latitude, longitude, timezone) VALUES ('Complejo', 'Calle 1', 31.8, -116.6, 'America/Tijuana') RETURNING id`)
+	insert(&f.league, `INSERT INTO league (venue_id, name, weekday, start_time, end_time, season_name, season_starts_on, season_ends_on)
+		VALUES ($1, 'Liga', 1, '19:00', '22:00', 'Apertura', '2026-08-01', '2026-12-01') RETURNING id`, f.venue)
+	insert(&f.post, `INSERT INTO post (author_user_id, as_kind, team_id, body, share_token) VALUES ($1, 'team', $2, 'Hola', 'seed') RETURNING id`, f.user, f.team)
 	return f
 }
 
@@ -343,6 +349,59 @@ func TestSchemaConstraints(t *testing.T) {
 			`INSERT INTO media_upload (storage_key, user_id) VALUES ('photos/a.jpg', $1)`,
 			`INSERT INTO media_upload (storage_key, user_id) VALUES ('photos/a.jpg', $1)`,
 			[]any{f.user}, uniqueViolation},
+		{"post team needs team_id", "",
+			`INSERT INTO post (author_user_id, as_kind, team_id, league_id, venue_id, share_token) VALUES ($1, 'team', NULL, NULL, NULL, 'team-needs-team_id')`,
+			[]any{f.user}, checkViolation},
+		{"post team takes no league_id", "",
+			`INSERT INTO post (author_user_id, as_kind, team_id, league_id, venue_id, share_token) VALUES ($1, 'team', $2, $3, NULL, 'team-takes-no-league_id')`,
+			[]any{f.user, f.team, f.league}, checkViolation},
+		{"post team takes no venue_id", "",
+			`INSERT INTO post (author_user_id, as_kind, team_id, league_id, venue_id, share_token) VALUES ($1, 'team', $2, NULL, $3, 'team-takes-no-venue_id')`,
+			[]any{f.user, f.team, f.venue}, checkViolation},
+		{"post player needs team_id", "",
+			`INSERT INTO post (author_user_id, as_kind, team_id, league_id, venue_id, share_token) VALUES ($1, 'player', NULL, NULL, NULL, 'player-needs-team_id')`,
+			[]any{f.user}, checkViolation},
+		{"post player takes no league_id", "",
+			`INSERT INTO post (author_user_id, as_kind, team_id, league_id, venue_id, share_token) VALUES ($1, 'player', $2, $3, NULL, 'player-takes-no-league_id')`,
+			[]any{f.user, f.team, f.league}, checkViolation},
+		{"post player takes no venue_id", "",
+			`INSERT INTO post (author_user_id, as_kind, team_id, league_id, venue_id, share_token) VALUES ($1, 'player', $2, NULL, $3, 'player-takes-no-venue_id')`,
+			[]any{f.user, f.team, f.venue}, checkViolation},
+		{"post league needs league_id", "",
+			`INSERT INTO post (author_user_id, as_kind, team_id, league_id, venue_id, share_token) VALUES ($1, 'league', NULL, NULL, NULL, 'league-needs-league_id')`,
+			[]any{f.user}, checkViolation},
+		{"post league takes no team_id", "",
+			`INSERT INTO post (author_user_id, as_kind, team_id, league_id, venue_id, share_token) VALUES ($1, 'league', $2, $3, NULL, 'league-takes-no-team_id')`,
+			[]any{f.user, f.team, f.league}, checkViolation},
+		{"post league takes no venue_id", "",
+			`INSERT INTO post (author_user_id, as_kind, team_id, league_id, venue_id, share_token) VALUES ($1, 'league', NULL, $2, $3, 'league-takes-no-venue_id')`,
+			[]any{f.user, f.league, f.venue}, checkViolation},
+		{"post venue needs venue_id", "",
+			`INSERT INTO post (author_user_id, as_kind, team_id, league_id, venue_id, share_token) VALUES ($1, 'venue', NULL, NULL, NULL, 'venue-needs-venue_id')`,
+			[]any{f.user}, checkViolation},
+		{"post venue takes no team_id", "",
+			`INSERT INTO post (author_user_id, as_kind, team_id, league_id, venue_id, share_token) VALUES ($1, 'venue', $2, NULL, $3, 'venue-takes-no-team_id')`,
+			[]any{f.user, f.team, f.venue}, checkViolation},
+		{"post venue takes no league_id", "",
+			`INSERT INTO post (author_user_id, as_kind, team_id, league_id, venue_id, share_token) VALUES ($1, 'venue', NULL, $2, $3, 'venue-takes-no-league_id')`,
+			[]any{f.user, f.league, f.venue}, checkViolation},
+		{"post as_kind CHECK", "",
+			`INSERT INTO post (author_user_id, as_kind, team_id, share_token) VALUES ($1, 'official', $2, 'kind')`,
+			[]any{f.user, f.team}, checkViolation},
+		{"post share_token is unique", "",
+			`INSERT INTO post (author_user_id, as_kind, team_id, share_token) VALUES ($1, 'team', $2, 'seed')`,
+			[]any{f.user, f.team}, uniqueViolation},
+		{"post_media storage_key is unique",
+			`INSERT INTO post_media (post_id, storage_key, position, content_type, size_bytes) VALUES ($1, 'photos/k', 0, 'image/jpeg', 1)`,
+			`INSERT INTO post_media (post_id, storage_key, position, content_type, size_bytes) VALUES ($1, 'photos/k', 1, 'image/jpeg', 1)`,
+			[]any{f.post}, uniqueViolation},
+		{"post_media UNIQUE (post_id, position)",
+			`INSERT INTO post_media (post_id, storage_key, position, content_type, size_bytes) VALUES ($1, 'photos/p1', 0, 'image/jpeg', 1)`,
+			`INSERT INTO post_media (post_id, storage_key, position, content_type, size_bytes) VALUES ($1, 'photos/p2', 0, 'image/jpeg', 1)`,
+			[]any{f.post}, uniqueViolation},
+		{"media_upload post_id names a post", "",
+			`INSERT INTO media_upload (storage_key, user_id, post_id) VALUES ('photos/b.jpg', $1, $2 + 1000)`,
+			[]any{f.user, f.post}, foreignKeyViolation},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -362,6 +421,36 @@ func TestSchemaConstraints(t *testing.T) {
 				t.Fatalf("err = %v, want SQLSTATE %s", err, tt.code)
 			}
 		})
+	}
+}
+
+// TestPostAuthorKinds: each as_kind is accepted with its own author column,
+// so a CHECK that rejects valid posts cannot pass TestSchemaConstraints alone.
+func TestPostAuthorKinds(t *testing.T) {
+	pool, _ := testPool(t)
+	ctx := context.Background()
+	if err := Migrate(ctx, pool); err != nil {
+		t.Fatal(err)
+	}
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	f := seed(t, ctx, tx)
+	for _, c := range []struct {
+		kind, column string
+		id           int64
+	}{
+		{"team", "team_id", f.team},
+		{"player", "team_id", f.team},
+		{"league", "league_id", f.league},
+		{"venue", "venue_id", f.venue},
+	} {
+		sql := `INSERT INTO post (author_user_id, as_kind, ` + c.column + `, share_token) VALUES ($1, $2, $3, $2)`
+		if _, err := tx.Exec(ctx, sql, f.user, c.kind, c.id); err != nil {
+			t.Errorf("%s post: %v", c.kind, err)
+		}
 	}
 }
 

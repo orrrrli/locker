@@ -24,6 +24,7 @@ type Deps struct {
 	Blocks        blockService
 	Follows       followService
 	Media         mediaService
+	Posts         postService
 	// MatchFinder resolves the team of routes on /matches/{id}.
 	MatchFinder matchFinder
 	// ChargeFinder resolves the team of routes on /charges/{id}.
@@ -77,6 +78,9 @@ func NewRouter(d Deps) http.Handler {
 	}
 	if d.Limits.MatchWrite == nil {
 		d.Limits.MatchWrite = defaults.MatchWrite
+	}
+	if d.Limits.PostWrite == nil {
+		d.Limits.PostWrite = defaults.PostWrite
 	}
 	if d.Limits.ResetRequestIP == nil {
 		d.Limits.ResetRequestIP = defaults.ResetRequestIP
@@ -158,6 +162,10 @@ func NewRouter(d Deps) http.Handler {
 
 	md := mediaHandlers{svc: d.Media}
 	mux.Handle("POST /media/uploads", a.requireAuth(http.HandlerFunc(md.requestUploads)))
+
+	ps := postHandlers{svc: d.Posts}
+	mux.Handle("POST /posts", a.requireAuth(limitBy(d.Limits.PostWrite, byUser, http.HandlerFunc(ps.publish))))
+	mux.Handle("DELETE /posts/{id}", a.requireAuth(http.HandlerFunc(ps.remove)))
 
 	fl := followHandlers{svc: d.Follows}
 	mux.Handle("PUT /follows/{kind}/{id}", a.requireAuth(http.HandlerFunc(fl.follow)))

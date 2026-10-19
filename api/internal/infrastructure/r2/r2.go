@@ -1,17 +1,22 @@
 // Package r2 talks to the Cloudflare R2 bucket for post photos through R2's
 // S3-compatible API. It signs the PUT URLs the app uploads photos with
-// (BE-FEED-1-T1) and deletes objects; it never moves photo bytes itself.
+// (BE-FEED-1-T1), heads objects to check them (BE-FEED-2-T3) and deletes
+// them; it never moves photo bytes itself.
 package r2
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"net/http"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	awshttp "github.com/aws/aws-sdk-go-v2/aws/transport/http"
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
+
+	"github.com/orrrrli/locker/api/internal/domain"
 )
 
 // requestTimeout bounds one call to R2, retries aside.
@@ -86,4 +91,18 @@ func (c *Client) Delete(ctx context.Context, key string) error {
 		return fmt.Errorf("r2: delete: %w", err)
 	}
 	return nil
+}
+
+// Head returns the object's type and size; domain.ErrNotFound when it was
+// never uploaded (BE-FEED-2-T3).
+func (c *Client) Head(ctx context.Context, key string) (string, int64, error) {
+	out, err := c.s3.HeadObject(ctx, &s3.HeadObjectInput{Bucket: aws.String(c.bucket), Key: aws.String(key)})
+	var re *awshttp.ResponseError
+	if errors.As(err, &re) && re.HTTPStatusCode() == http.StatusNotFound {
+		return "", 0, domain.ErrNotFound
+	}
+	if err != nil {
+		return "", 0, fmt.Errorf("r2: head: %w", err)
+	}
+	return aws.ToString(out.ContentType), aws.ToInt64(out.ContentLength), nil
 }

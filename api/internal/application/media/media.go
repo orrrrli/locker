@@ -79,9 +79,10 @@ type Storage interface {
 type Uploads interface {
 	Create(ctx context.Context, key string, userID int64, at time.Time) error
 	// LockUnused locks, until the transaction ends, up to limit rows no post
-	// uses that were issued at or before cutoff, skipping rows already
-	// locked, and returns their keys.
-	LockUnused(ctx context.Context, cutoff time.Time, limit int) ([]string, error)
+	// uses that were issued at or before cutoff, or released by a deleted post
+	// and issued at or before releasedCutoff, released first, skipping rows
+	// already locked, and returns their keys.
+	LockUnused(ctx context.Context, cutoff, releasedCutoff time.Time, limit int) ([]string, error)
 	// Delete removes the rows of keys, unless a post uses them.
 	Delete(ctx context.Context, keys []string) error
 }
@@ -186,8 +187,9 @@ func (s *Service) Request(ctx context.Context, userID int64, photos []Photo) ([]
 	return out, nil
 }
 
-// DeleteUnused deletes keys that no post used within UnusedTTL and reports
-// how many it removed. In one transaction it locks the rows, deletes both
+// DeleteUnused deletes keys that no post used within UnusedTTL, and keys a
+// deleted post released once their upload URLs expired, and reports how many
+// it removed. In one transaction it locks the rows, deletes both
 // objects of each key from R2, and deletes only the rows whose two objects
 // went: a failed object delete keeps its row, so the next tick retries it,
 // even when its other object is already gone. POST /posts takes only keys
@@ -203,7 +205,10 @@ func (s *Service) DeleteUnused(ctx context.Context) (int64, error) {
 	var r2Errs []error
 	err := s.tx.InTx(ctx, func(ctx context.Context) error {
 		gone, r2Errs = nil, nil
-		keys, err := s.uploads.LockUnused(ctx, s.now().Add(-UnusedTTL), deleteBatch)
+		now := s.now()
+		// A released key waits for its URLs to expire, plus a minute for
+		// clock skew: before that, a client could PUT its objects again.
+		keys, err := s.uploads.LockUnused(ctx, now.Add(-UnusedTTL), now.Add(-URLTTL-time.Minute), deleteBatch)
 		if err != nil {
 			return err
 		}

@@ -20,6 +20,7 @@ type row struct {
 type fakeUploads struct {
 	rows    []row
 	cutoff  time.Time
+	relCut  time.Time
 	limit   int
 	locked  []string
 	lockErr error
@@ -32,8 +33,8 @@ func (f *fakeUploads) Create(_ context.Context, key string, userID int64, at tim
 	return nil
 }
 
-func (f *fakeUploads) LockUnused(_ context.Context, cutoff time.Time, limit int) ([]string, error) {
-	f.cutoff, f.limit = cutoff, limit
+func (f *fakeUploads) LockUnused(_ context.Context, cutoff, releasedCutoff time.Time, limit int) ([]string, error) {
+	f.cutoff, f.relCut, f.limit = cutoff, releasedCutoff, limit
 	return f.locked, f.lockErr
 }
 
@@ -201,8 +202,10 @@ func TestDeleteUnused(t *testing.T) {
 	if err != nil || n != 2 {
 		t.Fatalf("DeleteUnused = %d, %v; want 2, nil", n, err)
 	}
-	if !u.cutoff.Equal(now.Add(-24*time.Hour)) || u.limit != deleteBatch {
-		t.Fatalf("cutoff %v limit %d, want %v and %d", u.cutoff, u.limit, now.Add(-24*time.Hour), deleteBatch)
+	// Released keys wait for their 15-minute upload URLs, plus a minute.
+	if !u.cutoff.Equal(now.Add(-24*time.Hour)) || !u.relCut.Equal(now.Add(-16*time.Minute)) || u.limit != deleteBatch {
+		t.Fatalf("cutoff %v, released cutoff %v, limit %d; want %v, %v and %d",
+			u.cutoff, u.relCut, u.limit, now.Add(-24*time.Hour), now.Add(-16*time.Minute), deleteBatch)
 	}
 	if want := []string{"photos/a/large", "photos/a/small", "photos/b/large", "photos/b/small"}; !slices.Equal(s.deleted, want) || len(u.deleted) != 2 || !tx.committed {
 		t.Fatalf("objects %v, rows %v, committed %v; want %v gone, both rows and a commit", s.deleted, u.deleted, tx.committed, want)

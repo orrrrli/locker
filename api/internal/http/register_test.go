@@ -25,6 +25,7 @@ import (
 	applicationmemberships "github.com/orrrrli/locker/api/internal/application/memberships"
 	"github.com/orrrrli/locker/api/internal/application/notifications"
 	"github.com/orrrrli/locker/api/internal/application/pages"
+	"github.com/orrrrli/locker/api/internal/application/posts"
 	"github.com/orrrrli/locker/api/internal/application/teams"
 	"github.com/orrrrli/locker/api/internal/application/venues"
 	"github.com/orrrrli/locker/api/internal/infrastructure/password"
@@ -144,9 +145,13 @@ func newAPI(t *testing.T, now func() time.Time) apiTest {
 		Auth: svc, Teams: teamSvc, Invites: inviteSvc, Members: memberSvc, Account: accountSvc,
 		Matches: matchSvc, MatchFinder: matchRepo, Charges: chargeSvc, ChargeFinder: chargeRepo, Notifications: notificationSvc,
 		Venues: venueSvc, Memberships: memberships, Users: postgres.NewUsers(pool), Limits: limits, Leagues: leagueSvc, Pages: pageSvc, Leads: leadSvc,
-		Blocks:             blocks.NewService(postgres.NewBlocks(pool)),
-		Follows:            follows.NewService(postgres.NewFollows(pool)),
-		Media:              media.NewService(media.Deps{Tx: postgres.NewTxRunner(pool), Uploads: postgres.NewMediaUploads(pool), Storage: fakePhotos{}, Now: now}),
+		Blocks:  blocks.NewService(postgres.NewBlocks(pool)),
+		Follows: follows.NewService(postgres.NewFollows(pool)),
+		Media:   media.NewService(media.Deps{Tx: postgres.NewTxRunner(pool), Uploads: postgres.NewMediaUploads(pool), Storage: fakePhotos{}, Now: now}),
+		Posts: posts.NewService(posts.Deps{
+			Tx: postgres.NewTxRunner(pool), Posts: postgres.NewPosts(pool), Memberships: memberships,
+			Users: postgres.NewUsers(pool), Photos: fakePhotos{}, Now: now,
+		}),
 		NotificationFinder: notificationRepo,
 	}))
 	mux.Handle("GET /test/whoami", authHandlers{svc: svc}.requireAuth(http.HandlerFunc(
