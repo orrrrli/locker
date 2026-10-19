@@ -57,7 +57,7 @@ func TestMediaUploads(t *testing.T) {
 		var keys []string
 		if err := NewTxRunner(pool).InTx(ctx, func(ctx context.Context) error {
 			var err error
-			if keys, err = repo.LockUnused(ctx, cutoff, limit); err != nil {
+			if keys, err = repo.LockUnused(ctx, cutoff, cutoff, limit); err != nil {
 				return err
 			}
 			return repo.Delete(ctx, keys)
@@ -131,7 +131,7 @@ func TestMediaUploadLocks(t *testing.T) {
 		if _, err := Conn(ctx, pool).Exec(ctx, `SET LOCAL lock_timeout = '1s'`); err != nil {
 			return err
 		}
-		keys, err := repo.LockUnused(ctx, cutoff, 10)
+		keys, err := repo.LockUnused(ctx, cutoff, cutoff, 10)
 		if err != nil {
 			return err
 		}
@@ -172,10 +172,11 @@ func insertPost(t *testing.T, pool *pgxpool.Pool, userID int64) int64 {
 	return id
 }
 
-// Deleting a post drops its post_media rows and turns its uploads back into
-// unused ones, so the cleanup job deletes them from R2 if DELETE /posts/{id}
-// could not (design.md Photo upload flow, step 6).
-func TestPostDeleteReleasesUploads(t *testing.T) {
+// A post whose uploads were not released cannot be deleted: the delete must
+// hand its keys to the cleanup job first (00025), or they would look unused
+// and their objects would wait out the 24-hour cutoff. Posts.Delete releases
+// them, and its post_media rows go with the post.
+func TestPostDeleteMustReleaseUploads(t *testing.T) {
 	pool, _ := testPool(t)
 	ctx := context.Background()
 	if err := Migrate(ctx, pool); err != nil {
@@ -197,19 +198,78 @@ func TestPostDeleteReleasesUploads(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if _, err := pool.Exec(ctx, `DELETE FROM post WHERE id = $1`, gone); err != nil {
-		t.Fatal(err)
+	_, err := pool.Exec(ctx, `DELETE FROM post WHERE id = $1`, gone)
+	var pgErr *pgconn.PgError
+	if !errors.As(err, &pgErr) || pgErr.Code != "23503" {
+		t.Fatalf("plain delete: err = %v, want foreign_key_violation", err)
 	}
 
+	now := time.Date(2026, 10, 18, 12, 0, 0, 0, time.UTC)
+	if err := NewPosts(pool).Delete(ctx, gone, now); err == nil {
+		t.Fatal("Delete outside a transaction: want an error")
+	}
+	if err := NewTxRunner(pool).InTx(ctx, func(ctx context.Context) error { return NewPosts(pool).Delete(ctx, gone, now) }); err != nil {
+		t.Fatal(err)
+	}
 	var media, uploads int
-	var unused []string
+	var released []string
 	if err := pool.QueryRow(ctx, `SELECT count(*) FROM post_media`).Scan(&media); err != nil {
 		t.Fatal(err)
 	}
-	if err := pool.QueryRow(ctx, `SELECT count(*), coalesce(array_agg(storage_key) FILTER (WHERE post_id IS NULL), '{}') FROM media_upload`).Scan(&uploads, &unused); err != nil {
+	if err := pool.QueryRow(ctx, `SELECT count(*), coalesce(array_agg(storage_key) FILTER (WHERE post_id IS NULL AND released_at = $1), '{}') FROM media_upload`, now).Scan(&uploads, &released); err != nil {
 		t.Fatal(err)
 	}
-	if media != 1 || uploads != 2 || !slices.Equal(unused, []string{"photos/gone"}) {
-		t.Fatalf("post_media %d, media_upload %d, unused %v; want 1, 2, [photos/gone]", media, uploads, unused)
+	if media != 1 || uploads != 2 || !slices.Equal(released, []string{"photos/gone"}) {
+		t.Fatalf("post_media %d, media_upload %d, released %v; want 1, 2, [photos/gone]", media, uploads, released)
+	}
+}
+
+// The cleanup takes a released key only once its upload URLs expired, and
+// before any never-used key, however old.
+func TestLockUnusedTakesReleasedKeysFirst(t *testing.T) {
+	pool, _ := testPool(t)
+	ctx := context.Background()
+	if err := Migrate(ctx, pool); err != nil {
+		t.Fatal(err)
+	}
+	var userID int64
+	if err := pool.QueryRow(ctx, `INSERT INTO "user" (name, birth_date) VALUES ('Ana', '2000-01-01') RETURNING id`).Scan(&userID); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Date(2026, 10, 18, 12, 0, 0, 0, time.UTC)
+	cutoff, releasedCutoff := now.Add(-24*time.Hour), now.Add(-16*time.Minute)
+	for _, r := range []struct {
+		key      string
+		at       time.Time
+		released bool
+	}{
+		{"expired", now.Add(-48 * time.Hour), false},
+		{"released", now.Add(-20 * time.Minute), true},
+		{"released-urls-live", now.Add(-10 * time.Minute), true},
+		{"fresh", now.Add(-time.Hour), false},
+	} {
+		if _, err := pool.Exec(ctx, `INSERT INTO media_upload (storage_key, user_id, created_at, released_at) VALUES ($1, $2, $3, CASE WHEN $4 THEN $5::timestamptz END)`,
+			r.key, userID, r.at, r.released, now); err != nil {
+			t.Fatal(err)
+		}
+	}
+	repo := NewMediaUploads(pool)
+	take := func(limit int) []string {
+		t.Helper()
+		var keys []string
+		if err := NewTxRunner(pool).InTx(ctx, func(ctx context.Context) error {
+			var err error
+			keys, err = repo.LockUnused(ctx, cutoff, releasedCutoff, limit)
+			return err
+		}); err != nil {
+			t.Fatal(err)
+		}
+		return keys
+	}
+	if got := take(1); !slices.Equal(got, []string{"released"}) {
+		t.Fatalf("limit 1 took %v, want [released] ahead of an older expired key", got)
+	}
+	if got := take(10); !slices.Equal(got, []string{"released", "expired"}) {
+		t.Fatalf("took %v, want [released expired]: not a key whose URLs still work, nor a fresh one", got)
 	}
 }

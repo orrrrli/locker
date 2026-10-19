@@ -145,6 +145,7 @@ type MediaUpload struct {
 	UserID     int64
 	PostID     pgtype.Int8
 	CreatedAt  pgtype.Timestamptz
+	ReleasedAt pgtype.Timestamptz
 }
 
 type Membership struct {

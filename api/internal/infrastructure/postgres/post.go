@@ -102,3 +102,34 @@ func (r *Posts) CountUnusedUploads(ctx context.Context, userID int64, keys []str
 	}
 	return int(n), nil
 }
+
+// PostAuthor returns the post's ID, author, kind and team, without locking
+// it; domain.ErrNotFound for an unknown post.
+func (r *Posts) PostAuthor(ctx context.Context, id int64) (domain.Post, error) {
+	row, err := sqlcdb.New(Conn(ctx, r.pool)).GetPostAuthor(ctx, id)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return domain.Post{}, domain.ErrNotFound
+	}
+	if err != nil {
+		return domain.Post{}, fmt.Errorf("postgres: post author: %w", err)
+	}
+	return domain.Post{ID: row.ID, AuthorUserID: row.AuthorUserID, AsKind: domain.PostKind(row.AsKind), TeamID: int8Ptr(row.TeamID)}, nil
+}
+
+// Delete releases the post's uploads to the cleanup job at now, then deletes
+// the post and its media rows.
+func (r *Posts) Delete(ctx context.Context, id int64, now time.Time) error {
+	// Both statements or neither: a release that commits alone hands a live
+	// post's photos to the cleanup job.
+	if _, ok := ctx.Value(txKey{}).(pgx.Tx); !ok {
+		return errors.New("postgres: delete post: no transaction in ctx")
+	}
+	q := sqlcdb.New(Conn(ctx, r.pool))
+	if err := q.ReleasePostUploads(ctx, sqlcdb.ReleasePostUploadsParams{PostID: pgInt8(id), Now: timestamptz(now)}); err != nil {
+		return fmt.Errorf("postgres: release post uploads: %w", err)
+	}
+	if err := q.DeletePost(ctx, id); err != nil {
+		return fmt.Errorf("postgres: delete post: %w", err)
+	}
+	return nil
+}

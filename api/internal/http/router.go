@@ -165,6 +165,7 @@ func NewRouter(d Deps) http.Handler {
 
 	ps := postHandlers{svc: d.Posts}
 	mux.Handle("POST /posts", a.requireAuth(limitBy(d.Limits.PostWrite, byUser, http.HandlerFunc(ps.publish))))
+	mux.Handle("DELETE /posts/{id}", a.requireAuth(http.HandlerFunc(ps.remove)))
 
 	fl := followHandlers{svc: d.Follows}
 	mux.Handle("PUT /follows/{kind}/{id}", a.requireAuth(http.HandlerFunc(fl.follow)))

@@ -25,12 +25,30 @@ VALUES ($1, $2, $3, $4, $5);
 UPDATE media_upload
 SET post_id = sqlc.arg(post_id)
 WHERE storage_key = ANY(sqlc.arg(storage_keys)::text[])
-  AND user_id = sqlc.arg(user_id) AND post_id IS NULL
+  AND user_id = sqlc.arg(user_id) AND post_id IS NULL AND released_at IS NULL
   AND created_at > sqlc.arg(issued_after)::timestamptz;
 
 -- name: CountUnusedMediaUploads :one
 -- The read-only check before R2 is asked about any key.
 SELECT count(*) FROM media_upload
 WHERE storage_key = ANY(sqlc.arg(storage_keys)::text[])
-  AND user_id = sqlc.arg(user_id) AND post_id IS NULL
+  AND user_id = sqlc.arg(user_id) AND post_id IS NULL AND released_at IS NULL
   AND created_at > sqlc.arg(issued_after)::timestamptz;
+
+-- name: GetPostAuthor :one
+-- No lock: the author and team never change, and DELETE locks the row
+-- itself, after any team lock the caller takes.
+SELECT id, author_user_id, as_kind, team_id FROM post
+WHERE id = $1;
+
+-- name: ReleasePostUploads :exec
+-- Hands the post's keys to the cleanup job, which deletes both objects of
+-- each once their upload URLs expired; a released key never goes into a post
+-- again.
+UPDATE media_upload
+SET post_id = NULL, released_at = sqlc.arg(now)::timestamptz
+WHERE post_id = sqlc.arg(post_id);
+
+-- name: DeletePost :exec
+-- post_media goes with it (ON DELETE CASCADE).
+DELETE FROM post WHERE id = $1;

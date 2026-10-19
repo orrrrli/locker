@@ -3,14 +3,20 @@
 INSERT INTO media_upload (storage_key, user_id, created_at) VALUES ($1, $2, $3);
 
 -- name: LockUnusedMediaUploads :many
--- Locks up to max_rows keys that no post uses and that were issued at or
--- before the cutoff, oldest first, until the transaction ends. A post that
--- attaches one of them meanwhile waits for the lock, then either finds the
--- row gone (its object is deleted) or still there (its object is too).
--- SKIP LOCKED passes over keys a post is attaching right now.
+-- Locks, until the transaction ends, up to max_rows keys no post uses: those
+-- issued at or before the cutoff, and those a deleted post released once
+-- their upload URLs expired (issued at or before released_cutoff), so a
+-- client cannot PUT the objects again after they go. Released keys come
+-- first, so a backlog of never-used uploads cannot hold a deleted post's
+-- photos back; then oldest first. SKIP LOCKED passes over keys a post is
+-- attaching right now.
+-- ponytail: the ORDER BY scans every unused row; add an index on
+-- (released_at) WHERE post_id IS NULL if that backlog grows.
 SELECT storage_key FROM media_upload
-WHERE post_id IS NULL AND created_at <= sqlc.arg(cutoff)
-ORDER BY created_at
+WHERE post_id IS NULL
+  AND (created_at <= sqlc.arg(cutoff)
+       OR (released_at IS NOT NULL AND created_at <= sqlc.arg(released_cutoff)))
+ORDER BY released_at IS NULL, created_at
 LIMIT sqlc.arg(max_rows)
 FOR UPDATE SKIP LOCKED;
 

@@ -448,3 +448,151 @@ func TestPublishRejectsKeysPastAttachTTL(t *testing.T) {
 		t.Fatalf("attach of a key issued at the bound = %d, %v; want 0", n, err)
 	}
 }
+
+// Deleting a post removes it and its media rows, and hands its keys to the
+// cleanup job: they never go into a post again, and the job takes them as
+// soon as their upload URLs expired, without waiting for the 24-hour cutoff.
+func TestDeleteReleasesThePhotos(t *testing.T) {
+	f := setup(t)
+	ctx := context.Background()
+	f.upload(t, f.admin, "photos/a")
+	in := asTeam(f.team, "Hola")
+	in.Keys = []string{"photos/a"}
+	p, err := f.svc.Publish(ctx, f.admin, in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	*f.now = f.now.Add(time.Minute)
+	if err := f.svc.Delete(ctx, f.admin, p.ID); err != nil {
+		t.Fatal(err)
+	}
+	if n := f.id(t, `SELECT (SELECT count(*) FROM post) + (SELECT count(*) FROM post_media)`); n != 0 {
+		t.Fatalf("%d post rows left", n)
+	}
+	var released *time.Time
+	if err := f.pool.QueryRow(ctx, `SELECT released_at FROM media_upload WHERE storage_key = 'photos/a' AND post_id IS NULL`).Scan(&released); err != nil || released == nil || !released.Equal(*f.now) {
+		t.Fatalf("upload released_at %v, %v; want %v", released, err, *f.now)
+	}
+	if _, err := f.svc.Publish(ctx, f.admin, in); !errors.Is(err, posts.ErrInvalidPhoto) {
+		t.Fatalf("republish with the released key: err = %v, want ErrInvalidPhoto", err)
+	}
+	// The attach refuses it too, not only the check before R2.
+	other, err := f.svc.Publish(ctx, f.admin, asTeam(f.team, "Otro"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n, err := postgres.NewPosts(f.pool).AttachUploads(ctx, other.ID, f.admin, []string{"photos/a"}, f.now.Add(-time.Hour)); err != nil || n != 0 {
+		t.Fatalf("attach of a released key = %d, %v; want 0", n, err)
+	}
+	// The cleanup job waits while the upload URLs still work, then takes it,
+	// long before the 24-hour cutoff.
+	issued := f.now.Add(-time.Minute)
+	take := func(at time.Time) []string {
+		t.Helper()
+		var taken []string
+		if err := postgres.NewTxRunner(f.pool).InTx(ctx, func(ctx context.Context) error {
+			taken, err = postgres.NewMediaUploads(f.pool).LockUnused(ctx, at.Add(-media.UnusedTTL), at.Add(-media.URLTTL-time.Minute), 10)
+			return err
+		}); err != nil {
+			t.Fatal(err)
+		}
+		return taken
+	}
+	if got := take(*f.now); len(got) != 0 {
+		t.Fatalf("cleanup took %v while the upload URLs still work", got)
+	}
+	if got := take(issued.Add(media.URLTTL + time.Minute)); len(got) != 1 || got[0] != "photos/a" {
+		t.Fatalf("cleanup took %v once the URLs expired, want [photos/a]", got)
+	}
+	if err := f.svc.Delete(ctx, f.admin, p.ID); !errors.Is(err, domain.ErrNotFound) {
+		t.Fatalf("second delete: err = %v, want ErrNotFound", err)
+	}
+}
+
+// The author deletes any of their posts; any active admin of the team also
+// deletes a team post (R18.11). Nobody else does.
+func TestDeleteChecksWhoMay(t *testing.T) {
+	f := setup(t)
+	ctx := context.Background()
+	admin2 := f.member(t, "beto@example.com", "admin", "active")
+	player := f.member(t, "caro@example.com", "player", "active")
+	left := f.member(t, "dani@example.com", "admin", "left")
+	stranger := f.user(t, "eva@example.com")
+	publish := func(user int64, in posts.NewPost) int64 {
+		t.Helper()
+		p, err := f.svc.Publish(ctx, user, in)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return p.ID
+	}
+	asPlayer := posts.NewPost{AsKind: domain.PostAsPlayer, TeamID: &f.team, Body: ptr("Hola")}
+
+	teamPost := publish(f.admin, asTeam(f.team, "Hola"))
+	playerPost := publish(player, asPlayer)
+	for _, tc := range []struct {
+		name       string
+		user, post int64
+		want       error
+	}{
+		{"player, team post", player, teamPost, posts.ErrNotAllowed},
+		{"left admin, team post", left, teamPost, posts.ErrNotAllowed},
+		{"stranger, team post", stranger, teamPost, posts.ErrNotAllowed},
+		{"admin, someone's player post", f.admin, playerPost, posts.ErrNotAllowed},
+		{"unknown post", f.admin, teamPost + 99, domain.ErrNotFound},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if err := f.svc.Delete(ctx, tc.user, tc.post); !errors.Is(err, tc.want) {
+				t.Fatalf("err = %v, want %v", err, tc.want)
+			}
+		})
+	}
+	if n := f.id(t, `SELECT count(*) FROM post`); n != 2 {
+		t.Fatalf("%d posts left, want 2", n)
+	}
+
+	for _, tc := range []struct {
+		name       string
+		user, post int64
+	}{
+		{"another admin, team post", admin2, teamPost},
+		{"author, player post", player, playerPost},
+		{"author, own player post", f.admin, publish(f.admin, asPlayer)},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if err := f.svc.Delete(ctx, tc.user, tc.post); err != nil {
+				t.Fatal(err)
+			}
+		})
+	}
+	if n := f.id(t, `SELECT count(*) FROM post`); n != 0 {
+		t.Fatalf("%d posts left, want 0", n)
+	}
+}
+
+// The writer keeps the right to delete what they wrote after losing the role
+// that let them write it (R18.11, Orlando's call on BE-FEED-2-T4): a demoted
+// admin deletes their team post, a former operator their league post.
+func TestDeleteByAuthorAfterLosingTheRole(t *testing.T) {
+	f := setup(t)
+	ctx := context.Background()
+	writer := f.member(t, "beto@example.com", "admin", "active")
+	operator := f.user(t, "op@example.com")
+	f.exec(t, `UPDATE "user" SET is_operator = true WHERE id = $1`, operator)
+	teamPost, err := f.svc.Publish(ctx, writer, asTeam(f.team, "Hola"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	leaguePost, err := f.svc.Publish(ctx, operator, posts.NewPost{AsKind: domain.PostAsLeague, LeagueID: &f.league, Body: ptr("Hola")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.exec(t, `UPDATE membership SET role = 'player', status = 'left' WHERE user_id = $1`, writer)
+	f.exec(t, `UPDATE "user" SET is_operator = false WHERE id = $1`, operator)
+	if err := f.svc.Delete(ctx, writer, teamPost.ID); err != nil {
+		t.Fatalf("demoted writer of a team post: %v", err)
+	}
+	if err := f.svc.Delete(ctx, operator, leaguePost.ID); err != nil {
+		t.Fatalf("former operator, own league post: %v", err)
+	}
+}

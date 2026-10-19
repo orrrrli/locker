@@ -14,9 +14,10 @@ import (
 
 type postService interface {
 	Publish(ctx context.Context, userID int64, in posts.NewPost) (domain.Post, error)
+	Delete(ctx context.Context, userID, postID int64) error
 }
 
-// postHandlers serve POST /posts to any signed-in user. Who may write as the
+// postHandlers serve POST /posts and DELETE /posts/{id} to any signed-in user. Who may write as the
 // chosen author is the use case's check, since as_kind is in the body: team
 // admins, active players, and the operator for leagues and venues (R18).
 type postHandlers struct {
@@ -80,6 +81,22 @@ func (h postHandlers) publish(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, out)
 }
 
+// remove answers 204 once the post is gone (R18.11). The use case decides
+// who may: the author, or an admin of the team for a team post.
+func (h postHandlers) remove(w http.ResponseWriter, r *http.Request) {
+	id, err := idFromPath(r, "id")
+	if err != nil {
+		postErrors.write(w, r, "posts", err)
+		return
+	}
+	userID, _ := userIDFrom(r.Context())
+	if err := h.svc.Delete(r.Context(), userID, id); err != nil {
+		postErrors.write(w, r, "posts", err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
 var postErrors = errorMap{
 	{posts.ErrInvalidAuthor, http.StatusUnprocessableEntity, "invalid_author"},
 	{posts.ErrInvalidBody, http.StatusUnprocessableEntity, "invalid_body"},
@@ -89,6 +106,7 @@ var postErrors = errorMap{
 	{posts.ErrTooManyPosts, http.StatusTooManyRequests, "too_many_posts"},
 	{application.ErrNotAdmin, http.StatusForbidden, "forbidden"},
 	{posts.ErrNotOperator, http.StatusForbidden, "forbidden"},
+	{posts.ErrNotAllowed, http.StatusForbidden, "forbidden"},
 	{domain.ErrTeamBusy, http.StatusServiceUnavailable, "team_busy"},
 	{domain.ErrNotFound, http.StatusNotFound, "not_found"},
 }

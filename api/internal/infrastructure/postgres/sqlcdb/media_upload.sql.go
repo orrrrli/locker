@@ -41,24 +41,31 @@ func (q *Queries) DeleteMediaUploads(ctx context.Context, storageKeys []string) 
 
 const lockUnusedMediaUploads = `-- name: LockUnusedMediaUploads :many
 SELECT storage_key FROM media_upload
-WHERE post_id IS NULL AND created_at <= $1
-ORDER BY created_at
-LIMIT $2
+WHERE post_id IS NULL
+  AND (created_at <= $1
+       OR (released_at IS NOT NULL AND created_at <= $2))
+ORDER BY released_at IS NULL, created_at
+LIMIT $3
 FOR UPDATE SKIP LOCKED
 `
 
 type LockUnusedMediaUploadsParams struct {
-	Cutoff  pgtype.Timestamptz
-	MaxRows int32
+	Cutoff         pgtype.Timestamptz
+	ReleasedCutoff pgtype.Timestamptz
+	MaxRows        int32
 }
 
-// Locks up to max_rows keys that no post uses and that were issued at or
-// before the cutoff, oldest first, until the transaction ends. A post that
-// attaches one of them meanwhile waits for the lock, then either finds the
-// row gone (its object is deleted) or still there (its object is too).
-// SKIP LOCKED passes over keys a post is attaching right now.
+// Locks, until the transaction ends, up to max_rows keys no post uses: those
+// issued at or before the cutoff, and those a deleted post released once
+// their upload URLs expired (issued at or before released_cutoff), so a
+// client cannot PUT the objects again after they go. Released keys come
+// first, so a backlog of never-used uploads cannot hold a deleted post's
+// photos back; then oldest first. SKIP LOCKED passes over keys a post is
+// attaching right now.
+// ponytail: the ORDER BY scans every unused row; add an index on
+// (released_at) WHERE post_id IS NULL if that backlog grows.
 func (q *Queries) LockUnusedMediaUploads(ctx context.Context, arg LockUnusedMediaUploadsParams) ([]string, error) {
-	rows, err := q.db.Query(ctx, lockUnusedMediaUploads, arg.Cutoff, arg.MaxRows)
+	rows, err := q.db.Query(ctx, lockUnusedMediaUploads, arg.Cutoff, arg.ReleasedCutoff, arg.MaxRows)
 	if err != nil {
 		return nil, err
 	}

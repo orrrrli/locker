@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"slices"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -166,5 +167,52 @@ func TestPublishPostWithoutBucket(t *testing.T) {
 	h.publish(rec, req.WithContext(withUserID(req.Context(), 1)))
 	if rec.Code != http.StatusServiceUnavailable || errorCode(t, rec) != "uploads_unavailable" || rec.Header().Get("Retry-After") != "" {
 		t.Fatalf("= %d %s, Retry-After %q; want 503 uploads_unavailable, none", rec.Code, rec.Body, rec.Header().Get("Retry-After"))
+	}
+}
+
+func (f *fakePosts) Delete(context.Context, int64, int64) error { return nil }
+
+func TestDeletePost(t *testing.T) {
+	api := newAPI(t, func() time.Time { return today })
+	_, ana := signUp(t, api, "ana@example.com")
+	_, beto := signUp(t, api, "beto@example.com")
+	team := createTeam(t, api, ana, "Pumas", "America/Tijuana")
+	rec := api.do(t, http.MethodPost, "/posts", ana, map[string]any{"as_kind": "team", "team_id": team.ID, "body": "Hola"})
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("publish = %d %s", rec.Code, rec.Body)
+	}
+	var p struct {
+		ID int64 `json:"id"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &p); err != nil {
+		t.Fatal(err)
+	}
+	path := "/posts/" + strconv.FormatInt(p.ID, 10)
+
+	for _, tc := range []struct {
+		name, token, path string
+		status            int
+		code              string
+	}{
+		{"no session", "", path, http.StatusUnauthorized, "unauthorized"},
+		{"not the author or an admin", beto, path, http.StatusForbidden, "forbidden"},
+		{"bad id", ana, "/posts/abc", http.StatusNotFound, "not_found"},
+		{"unknown post", ana, "/posts/999999", http.StatusNotFound, "not_found"},
+	} {
+		if rec := api.do(t, http.MethodDelete, tc.path, tc.token, nil); rec.Code != tc.status || errorCode(t, rec) != tc.code {
+			t.Errorf("%s = %d %s, want %d %s", tc.name, rec.Code, rec.Body, tc.status, tc.code)
+		}
+	}
+	// Posts cannot be edited (R18.12): no route takes a change.
+	for _, m := range []string{http.MethodPatch, http.MethodPut} {
+		if rec := api.do(t, m, path, ana, map[string]string{"body": "Editado"}); rec.Code != http.StatusMethodNotAllowed {
+			t.Fatalf("%s = %d %s, want 405", m, rec.Code, rec.Body)
+		}
+	}
+	if rec := api.do(t, http.MethodDelete, path, ana, nil); rec.Code != http.StatusNoContent || rec.Body.Len() != 0 {
+		t.Fatalf("delete = %d %s, want 204 and no body", rec.Code, rec.Body)
+	}
+	if rec := api.do(t, http.MethodDelete, path, ana, nil); rec.Code != http.StatusNotFound {
+		t.Fatalf("delete again = %d, want 404", rec.Code)
 	}
 }

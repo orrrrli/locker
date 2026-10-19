@@ -2569,6 +2569,45 @@ paths:
         "500":
           $ref: "#/components/responses/Internal"
 
+  /posts/{id}:
+    delete:
+      tags: [feed]
+      operationId: deletePost
+      summary: Delete a post
+      description: |
+        Deletes the post for good: it leaves every feed, page and share link
+        (R18.11). The author deletes any of their posts; any active admin
+        (Capitán) of the team also deletes a team post. Its photos are deleted
+        from storage once their upload URLs expire, about 16 minutes after
+        they were uploaded. The author may delete it even after leaving the
+        team or losing the role that let them write it. Posts cannot be edited (R18.12).
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+      responses:
+        "204":
+          description: Deleted.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          description: "`forbidden`: the caller is not the author, nor an active admin of the team for a team post."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "503":
+          $ref: "#/components/responses/TeamBusy"
+        "500":
+          $ref: "#/components/responses/Internal"
+
   /follows/{kind}/{id}:
     parameters:
       - name: kind

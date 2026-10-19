@@ -38,6 +38,9 @@ var (
 	ErrInvalidPhoto = errors.New("a photo was not uploaded by you, is already posted, or breaks the photo limits")
 	ErrNotOperator  = errors.New("only the operator posts as a league or venue")
 	ErrTooManyPosts = fmt.Errorf("you already published %d posts in the last 24 hours", MaxPerDay)
+	// ErrNotAllowed rejects deleting a post the caller neither wrote nor,
+	// for a team post, administers.
+	ErrNotAllowed = errors.New("only the author, or an admin of the team for a team post, deletes a post")
 )
 
 // Posts is what the use case needs from the post tables.
@@ -55,6 +58,11 @@ type Posts interface {
 	// CountUnusedUploads counts the keys issued to userID after issuedAfter
 	// that no post uses, without locking them.
 	CountUnusedUploads(ctx context.Context, userID int64, keys []string, issuedAfter time.Time) (int, error)
+	// PostAuthor returns the post's ID, author, kind and team, without
+	// locking it; domain.ErrNotFound for an unknown post.
+	PostAuthor(ctx context.Context, id int64) (domain.Post, error)
+	// Delete releases the post's uploads at now and deletes it with its media.
+	Delete(ctx context.Context, id int64, now time.Time) error
 }
 
 // Memberships is what the author checks need from the membership table.
@@ -182,6 +190,56 @@ func (s *Service) Publish(ctx context.Context, userID int64, in NewPost) (domain
 		return domain.Post{}, err
 	}
 	return out, nil
+}
+
+// Delete removes a post for good (R18.11): its author may, and so may any
+// active admin of the team for a team post. Its media rows go with it, and
+// its uploads are released: the cleanup job deletes both objects of each
+// photo from R2 once their upload URLs expired (about 16 minutes after the
+// upload), retrying while R2 fails, and no new post can take them meanwhile. Removed posts can be deleted too. There is no
+// edit (R18.12).
+//
+// Locks go team, then the post's media_upload rows, then the post: an admin's
+// delete takes the team lock before the rest, the order dissolving a team
+// will use, so the two cannot deadlock. A post deleted meanwhile by someone else deletes nothing.
+func (s *Service) Delete(ctx context.Context, userID, postID int64) error {
+	now := s.now().UTC()
+	return s.tx.InTx(ctx, func(ctx context.Context) error {
+		if err := s.checkDelete(ctx, userID, postID); err != nil {
+			return err
+		}
+		return s.posts.Delete(ctx, postID, now)
+	})
+}
+
+// checkDelete checks the caller may delete the post. For an admin deleting
+// someone else's team post it takes the team lock, so a demotion that
+// commits meanwhile still stops the delete.
+func (s *Service) checkDelete(ctx context.Context, userID, postID int64) error {
+	p, err := s.posts.PostAuthor(ctx, postID)
+	if err != nil {
+		return err
+	}
+	// The writer always may, even after leaving the team or losing the
+	// operator flag (R18.11, Orlando's call on BE-FEED-2-T4).
+	if p.AuthorUserID == userID {
+		return nil
+	}
+	if p.AsKind != domain.PostAsTeam {
+		return ErrNotAllowed
+	}
+	m, err := s.memberships.MembershipByTeamAndUser(ctx, *p.TeamID, userID)
+	if errors.Is(err, domain.ErrNotFound) {
+		return ErrNotAllowed
+	}
+	if err != nil {
+		return err
+	}
+	_, err = application.LockTeamAsAdmin(ctx, s.memberships, *p.TeamID, m.ID)
+	if errors.Is(err, domain.ErrNotFound) || errors.Is(err, application.ErrNotAdmin) {
+		return ErrNotAllowed
+	}
+	return err
 }
 
 func (s *Service) checkAuthor(ctx context.Context, userID int64, p domain.Post) error {

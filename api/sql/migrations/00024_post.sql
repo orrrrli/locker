@@ -40,12 +40,12 @@ CREATE TABLE post_media (
     UNIQUE (post_id, position)
 );
 
--- The foreign key 00023 left for this story. Deleting a post sets its upload
--- rows back to unused instead of deleting them: DELETE /posts/{id} removes
--- the objects from R2 after commit, and if that fails the cleanup job retries
--- once the rows pass its 24-hour cutoff.
+-- The foreign key 00023 left for this story. No ON DELETE: a post delete must
+-- release its upload rows first (00025, released_at), so the cleanup job
+-- deletes their objects; one that forgets fails here instead of leaving keys
+-- that look unused.
 ALTER TABLE media_upload
-    ADD CONSTRAINT media_upload_post_id_fkey FOREIGN KEY (post_id) REFERENCES post ON DELETE SET NULL;
+    ADD CONSTRAINT media_upload_post_id_fkey FOREIGN KEY (post_id) REFERENCES post;
 -- Lets a post delete find its upload rows without scanning the table.
 CREATE INDEX media_upload_post ON media_upload (post_id) WHERE post_id IS NOT NULL;
 

@@ -15,7 +15,7 @@ const attachMediaUploads = `-- name: AttachMediaUploads :execrows
 UPDATE media_upload
 SET post_id = $1
 WHERE storage_key = ANY($2::text[])
-  AND user_id = $3 AND post_id IS NULL
+  AND user_id = $3 AND post_id IS NULL AND released_at IS NULL
   AND created_at > $4::timestamptz
 `
 
@@ -62,7 +62,7 @@ func (q *Queries) CountPostsSince(ctx context.Context, arg CountPostsSinceParams
 const countUnusedMediaUploads = `-- name: CountUnusedMediaUploads :one
 SELECT count(*) FROM media_upload
 WHERE storage_key = ANY($1::text[])
-  AND user_id = $2 AND post_id IS NULL
+  AND user_id = $2 AND post_id IS NULL AND released_at IS NULL
   AND created_at > $3::timestamptz
 `
 
@@ -137,6 +137,42 @@ func (q *Queries) CreatePostMedia(ctx context.Context, arg CreatePostMediaParams
 	return err
 }
 
+const deletePost = `-- name: DeletePost :exec
+DELETE FROM post WHERE id = $1
+`
+
+// post_media goes with it (ON DELETE CASCADE).
+func (q *Queries) DeletePost(ctx context.Context, id int64) error {
+	_, err := q.db.Exec(ctx, deletePost, id)
+	return err
+}
+
+const getPostAuthor = `-- name: GetPostAuthor :one
+SELECT id, author_user_id, as_kind, team_id FROM post
+WHERE id = $1
+`
+
+type GetPostAuthorRow struct {
+	ID           int64
+	AuthorUserID int64
+	AsKind       string
+	TeamID       pgtype.Int8
+}
+
+// No lock: the author and team never change, and DELETE locks the row
+// itself, after any team lock the caller takes.
+func (q *Queries) GetPostAuthor(ctx context.Context, id int64) (GetPostAuthorRow, error) {
+	row := q.db.QueryRow(ctx, getPostAuthor, id)
+	var i GetPostAuthorRow
+	err := row.Scan(
+		&i.ID,
+		&i.AuthorUserID,
+		&i.AsKind,
+		&i.TeamID,
+	)
+	return i, err
+}
+
 const lockUserForPost = `-- name: LockUserForPost :one
 SELECT id FROM "user"
 WHERE id = $1 AND deleted_at IS NULL
@@ -150,4 +186,23 @@ func (q *Queries) LockUserForPost(ctx context.Context, id int64) (int64, error) 
 	var id_2 int64
 	err := row.Scan(&id_2)
 	return id_2, err
+}
+
+const releasePostUploads = `-- name: ReleasePostUploads :exec
+UPDATE media_upload
+SET post_id = NULL, released_at = $1::timestamptz
+WHERE post_id = $2
+`
+
+type ReleasePostUploadsParams struct {
+	Now    pgtype.Timestamptz
+	PostID pgtype.Int8
+}
+
+// Hands the post's keys to the cleanup job, which deletes both objects of
+// each once their upload URLs expired; a released key never goes into a post
+// again.
+func (q *Queries) ReleasePostUploads(ctx context.Context, arg ReleasePostUploadsParams) error {
+	_, err := q.db.Exec(ctx, releasePostUploads, arg.Now, arg.PostID)
+	return err
 }
