@@ -3,6 +3,7 @@ package http
 import (
 	"context"
 	"encoding/json"
+	"maps"
 	"net/http"
 	"net/http/httptest"
 	"slices"
@@ -56,7 +57,8 @@ func TestPublishPost(t *testing.T) {
 	}
 	// Exactly these keys: no storage key or writer goes back out.
 	if got, want := keyPaths(t, rec.Body.Bytes()), []string{
-		"as_kind", "body", "created_at", "id", "league_id", "photos", "photos[].content_type", "photos[].position",
+		"as_kind", "body", "created_at", "id", "league_id", "my_reactions", "photos", "photos[].content_type", "photos[].position",
+		"reaction_counts", "reaction_counts.ball", "reaction_counts.clap", "reaction_counts.fire",
 		"share_token", "team_id", "venue_id",
 	}; !slices.Equal(got, want) {
 		t.Fatalf("keys %v, want %v", got, want)
@@ -87,6 +89,57 @@ func TestPublishPost(t *testing.T) {
 	rec = api.do(t, http.MethodPost, "/posts", ana, map[string]any{"as_kind": "team", "team_id": team.ID, "body": "Hola"})
 	if rec.Code != http.StatusCreated || !strings.Contains(rec.Body.String(), `"photos":[]`) {
 		t.Fatalf("text post = %d %s, want 201 with photos []", rec.Code, rec.Body)
+	}
+}
+
+// BE-FEED-3-T3: a just-published post carries the count per kind and the
+// kinds the caller set, always present (R19.4, R22.12). A new post has no
+// reactions: three zero counts and an empty array, never null.
+func TestPublishedPostCarriesReactionFields(t *testing.T) {
+	api := newAPI(t, func() time.Time { return today })
+	_, ana := signUp(t, api, "ana@example.com")
+	betoID, beto := signUp(t, api, "beto@example.com")
+	team := createTeam(t, api, ana, "Pumas", "America/Tijuana")
+	addMember(t, api, team.ID, betoID, "player", "active")
+
+	for _, tc := range []struct {
+		name  string
+		token string
+		body  map[string]any
+	}{
+		{"as a team", ana, map[string]any{"as_kind": "team", "team_id": team.ID, "body": "Hola"}},
+		{"as a player", beto, map[string]any{"as_kind": "player", "team_id": team.ID, "body": "Hola"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			rec := postAs(t, api, tc.token, tc.body)
+			if rec.Code != http.StatusCreated {
+				t.Fatalf("POST = %d %s, want 201", rec.Code, rec.Body)
+			}
+			var raw map[string]json.RawMessage
+			if err := json.Unmarshal(rec.Body.Bytes(), &raw); err != nil {
+				t.Fatal(err)
+			}
+
+			counts, ok := raw["reaction_counts"]
+			if !ok {
+				t.Fatalf("reaction_counts missing in %s", rec.Body)
+			}
+			var byKind map[string]int
+			if err := json.Unmarshal(counts, &byKind); err != nil {
+				t.Fatalf("reaction_counts = %s, want an object of integers: %v", counts, err)
+			}
+			if want := (map[string]int{"fire": 0, "ball": 0, "clap": 0}); !maps.Equal(byKind, want) {
+				t.Fatalf("reaction_counts = %s, want exactly fire, ball and clap at 0", counts)
+			}
+
+			mine, ok := raw["my_reactions"]
+			if !ok {
+				t.Fatalf("my_reactions missing in %s", rec.Body)
+			}
+			if string(mine) != "[]" {
+				t.Fatalf("my_reactions = %s, want [] (an empty array, not null)", mine)
+			}
+		})
 	}
 }
 

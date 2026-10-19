@@ -2484,7 +2484,7 @@ paths:
             application/json:
               schema:
                 type: object
-                required: [id, as_kind, team_id, league_id, venue_id, body, share_token, created_at, photos]
+                required: [id, as_kind, team_id, league_id, venue_id, body, share_token, created_at, photos, reaction_counts, my_reactions]
                 properties:
                   id:
                     type: integer
@@ -2520,6 +2520,22 @@ paths:
                         content_type:
                           type: string
                           enum: [image/jpeg, image/png]
+                  reaction_counts:
+                    type: object
+                    description: How many users set each kind (R19.4). A new post has 0 of each.
+                    required: [fire, ball, clap]
+                    properties:
+                      fire:
+                        type: integer
+                      ball:
+                        type: integer
+                      clap:
+                        type: integer
+                  my_reactions:
+                    type: array
+                    description: The kinds the caller set on this post (R19.4); empty for a new post.
+                    items:
+                      $ref: "#/components/schemas/ReactionKind"
         "400":
           $ref: "#/components/responses/InvalidRequest"
         "401":
