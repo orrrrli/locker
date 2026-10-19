@@ -473,8 +473,10 @@ func TestDeleteReleasesThePhotos(t *testing.T) {
 	if err := f.pool.QueryRow(ctx, `SELECT released_at FROM media_upload WHERE storage_key = 'photos/a' AND post_id IS NULL`).Scan(&released); err != nil || released == nil || !released.Equal(*f.now) {
 		t.Fatalf("upload released_at %v, %v; want %v", released, err, *f.now)
 	}
-	if _, err := f.svc.Publish(ctx, f.admin, in); !errors.Is(err, posts.ErrInvalidPhoto) {
-		t.Fatalf("republish with the released key: err = %v, want ErrInvalidPhoto", err)
+	// The check before R2 refuses it, so R2 is never asked about it.
+	rec := &recordingPhotos{fakePhotos: f.photos}
+	if _, err := f.service(rec).Publish(ctx, f.admin, in); !errors.Is(err, posts.ErrInvalidPhoto) || len(rec.asked) != 0 {
+		t.Fatalf("republish with the released key: err = %v, R2 asked %v; want ErrInvalidPhoto and no R2 call", err, rec.asked)
 	}
 	// The attach refuses it too, not only the check before R2.
 	other, err := f.svc.Publish(ctx, f.admin, asTeam(f.team, "Otro"))

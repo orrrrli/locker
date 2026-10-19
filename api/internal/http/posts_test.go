@@ -12,8 +12,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/orrrrli/locker/api/internal/application/media"
 	"github.com/orrrrli/locker/api/internal/application/posts"
 	"github.com/orrrrli/locker/api/internal/domain"
+	"github.com/orrrrli/locker/api/internal/infrastructure/postgres"
 )
 
 // Head answers every object as a small JPEG: the HTTP tests check the route,
@@ -214,5 +216,185 @@ func TestDeletePost(t *testing.T) {
 	}
 	if rec := api.do(t, http.MethodDelete, path, ana, nil); rec.Code != http.StatusNotFound {
 		t.Fatalf("delete again = %d, want 404", rec.Code)
+	}
+}
+
+// postAs publishes through the real route and returns the response.
+func postAs(t *testing.T, api apiTest, token string, body map[string]any) *httptest.ResponseRecorder {
+	t.Helper()
+	return api.do(t, http.MethodPost, "/posts", token, body)
+}
+
+func (a apiTest) scalar(t *testing.T, sql string, args ...any) int64 {
+	t.Helper()
+	var n int64
+	if err := a.pool.QueryRow(context.Background(), sql, args...).Scan(&n); err != nil {
+		t.Fatal(err)
+	}
+	return n
+}
+
+// BE-FEED-2-T5: each author kind through POST /posts, against real Postgres
+// (R18.2-R18.6).
+func TestPublishPerAuthorKind(t *testing.T) {
+	api := newAPI(t, func() time.Time { return today })
+	_, ana := signUp(t, api, "ana@example.com")
+	betoID, beto := signUp(t, api, "beto@example.com")
+	caroID, caro := signUp(t, api, "caro@example.com")
+	_, eva := signUp(t, api, "eva@example.com")
+	opID, op := signUp(t, api, "op@example.com")
+	team := createTeam(t, api, ana, "Pumas", "America/Tijuana")
+	addMember(t, api, team.ID, betoID, "player", "active")
+	addMember(t, api, team.ID, caroID, "player", "pending")
+	setOperator(t, api, opID, true)
+	venue := api.scalar(t, `INSERT INTO venue (name, address, latitude, longitude, timezone) VALUES ('Complejo', 'Calle 1', 31.8, -116.6, 'America/Tijuana') RETURNING id`)
+	league := api.scalar(t, `INSERT INTO league (venue_id, name, weekday, start_time, end_time, season_name, season_starts_on, season_ends_on)
+		VALUES ($1, 'Liga', 1, '19:00', '22:00', 'Apertura', '2026-08-01', '2026-12-01') RETURNING id`, venue)
+
+	for _, tc := range []struct {
+		name   string
+		token  string
+		body   map[string]any
+		status int
+		code   string
+	}{
+		{"team by its admin", ana, map[string]any{"as_kind": "team", "team_id": team.ID, "body": "Hola"}, http.StatusCreated, ""},
+		{"team by a player", beto, map[string]any{"as_kind": "team", "team_id": team.ID, "body": "Hola"}, http.StatusForbidden, "forbidden"},
+		{"team by a stranger", eva, map[string]any{"as_kind": "team", "team_id": team.ID, "body": "Hola"}, http.StatusNotFound, "not_found"},
+		{"player by an active member", beto, map[string]any{"as_kind": "player", "team_id": team.ID, "body": "Hola"}, http.StatusCreated, ""},
+		{"player by a pending member", caro, map[string]any{"as_kind": "player", "team_id": team.ID, "body": "Hola"}, http.StatusNotFound, "not_found"},
+		{"league by the operator", op, map[string]any{"as_kind": "league", "league_id": league, "body": "Hola"}, http.StatusCreated, ""},
+		{"venue by the operator", op, map[string]any{"as_kind": "venue", "venue_id": venue, "body": "Hola"}, http.StatusCreated, ""},
+		{"league by a non-operator", ana, map[string]any{"as_kind": "league", "league_id": league, "body": "Hola"}, http.StatusForbidden, "forbidden"},
+		{"venue by a non-operator", ana, map[string]any{"as_kind": "venue", "venue_id": venue, "body": "Hola"}, http.StatusForbidden, "forbidden"},
+		{"unknown league by the operator", op, map[string]any{"as_kind": "league", "league_id": league + 99, "body": "Hola"}, http.StatusNotFound, "not_found"},
+	} {
+		rec := postAs(t, api, tc.token, tc.body)
+		if rec.Code != tc.status || (tc.code != "" && errorCode(t, rec) != tc.code) {
+			t.Errorf("%s = %d %s, want %d %s", tc.name, rec.Code, rec.Body, tc.status, tc.code)
+		}
+	}
+	// One post per 201, each with the writer and the kind it was sent as.
+	if got := api.scalar(t, `SELECT count(*) FROM post`); got != 4 {
+		t.Fatalf("%d posts, want 4", got)
+	}
+	if got := api.scalar(t, `SELECT count(*) FROM post WHERE (as_kind, author_user_id) IN (('player', $1), ('league', $2), ('venue', $2))`, betoID, opID); got != 3 {
+		t.Fatalf("%d posts with their writer and kind, want 3", got)
+	}
+}
+
+// BE-FEED-2-T5: each limit through POST /posts, at and one past it (R18.7,
+// R18.8, NFR 8, NFR 9).
+func TestPublishPerLimit(t *testing.T) {
+	api := newAPI(t, func() time.Time { return today })
+	_, ana := signUp(t, api, "ana@example.com")
+	_, beto := signUp(t, api, "beto@example.com")
+	team := createTeam(t, api, ana, "Pumas", "America/Tijuana")
+	keys := func(token string, n int) []string {
+		out := make([]string, n)
+		for i := range out {
+			out[i] = uploadKey(t, api, token)
+		}
+		return out
+	}
+	asTeam := func(extra map[string]any) map[string]any {
+		b := map[string]any{"as_kind": "team", "team_id": team.ID}
+		for k, v := range extra {
+			b[k] = v
+		}
+		return b
+	}
+
+	for _, tc := range []struct {
+		name   string
+		body   map[string]any
+		status int
+		code   string
+	}{
+		{"500 characters", asTeam(map[string]any{"body": strings.Repeat("ñ", posts.MaxBodyLen)}), http.StatusCreated, ""},
+		{"501 characters", asTeam(map[string]any{"body": strings.Repeat("ñ", posts.MaxBodyLen+1)}), http.StatusUnprocessableEntity, "invalid_body"},
+		{"photos only", asTeam(map[string]any{"photo_keys": keys(ana, 1)}), http.StatusCreated, ""},
+		{"4 photos", asTeam(map[string]any{"body": "Hola", "photo_keys": keys(ana, 4)}), http.StatusCreated, ""},
+		{"5 photos", asTeam(map[string]any{"photo_keys": keys(ana, 5)}), http.StatusUnprocessableEntity, "too_many_photos"},
+		{"a key issued to someone else", asTeam(map[string]any{"photo_keys": keys(beto, 1)}), http.StatusUnprocessableEntity, "invalid_photo"},
+		{"a key never issued", asTeam(map[string]any{"photo_keys": []string{"photos/0123456789abcdef0123456789abcdef"}}), http.StatusUnprocessableEntity, "invalid_photo"},
+		{"no text, no photos", asTeam(nil), http.StatusUnprocessableEntity, "empty_post"},
+	} {
+		rec := postAs(t, api, ana, tc.body)
+		if rec.Code != tc.status || (tc.code != "" && errorCode(t, rec) != tc.code) {
+			t.Errorf("%s = %d %s, want %d %s", tc.name, rec.Code, rec.Body, tc.status, tc.code)
+		}
+	}
+
+	// 20 posts in 24 hours, the 3 above included; the 21st is refused. The
+	// literal pins the number NFR 9 sets.
+	if posts.MaxPerDay != 20 {
+		t.Fatalf("MaxPerDay = %d, NFR 9 says 20", posts.MaxPerDay)
+	}
+	for n := api.scalar(t, `SELECT count(*) FROM post`); n < posts.MaxPerDay; n++ {
+		if rec := postAs(t, api, ana, asTeam(map[string]any{"body": "Hola"})); rec.Code != http.StatusCreated {
+			t.Fatalf("post %d = %d %s, want 201", n+1, rec.Code, rec.Body)
+		}
+	}
+	if rec := postAs(t, api, ana, asTeam(map[string]any{"body": "Hola"})); rec.Code != http.StatusTooManyRequests || errorCode(t, rec) != "too_many_posts" {
+		t.Fatalf("21st post = %d %s, want 429 too_many_posts", rec.Code, rec.Body)
+	}
+	if got := api.scalar(t, `SELECT count(*) FROM post`); got != posts.MaxPerDay {
+		t.Fatalf("%d posts, want %d", got, posts.MaxPerDay)
+	}
+}
+
+// recordingStorage is a bucket that remembers what was deleted.
+type recordingStorage struct {
+	fakePhotos
+	deleted []string
+}
+
+func (r *recordingStorage) Delete(_ context.Context, key string) error {
+	r.deleted = append(r.deleted, key)
+	return nil
+}
+
+// BE-FEED-2-T5: a deleted post's photos leave R2 through the real cleanup
+// job, both versions, once the upload URLs expired (AC7).
+func TestDeletedPostPhotosLeaveStorage(t *testing.T) {
+	api := newAPI(t, func() time.Time { return today })
+	_, ana := signUp(t, api, "ana@example.com")
+	team := createTeam(t, api, ana, "Pumas", "America/Tijuana")
+	key := uploadKey(t, api, ana)
+	rec := postAs(t, api, ana, map[string]any{"as_kind": "team", "team_id": team.ID, "photo_keys": []string{key}})
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("publish = %d %s", rec.Code, rec.Body)
+	}
+	var p struct {
+		ID int64 `json:"id"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &p); err != nil {
+		t.Fatal(err)
+	}
+	if rec := api.do(t, http.MethodDelete, "/posts/"+strconv.FormatInt(p.ID, 10), ana, nil); rec.Code != http.StatusNoContent {
+		t.Fatalf("delete = %d %s", rec.Code, rec.Body)
+	}
+
+	storage := &recordingStorage{}
+	cleanup := func(at time.Time) int64 {
+		t.Helper()
+		svc := media.NewService(media.Deps{Tx: postgres.NewTxRunner(api.pool), Uploads: postgres.NewMediaUploads(api.pool), Storage: storage, Now: func() time.Time { return at }})
+		n, err := svc.DeleteUnused(context.Background())
+		if err != nil {
+			t.Fatal(err)
+		}
+		return n
+	}
+	// The URLs just expired, but within the minute of clock skew the objects
+	// stay: a client clock behind ours could still PUT them again.
+	if n := cleanup(today.Add(media.URLTTL)); n != 0 || len(storage.deleted) != 0 {
+		t.Fatalf("cleanup at the URL expiry removed %d keys, objects %v; want none", n, storage.deleted)
+	}
+	if n := cleanup(today.Add(media.URLTTL + time.Minute)); n != 1 || !slices.Equal(storage.deleted, []string{key + "/large", key + "/small"}) {
+		t.Fatalf("cleanup removed %d keys, objects %v; want 1, both versions of %s", n, storage.deleted, key)
+	}
+	if got := api.scalar(t, `SELECT count(*) FROM media_upload`); got != 0 {
+		t.Fatalf("%d upload rows left, want 0", got)
 	}
 }
