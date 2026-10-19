@@ -5,8 +5,9 @@
 -- and of those leagues' venues (R22.6). Pending and left memberships count
 -- for nothing (R22.2), so a dissolved team, which keeps no active member,
 -- drops out on its own (R6.10).
--- Every feed hides removed posts and posts whose writer the viewer blocked,
--- a team post written by a blocked admin included (R22.9, R23.5).
+-- Every feed hides removed posts and player or team posts whose writer the
+-- viewer blocked, a team post written by a blocked admin included (R22.9,
+-- R23.5).
 -- ponytail: suspended authors are not filtered yet (no column until
 -- BE-MOD-1); SEC-MOD-1 moves this into the shared visibility filter.
 -- ponytail: no feed index; add (team_id, created_at) and its league/venue
@@ -39,9 +40,11 @@ WHERE p.removed_at IS NULL
   -- Account deletion does not delete player posts yet (BE-MOD-5, R18.13), so
   -- hide them here; team posts of a deleted admin stay (R18.13).
   AND NOT (p.as_kind = 'player' AND u.deleted_at IS NOT NULL)
-  AND NOT EXISTS (
+  -- A block hides only player and team posts (R23.5): official posts stay,
+  -- so blocking ids one by one never reveals the operator's account.
+  AND NOT (p.as_kind IN ('player', 'team') AND EXISTS (
       SELECT 1 FROM user_block b
-      WHERE b.blocker_id = sqlc.arg(viewer_id) AND b.blocked_id = p.author_user_id)
+      WHERE b.blocker_id = sqlc.arg(viewer_id) AND b.blocked_id = p.author_user_id))
   AND (p.team_id IN (SELECT team_id FROM my_teams)
        OR p.league_id IN (SELECT league_id FROM my_leagues)
        OR p.venue_id IN (SELECT venue_id FROM my_venues))

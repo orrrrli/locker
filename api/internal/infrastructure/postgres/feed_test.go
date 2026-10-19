@@ -256,6 +256,26 @@ func TestFeedExcludesPostsOfBlockedAuthors(t *testing.T) {
 	}
 }
 
+// R23.5: a block hides only posts written as a player or as a team. Official
+// posts stay even when the viewer blocked the operator account that wrote them,
+// so blocking ids one by one cannot reveal which account is the operator.
+func TestFeedKeepsOfficialPostsWhoseOperatorTheViewerBlocked(t *testing.T) {
+	d := newFeedDB(t)
+	viewer, operator := d.user("Viewer"), d.user("Operator")
+	team := d.team("A")
+	d.member(team, viewer, "player", "active", "")
+	venue := d.venue("Complejo")
+	league := d.league(venue, "Liga")
+	d.enroll(league, team)
+	leaguePost := d.post(domain.PostAsLeague, operator, league, feedAt(1))
+	venuePost := d.post(domain.PostAsVenue, operator, venue, feedAt(2))
+	d.block(viewer, operator)
+
+	got := feedPage(t, d, viewer, domain.FeedAll, nil, feedLimit)
+
+	requireIDs(t, "filter all after blocking the operator", got, venuePost, leaguePost)
+}
+
 // R23.6: a block is one-way. The blocked user still sees the blocker's posts.
 func TestFeedBlockedUserStillSeesTheBlockersPosts(t *testing.T) {
 	d := newFeedDB(t)
