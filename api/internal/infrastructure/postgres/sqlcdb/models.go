@@ -205,6 +205,13 @@ type PostMedium struct {
 	CreatedAt   pgtype.Timestamptz
 }
 
+type Reaction struct {
+	PostID    int64
+	UserID    int64
+	Kind      string
+	CreatedAt pgtype.Timestamptz
+}
+
 type Rsvp struct {
 	MatchID      int64
 	MembershipID int64

@@ -14,6 +14,15 @@ const (
 	PostAsVenue  PostKind = "venue"
 )
 
+// ReactionKind is one of the three reactions a user can set on a post (R19.1).
+type ReactionKind string
+
+const (
+	ReactionFire ReactionKind = "fire"
+	ReactionBall ReactionKind = "ball"
+	ReactionClap ReactionKind = "clap"
+)
+
 // Post is a feed entry with text, photos or both (R18.7). Exactly one of
 // TeamID, LeagueID and VenueID is set, by AsKind; a player post sets TeamID.
 type Post struct {
