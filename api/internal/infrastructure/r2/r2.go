@@ -106,3 +106,16 @@ func (c *Client) Head(ctx context.Context, key string) (string, int64, error) {
 	}
 	return aws.ToString(out.ContentType), aws.ToInt64(out.ContentLength), nil
 }
+
+// PresignGet returns a URL that serves the object at key until ttl passes.
+// Untested against a real bucket until OPS-FEED-1.
+func (c *Client) PresignGet(ctx context.Context, key string, ttl time.Duration) (string, error) {
+	req, err := c.presign.PresignGetObject(ctx, &s3.GetObjectInput{
+		Bucket: aws.String(c.bucket),
+		Key:    aws.String(key),
+	}, s3.WithPresignExpires(ttl))
+	if err != nil {
+		return "", fmt.Errorf("r2: presign get: %w", err)
+	}
+	return req.URL, nil
+}

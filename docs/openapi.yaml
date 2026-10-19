@@ -2673,6 +2673,68 @@ paths:
         "500":
           $ref: "#/components/responses/Internal"
 
+  /feed:
+    get:
+      tags: [feed]
+      operationId: getFeed
+      summary: Home feed
+      description: |
+        One page of the caller's feed, newest first (R22.1). With at least one
+        active membership: `all` (default) holds the posts of the caller's
+        active teams and of players linked to them, plus the official posts of
+        the leagues those teams are enrolled in and of those leagues' venues
+        (R22.4, R22.6); `teams` holds only the first part. A caller with no
+        active membership gets an empty page for now (the nearby feed comes
+        later). Removed posts, player and team posts of authors the caller
+        blocked, and player posts of deleted accounts never show (R22.9,
+        R23.5); a block never hides official posts. Pages hold 20 posts;
+        pass `next_cursor` back as `cursor` for the next one. At most 600
+        calls per user per hour.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: filter
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [all, teams]
+            default: all
+        - name: cursor
+          in: query
+          required: false
+          description: The `next_cursor` of the previous page, passed back as is.
+          schema:
+            type: string
+      responses:
+        "200":
+          description: One page; `posts` is empty, never null, when there are none (R22.10).
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [posts, next_cursor]
+                properties:
+                  posts:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/FeedPost"
+                  next_cursor:
+                    type: [string, "null"]
+                    description: Opaque; null on the last page.
+        "400":
+          description: "`invalid_filter`: filter is not all or teams. `invalid_cursor`: the cursor is not one this API issued."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "429":
+          $ref: "#/components/responses/TooManyAttempts"
+        "500":
+          $ref: "#/components/responses/Internal"
+
   /follows/{kind}/{id}:
     parameters:
       - name: kind
@@ -3830,6 +3892,71 @@ components:
     ReactionKind:
       type: string
       enum: [fire, ball, clap]
+    FeedPost:
+      type: object
+      description: A post as the feed shows it (R22.12).
+      required: [id, as_kind, author_user_id, author_name, team_id, team_name, league_id, venue_id, body, share_token, created_at, photos, reaction_counts, my_reactions]
+      properties:
+        id:
+          type: integer
+          format: int64
+        as_kind:
+          type: string
+          enum: [team, player, league, venue]
+        author_user_id:
+          type: [integer, "null"]
+          format: int64
+          description: The writer, to block them (R23.5). Null for league and venue posts.
+        author_name:
+          type: string
+          description: The team, the player (as named in the linked team), the league or the venue.
+        team_id:
+          type: [integer, "null"]
+          format: int64
+        team_name:
+          type: [string, "null"]
+          description: The linked team of a team or player post; null otherwise.
+        league_id:
+          type: [integer, "null"]
+          format: int64
+        venue_id:
+          type: [integer, "null"]
+          format: int64
+        body:
+          type: [string, "null"]
+        share_token:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        photos:
+          type: array
+          items:
+            type: object
+            required: [position, content_type, url]
+            properties:
+              position:
+                type: integer
+              content_type:
+                type: string
+                enum: [image/jpeg, image/png]
+              url:
+                type: [string, "null"]
+                description: Presigned GET of the small version, valid 60 minutes; null while photo storage is not configured. A 403 means it expired; fetch the feed again.
+        reaction_counts:
+          type: object
+          required: [fire, ball, clap]
+          properties:
+            fire:
+              type: integer
+            ball:
+              type: integer
+            clap:
+              type: integer
+        my_reactions:
+          type: array
+          items:
+            $ref: "#/components/schemas/ReactionKind"
     ErrorCode:
       type: string
       description: Every error code the API emits.
@@ -3902,6 +4029,8 @@ components:
         - last_court
         - court_in_use
         - invalid_near
+        - invalid_filter
+        - invalid_cursor
         - invalid_weekday
         - invalid_window
         - invalid_season_name

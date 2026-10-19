@@ -17,6 +17,7 @@ import (
 	"github.com/orrrrli/locker/api/internal/application/auth"
 	"github.com/orrrrli/locker/api/internal/application/blocks"
 	"github.com/orrrrli/locker/api/internal/application/charges"
+	"github.com/orrrrli/locker/api/internal/application/feed"
 	"github.com/orrrrli/locker/api/internal/application/follows"
 	"github.com/orrrrli/locker/api/internal/application/invites"
 	"github.com/orrrrli/locker/api/internal/application/leads"
@@ -166,9 +167,10 @@ func start() error {
 	// stays a nil interface.
 	var photos media.Storage
 	var postPhotos posts.Photos
+	var feedPhotos feed.Signer
 	if cfg.Photos.Bucket != "" {
 		bucket := r2.New(cfg.Photos)
-		photos, postPhotos = bucket, bucket
+		photos, postPhotos, feedPhotos = bucket, bucket, bucket
 	}
 	mediaSvc := media.NewService(media.Deps{Tx: postgres.NewTxRunner(pool), Uploads: postgres.NewMediaUploads(pool), Storage: photos})
 	postSvc := posts.NewService(posts.Deps{
@@ -193,6 +195,7 @@ func start() error {
 		Media:              mediaSvc,
 		Posts:              postSvc,
 		Reactions:          reactions.NewService(postgres.NewTxRunner(pool), postgres.NewReactions(pool)),
+		Feed:               feed.NewService(postgres.NewFeed(pool), feedPhotos),
 		MatchFinder:        matchRepo,
 		ChargeFinder:       chargeRepo,
 		AppleAppID:         cfg.AppleAppID,

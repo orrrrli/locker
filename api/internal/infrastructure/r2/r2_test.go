@@ -54,6 +54,45 @@ func TestPresignPut(t *testing.T) {
 	}
 }
 
+// The feed serves private photos through this URL (BE-FEED-5): it is bound to
+// the bucket and key, valid for exactly ttl, and signs only the host, so any
+// client can GET it with no extra header. No checksum parameter is added.
+func TestPresignGet(t *testing.T) {
+	c := testClient("")
+	raw, err := c.PresignGet(context.Background(), "photos/abc/small", 60*time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	u, err := url.Parse(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if u.Scheme != "https" || u.Host != "0123456789abcdef0123456789abcdef.r2.cloudflarestorage.com" || u.Path != "/photos/photos/abc/small" {
+		t.Fatalf("URL %s, want https on the account's R2 host, path /<bucket>/<key>", raw)
+	}
+	q := u.Query()
+	for name, want := range map[string]string{
+		"X-Amz-SignedHeaders": "host",
+		"X-Amz-Expires":       "3600",
+		"X-Amz-Algorithm":     "AWS4-HMAC-SHA256",
+	} {
+		if got := q.Get(name); got != want {
+			t.Errorf("%s = %q, want %q", name, got, want)
+		}
+	}
+	if !strings.HasPrefix(q.Get("X-Amz-Credential"), "key-id/") || !strings.Contains(q.Get("X-Amz-Credential"), "/auto/s3/") {
+		t.Errorf("X-Amz-Credential = %q, want the key id in region auto", q.Get("X-Amz-Credential"))
+	}
+	if q.Get("X-Amz-Signature") == "" {
+		t.Error("URL has no X-Amz-Signature")
+	}
+	for name := range q {
+		if strings.Contains(strings.ToLower(name), "checksum") {
+			t.Errorf("URL carries %s; a plain GET would not send it", name)
+		}
+	}
+}
+
 func TestDelete(t *testing.T) {
 	var method, path, auth string
 	status := http.StatusNoContent
