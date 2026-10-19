@@ -23,6 +23,25 @@ const (
 	ReactionClap ReactionKind = "clap"
 )
 
+// FeedFilter picks which posts a feed holds (R22.3): "all" or "teams" (the
+// "My teams" filter).
+type FeedFilter string
+
+const (
+	FeedAll   FeedFilter = "all"
+	FeedTeams FeedFilter = "teams"
+)
+
+// FeedCursor is the last post of the previous page: the next page holds the
+// posts strictly older than it, ordered by (created_at, id) descending.
+type FeedCursor struct {
+	CreatedAt time.Time
+	ID        int64
+}
+
+// ReactionCounts is how many users set each reaction kind on a post.
+type ReactionCounts struct{ Fire, Ball, Clap int }
+
 // Post is a feed entry with text, photos or both (R18.7). Exactly one of
 // TeamID, LeagueID and VenueID is set, by AsKind; a player post sets TeamID.
 type Post struct {
@@ -36,6 +55,12 @@ type Post struct {
 	ShareToken   string // the /p/{token} link (R21)
 	CreatedAt    time.Time
 	Media        []PostMedia // in position order
+
+	// Feed-only: filled by the feed query (R22.12).
+	AuthorName     string  // team, player (as in the linked team), league or venue name
+	TeamName       *string // linked team of a team or player post; nil otherwise
+	ReactionCounts ReactionCounts
+	MyReactions    []ReactionKind // the viewer's own; empty, never nil, when none
 }
 
 // PostMedia is one photo of a post. StorageKey is the R2 base of the photo's
