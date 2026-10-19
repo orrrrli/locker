@@ -23831,7 +23831,7 @@
                           "fill": "#FFFFFFB3",
                           "textGrowth": "fixed-width",
                           "width": "fill_container",
-                          "content": "Ya pidió unirse. En lugar de «Solicitar unirme» ve «Solicitud pendiente» hasta que un Capitán la apruebe o la rechace (R13.7). «Cancelar» retira la solicitud.",
+                          "content": "Ya pidió unirse o abrió una invitación. En lugar de «Solicitar unirme» ve «Solicitud pendiente» hasta que un Capitán la apruebe o la rechace (R13.7). «Cancelar» la retira (R13.9).",
                           "lineHeight": 1.4,
                           "fontFamily": "$font",
                           "fontSize": 16,
@@ -25431,7 +25431,7 @@
                           "fill": "#3F3F46",
                           "textGrowth": "fixed-width",
                           "width": "fill_container",
-                          "content": "Sin membresía: «Solicitar unirme» (R13.1). Con membresía pending: «Solicitud pendiente» y «Cancelar», que retira la solicitud (R13.7). Miembro activo: no hay botón de unirse; ve «Ir a mi equipo», que abre Partidos del equipo (R17.6).",
+                          "content": "Sin membresía: «Solicitar unirme» (R13.1). Con membresía pending, venga de una solicitud o de una invitación: «Solicitud pendiente» y «Cancelar», que la descarta como un rechazo (R13.7, R13.9). Miembro activo: no hay botón de unirse; ve «Ir a mi equipo», que abre Partidos del equipo (R17.6).",
                           "lineHeight": 1.45,
                           "fontFamily": "$font",
                           "fontSize": 16,
@@ -25475,7 +25475,7 @@
                           "fill": "#3F3F46",
                           "textGrowth": "fixed-width",
                           "width": "fill_container",
-                          "content": "Open question 13: ¿mostramos el nombre de todos los Capitanes a quien no es del equipo?\n«Cancelar» (03) todavía no está en R13 ni en la API. Falta R13.9 en el spec (issue #450).",
+                          "content": "Open question 13: ¿mostramos el nombre de todos los Capitanes a quien no es del equipo?",
                           "lineHeight": 1.45,
                           "fontFamily": "$font",
                           "fontSize": 16,
@@ -25486,6 +25486,15 @@
                   ]
                 }
               ]
+            },
+            {
+              "type": "text",
+              "id": "JlrQD",
+              "fill": "#000000",
+              "content": "global-rules.md",
+              "fontFamily": "Inter",
+              "fontSize": 12,
+              "fontWeight": "normal"
             }
           ]
         },
@@ -31695,6 +31704,8 @@
                                               "id": "O1ClGa",
                                               "name": "Atlético Narvarte",
                                               "fill": "#F1EEDD",
+                                              "textGrowth": "fixed-width",
+                                              "width": "fill_container",
                                               "content": "Atlético Narvarte",
                                               "textAlign": "center",
                                               "fontFamily": "$font",
@@ -31846,7 +31857,7 @@
                                           "cornerRadius": 100,
                                           "padding": [
                                             6,
-                                            12
+                                            8
                                           ],
                                           "children": [
                                             {
@@ -31869,7 +31880,7 @@
                                           "cornerRadius": 100,
                                           "padding": [
                                             6,
-                                            12
+                                            8
                                           ],
                                           "children": [
                                             {
@@ -32663,6 +32674,8 @@
                                               "id": "LyRig",
                                               "name": "Atlético Narvarte",
                                               "fill": "#F1EEDD",
+                                              "textGrowth": "fixed-width",
+                                              "width": "fill_container",
                                               "content": "Atlético Narvarte",
                                               "textAlign": "center",
                                               "fontFamily": "$font",
@@ -32814,7 +32827,7 @@
                                           "cornerRadius": 100,
                                           "padding": [
                                             6,
-                                            12
+                                            8
                                           ],
                                           "children": [
                                             {
@@ -32837,7 +32850,7 @@
                                           "cornerRadius": 100,
                                           "padding": [
                                             6,
-                                            12
+                                            8
                                           ],
                                           "children": [
                                             {
@@ -33653,6 +33666,8 @@
                                               "id": "AsByo",
                                               "name": "Atlético Narvarte",
                                               "fill": "#F1EEDD",
+                                              "textGrowth": "fixed-width",
+                                              "width": "fill_container",
                                               "content": "Atlético Narvarte",
                                               "textAlign": "center",
                                               "fontFamily": "$font",
@@ -33804,7 +33819,7 @@
                                           "cornerRadius": 100,
                                           "padding": [
                                             6,
-                                            12
+                                            8
                                           ],
                                           "children": [
                                             {
@@ -33827,7 +33842,7 @@
                                           "cornerRadius": 100,
                                           "padding": [
                                             6,
-                                            12
+                                            8
                                           ],
                                           "children": [
                                             {
