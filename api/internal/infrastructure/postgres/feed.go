@@ -21,13 +21,18 @@ func NewFeed(pool *pgxpool.Pool) *Feed {
 
 // Page returns up to limit posts of the viewer's feed, newest first, each
 // with its photos in position order and its reactions (R22.12). A nil before
-// is the first page. Any filter other than domain.FeedAll reads as "teams";
-// the caller validates it. Three reads, no transaction: a post deleted
-// between them comes back with no photos, and a reaction toggled meanwhile
-// shifts a count by one.
+// is the first page. Any filter other than domain.FeedAll or
+// domain.FeedFollowing reads as "teams"; the caller validates it. Three
+// reads, no transaction: a post deleted between them comes back with no
+// photos, and a reaction toggled meanwhile shifts a count by one.
 func (f *Feed) Page(ctx context.Context, viewerID int64, filter domain.FeedFilter, before *domain.FeedCursor, limit int) ([]domain.Post, error) {
 	q := sqlcdb.New(Conn(ctx, f.pool))
-	arg := sqlcdb.FeedPostsParams{ViewerID: viewerID, PageSize: int32(limit), IncludeOfficial: filter == domain.FeedAll}
+	arg := sqlcdb.FeedPostsParams{
+		ViewerID: viewerID, PageSize: int32(limit),
+		IncludeMine:      filter != domain.FeedFollowing,
+		IncludeOfficial:  filter == domain.FeedAll,
+		IncludeFollowing: filter == domain.FeedFollowing,
+	}
 	if before != nil {
 		arg.BeforeAt = timestamptz(before.CreatedAt)
 		arg.BeforeID = pgInt8(before.ID)

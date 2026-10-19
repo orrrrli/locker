@@ -16,7 +16,7 @@ const PageSize = 20
 // PhotoURLTTL is how long a presigned photo URL stays valid.
 const PhotoURLTTL = 60 * time.Minute
 
-// ErrInvalidFilter is a filter other than "all" or "teams".
+// ErrInvalidFilter is a filter other than "all", "teams" or "following".
 var ErrInvalidFilter = errors.New("feed: invalid filter")
 
 // Posts is what the use case needs from the feed query.
@@ -54,14 +54,14 @@ func NewService(posts Posts, signer Signer) *Service {
 
 // Page returns one page of the viewer's feed, older than before (nil for the
 // first page).
-// An empty filter is "all" (R22.3); "following" waits for BE-SOCIAL-2.
+// An empty filter is "all" (R22.3).
 // A viewer without an active membership gets an empty page until the nearby
 // feed (BE-FEED-6) serves them.
 func (s *Service) Page(ctx context.Context, viewerID int64, filter domain.FeedFilter, before *domain.FeedCursor) (Page, error) {
 	switch filter {
 	case "":
 		filter = domain.FeedAll
-	case domain.FeedAll, domain.FeedTeams:
+	case domain.FeedAll, domain.FeedTeams, domain.FeedFollowing:
 	default:
 		return Page{}, ErrInvalidFilter
 	}

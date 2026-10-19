@@ -179,11 +179,32 @@ func TestFeedFilterTeamsHoldsOnlyTeamAndPlayerPosts(t *testing.T) {
 	}
 }
 
+// R22.5: "Following" is the posts of what the viewer follows, not of their own
+// team (Ana is admin of Halcones but does not follow it). Ana follows the
+// league: its official post is in, the venue post of that league's venue is not.
+func TestFeedFilterFollowingHoldsOnlyWhatTheViewerFollows(t *testing.T) {
+	w := newFeedWorld(t)
+	w.api.scalar(t, `INSERT INTO follow (user_id, league_id) VALUES ($1, $2) RETURNING 1`, w.anaID, w.league)
+
+	rec := feedGet(t, w.api, w.ana, "?filter=following")
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET /feed?filter=following = %d %s, want 200", rec.Code, rec.Body)
+	}
+	var page feedPageJSON
+	if err := json.Unmarshal(rec.Body.Bytes(), &page); err != nil {
+		t.Fatal(err)
+	}
+	if want := []int64{w.leaguePost}; !slices.Equal(page.ids(), want) {
+		t.Fatalf("filter=following = %v, want %v", page.ids(), want)
+	}
+}
+
 func TestFeedRejectsAnInvalidFilter(t *testing.T) {
 	w := newFeedWorld(t)
 	getFeed(t, w.api, w.ana, "?filter=teams") // control: the route exists, so the 400 is the filter's
 
-	for _, filter := range []string{"following", "x"} {
+	for _, filter := range []string{"x", "Following"} {
 		rec := feedGet(t, w.api, w.ana, "?filter="+filter)
 
 		if rec.Code != http.StatusBadRequest || errorCode(t, rec) != "invalid_filter" {

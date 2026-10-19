@@ -1,10 +1,14 @@
 -- name: FeedPosts :many
--- R22.1-R22.6 for a user with a team. "teams": posts of the viewer's active
--- teams, as the team or by a player linked to it (R22.4). include_official
--- ("all") adds the official posts of the leagues those teams are enrolled in
--- and of those leagues' venues (R22.6). Pending and left memberships count
--- for nothing (R22.2), so a dissolved team, which keeps no active member,
--- drops out on its own (R6.10).
+-- R22.1-R22.6 for a user with a team. include_mine ("teams"): posts of the
+-- viewer's active teams, as the team or by a player linked to it (R22.4).
+-- include_official ("all") adds the official posts of the leagues those teams
+-- are enrolled in and of those leagues' venues (R22.6). Pending and left
+-- memberships count for nothing (R22.2), so a dissolved team, which keeps no
+-- active member, drops out on its own (R6.10).
+-- include_following ("following"): posts of followed teams, as the team or
+-- by a linked player, and of followed leagues (R22.5). Follows outlive
+-- dissolution, so dissolved teams are filtered here (R6.10). A viewer with no
+-- active team gets none of them: no filters without a team (R22.7).
 -- Every feed hides removed posts and player or team posts whose writer the
 -- viewer blocked, a team post written by a blocked admin included (R22.9,
 -- R23.5).
@@ -21,6 +25,14 @@ WITH my_teams AS (
     WHERE sqlc.arg(include_official)::boolean AND team_id IN (SELECT team_id FROM my_teams)
 ), my_venues AS (
     SELECT venue_id FROM league WHERE id IN (SELECT league_id FROM my_leagues)
+), followed_teams AS (
+    SELECT f.team_id FROM follow f JOIN team ft ON ft.id = f.team_id
+    WHERE sqlc.arg(include_following)::boolean AND EXISTS (SELECT 1 FROM my_teams)
+      AND f.user_id = sqlc.arg(viewer_id) AND ft.dissolved_at IS NULL
+), followed_leagues AS (
+    SELECT league_id FROM follow
+    WHERE sqlc.arg(include_following)::boolean AND EXISTS (SELECT 1 FROM my_teams)
+      AND user_id = sqlc.arg(viewer_id) AND league_id IS NOT NULL
 )
 SELECT p.id, p.author_user_id, p.as_kind, p.team_id, p.league_id, p.venue_id, p.body, p.share_token, p.created_at,
        coalesce(CASE p.as_kind
@@ -45,9 +57,11 @@ WHERE p.removed_at IS NULL
   AND NOT (p.as_kind IN ('player', 'team') AND EXISTS (
       SELECT 1 FROM user_block b
       WHERE b.blocker_id = sqlc.arg(viewer_id) AND b.blocked_id = p.author_user_id))
-  AND (p.team_id IN (SELECT team_id FROM my_teams)
+  AND ((sqlc.arg(include_mine)::boolean AND p.team_id IN (SELECT team_id FROM my_teams))
        OR p.league_id IN (SELECT league_id FROM my_leagues)
-       OR p.venue_id IN (SELECT venue_id FROM my_venues))
+       OR p.venue_id IN (SELECT venue_id FROM my_venues)
+       OR p.team_id IN (SELECT team_id FROM followed_teams)
+       OR p.league_id IN (SELECT league_id FROM followed_leagues))
   AND (sqlc.narg(before_at)::timestamptz IS NULL
        OR (p.created_at, p.id) < (sqlc.narg(before_at)::timestamptz, sqlc.narg(before_id)::bigint))
 ORDER BY p.created_at DESC, p.id DESC
