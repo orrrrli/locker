@@ -23801,15 +23801,14 @@
                 },
                 {
                   "type": "frame",
-                  "id": "UGHxM",
-                  "name": "falta · Equipo · solicitud pendiente",
-                  "width": 417,
+                  "id": "s8Wtt",
+                  "name": "view · Jugador / Capitán",
                   "layout": "vertical",
                   "gap": 20,
                   "children": [
                     {
                       "type": "frame",
-                      "id": "g2m1BW",
+                      "id": "urG68",
                       "name": "caption",
                       "width": 417,
                       "layout": "vertical",
@@ -23817,7 +23816,7 @@
                       "children": [
                         {
                           "type": "text",
-                          "id": "NRFG9",
+                          "id": "M48MI",
                           "name": "caption title",
                           "fill": "#FFFFFF",
                           "content": "03 · Solicitud pendiente",
@@ -23827,12 +23826,12 @@
                         },
                         {
                           "type": "text",
-                          "id": "tCCfu",
+                          "id": "UTwCR",
                           "name": "caption text",
                           "fill": "#FFFFFFB3",
                           "textGrowth": "fixed-width",
                           "width": "fill_container",
-                          "content": "Falta diseñar. Ya pidió unirse; en lugar del botón ve «Solicitud pendiente» (R13.7).",
+                          "content": "Ya pidió unirse. En lugar de «Solicitar unirme» ve «Solicitud pendiente» hasta que un Capitán la apruebe o la rechace (R13.7). «Cancelar» retira la solicitud.",
                           "lineHeight": 1.4,
                           "fontFamily": "$font",
                           "fontSize": 16,
@@ -23841,74 +23840,722 @@
                       ]
                     },
                     {
-                      "id": "MF07G",
+                      "id": "VK2ZJ",
                       "type": "ref",
                       "ref": "zLMR0",
                       "name": "role",
+                      "fill": "#FFFFFF",
+                      "stroke": "#D4D4D8",
+                      "strokeWidth": 1,
                       "descendants": {
                         "KKC1z": {
                           "enabled": false
                         },
                         "UNwwQ": {
                           "enabled": true,
-                          "fill": "#F1EEDD"
+                          "icon": "users"
                         },
                         "bwl4G": {
-                          "content": "Jugador / Capitán"
+                          "content": "Jugador / Capitán",
+                          "fill": "#18181B"
                         }
                       }
                     },
                     {
                       "type": "frame",
-                      "id": "c2xk6",
-                      "name": "Falta · Equipo · solicitud pendiente",
+                      "id": "cctbO",
+                      "name": "iPhone · Equipo — Halcones Sur · pendiente",
                       "width": 417,
                       "height": 876,
-                      "fill": "#E4E4E7",
-                      "cornerRadius": 56,
-                      "stroke": "#A1A1AA",
-                      "strokeWidth": 2,
-                      "layout": "vertical",
-                      "gap": 12,
-                      "padding": 40,
-                      "justifyContent": "center",
-                      "alignItems": "center",
+                      "fill": "#1C1C1E",
+                      "cornerRadius": 60,
+                      "stroke": "#48484A",
+                      "strokeWidth": 1.5,
+                      "strokeAlignment": "inner",
+                      "effect": {
+                        "type": "shadow",
+                        "shadowType": "outer",
+                        "color": "#0000002E",
+                        "offset": {
+                          "x": 0,
+                          "y": 12
+                        },
+                        "blur": 32
+                      },
+                      "layout": "none",
                       "children": [
                         {
-                          "type": "text",
-                          "id": "Zui3k",
-                          "name": "tag",
-                          "fill": "#B4532A",
-                          "content": "FALTA",
-                          "fontFamily": "$font",
-                          "fontSize": 15,
-                          "fontWeight": "700",
-                          "letterSpacing": 1.5
-                        },
-                        {
-                          "type": "text",
-                          "id": "m3wpkL",
-                          "name": "screen",
-                          "fill": "#27272A",
-                          "textGrowth": "fixed-width",
-                          "width": "fill_container",
-                          "content": "Equipo · solicitud pendiente",
-                          "textAlign": "center",
-                          "fontFamily": "$fontTitle",
-                          "fontSize": 30,
-                          "fontWeight": "700",
-                          "letterSpacing": -0.9
-                        },
-                        {
-                          "type": "text",
-                          "id": "EVLrk",
-                          "name": "req",
-                          "fill": "#71717A",
-                          "content": "R13.7",
-                          "textAlign": "center",
-                          "fontFamily": "$font",
-                          "fontSize": 17,
-                          "fontWeight": "normal"
+                          "type": "frame",
+                          "id": "jkCia",
+                          "x": 12,
+                          "y": 12,
+                          "name": "Equipo — solicitud pendiente",
+                          "clip": true,
+                          "width": 393,
+                          "height": 852,
+                          "fill": "#08180F",
+                          "cornerRadius": 48,
+                          "layout": "none",
+                          "children": [
+                            {
+                              "id": "wQtDz",
+                              "type": "ref",
+                              "ref": "mqPCF",
+                              "x": 0,
+                              "y": 0,
+                              "name": "StatusBar",
+                              "descendants": {
+                                "2FGm5": {
+                                  "fill": "#F1EEDD"
+                                },
+                                "MzV9b": {
+                                  "fill": "#F1EEDD"
+                                },
+                                "zdsqc": {
+                                  "fill": "#F1EEDD"
+                                },
+                                "ACYgf": {
+                                  "fill": "#F1EEDD"
+                                }
+                              }
+                            },
+                            {
+                              "type": "frame",
+                              "id": "HDclB",
+                              "x": 133.5,
+                              "y": 11,
+                              "name": "DynamicIsland",
+                              "width": 126,
+                              "height": 37,
+                              "fill": "#000000",
+                              "cornerRadius": 24
+                            },
+                            {
+                              "type": "frame",
+                              "id": "AzIcU",
+                              "x": 127,
+                              "y": 839,
+                              "name": "HomeIndicator",
+                              "width": 139,
+                              "height": 5,
+                              "fill": "#F1EEDD",
+                              "cornerRadius": 100
+                            },
+                            {
+                              "type": "frame",
+                              "id": "wnIJh",
+                              "x": 16,
+                              "y": 112,
+                              "name": "content",
+                              "width": 361,
+                              "layout": "vertical",
+                              "gap": 16,
+                              "children": [
+                                {
+                                  "type": "frame",
+                                  "id": "Kldtu",
+                                  "name": "Encabezado equipo",
+                                  "width": "fill_container",
+                                  "layout": "vertical",
+                                  "gap": 10,
+                                  "alignItems": "center",
+                                  "children": [
+                                    {
+                                      "type": "frame",
+                                      "id": "S4c3cg",
+                                      "name": "Escudo HS",
+                                      "width": 84,
+                                      "height": 84,
+                                      "fill": "$crest2",
+                                      "cornerRadius": 42,
+                                      "justifyContent": "center",
+                                      "alignItems": "center",
+                                      "children": [
+                                        {
+                                          "type": "text",
+                                          "id": "C4GXCg",
+                                          "name": "HS",
+                                          "fill": "#F1EEDD",
+                                          "content": "HS",
+                                          "fontFamily": "$fontTitle",
+                                          "fontSize": 30,
+                                          "fontWeight": "700"
+                                        }
+                                      ]
+                                    },
+                                    {
+                                      "type": "text",
+                                      "id": "vma1H",
+                                      "name": "Halcones Sur",
+                                      "fill": "#F1EEDD",
+                                      "content": "Halcones Sur",
+                                      "fontFamily": "$fontTitle",
+                                      "fontSize": 28,
+                                      "fontWeight": "600"
+                                    },
+                                    {
+                                      "type": "text",
+                                      "id": "TxlQX",
+                                      "name": "Liga A · Lunes 20:00 · Unidad Deportiva ",
+                                      "fill": "#F1EEDDB3",
+                                      "textGrowth": "fixed-width",
+                                      "width": "fill_container",
+                                      "content": "Liga A · Lunes 20:00 · Unidad Deportiva Ensenada",
+                                      "textAlign": "center",
+                                      "fontFamily": "$font",
+                                      "fontSize": 14,
+                                      "fontWeight": "normal"
+                                    }
+                                  ]
+                                },
+                                {
+                                  "type": "frame",
+                                  "id": "ClAt9",
+                                  "name": "Datos",
+                                  "width": "fill_container",
+                                  "fill": "#11281B",
+                                  "cornerRadius": 18,
+                                  "padding": [
+                                    12,
+                                    0
+                                  ],
+                                  "children": [
+                                    {
+                                      "type": "frame",
+                                      "id": "l54Pm",
+                                      "name": "Dato jugadores",
+                                      "width": "fill_container",
+                                      "layout": "vertical",
+                                      "gap": 2,
+                                      "alignItems": "center",
+                                      "children": [
+                                        {
+                                          "type": "text",
+                                          "id": "KWKsA",
+                                          "name": "18",
+                                          "fill": "#F1EEDD",
+                                          "content": "18",
+                                          "fontFamily": "$fontTitle",
+                                          "fontSize": 20,
+                                          "fontWeight": "700"
+                                        },
+                                        {
+                                          "type": "text",
+                                          "id": "GclDX",
+                                          "name": "jugadores",
+                                          "fill": "#F1EEDDB3",
+                                          "content": "jugadores",
+                                          "fontFamily": "$font",
+                                          "fontSize": 12,
+                                          "fontWeight": "500"
+                                        }
+                                      ]
+                                    },
+                                    {
+                                      "type": "frame",
+                                      "id": "RG2Oi",
+                                      "name": "Dato seguidores",
+                                      "width": "fill_container",
+                                      "layout": "vertical",
+                                      "gap": 2,
+                                      "alignItems": "center",
+                                      "children": [
+                                        {
+                                          "type": "text",
+                                          "id": "prnVh",
+                                          "name": "124",
+                                          "fill": "#F1EEDD",
+                                          "content": "124",
+                                          "fontFamily": "$fontTitle",
+                                          "fontSize": 20,
+                                          "fontWeight": "700"
+                                        },
+                                        {
+                                          "type": "text",
+                                          "id": "hSWzB",
+                                          "name": "seguidores",
+                                          "fill": "#F1EEDDB3",
+                                          "content": "seguidores",
+                                          "fontFamily": "$font",
+                                          "fontSize": 12,
+                                          "fontWeight": "500"
+                                        }
+                                      ]
+                                    },
+                                    {
+                                      "type": "frame",
+                                      "id": "WynjG",
+                                      "name": "Dato desde",
+                                      "width": "fill_container",
+                                      "layout": "vertical",
+                                      "gap": 2,
+                                      "alignItems": "center",
+                                      "children": [
+                                        {
+                                          "type": "text",
+                                          "id": "l8VR6M",
+                                          "name": "2024",
+                                          "fill": "#F1EEDD",
+                                          "content": "2024",
+                                          "fontFamily": "$fontTitle",
+                                          "fontSize": 20,
+                                          "fontWeight": "700"
+                                        },
+                                        {
+                                          "type": "text",
+                                          "id": "bP9ar",
+                                          "name": "desde",
+                                          "fill": "#F1EEDDB3",
+                                          "content": "desde",
+                                          "fontFamily": "$font",
+                                          "fontSize": 12,
+                                          "fontWeight": "500"
+                                        }
+                                      ]
+                                    }
+                                  ]
+                                },
+                                {
+                                  "type": "frame",
+                                  "id": "lvmDV",
+                                  "name": "Fila solicitud pendiente",
+                                  "width": "fill_container",
+                                  "gap": 10,
+                                  "alignItems": "center",
+                                  "children": [
+                                    {
+                                      "type": "frame",
+                                      "id": "f8YCn",
+                                      "name": "Estado Solicitud pendiente",
+                                      "width": "fill_container",
+                                      "fill": "#11281B",
+                                      "cornerRadius": 100,
+                                      "stroke": "#F1EEDD1F",
+                                      "strokeWidth": 1,
+                                      "gap": 8,
+                                      "padding": [
+                                        12,
+                                        18
+                                      ],
+                                      "justifyContent": "center",
+                                      "alignItems": "center",
+                                      "children": [
+                                        {
+                                          "type": "icon",
+                                          "id": "WE9N7",
+                                          "name": "hourglass-medium",
+                                          "width": 18,
+                                          "height": 18,
+                                          "icon": "hourglass-medium",
+                                          "library": "phosphor",
+                                          "fill": "#F1EEDD9E"
+                                        },
+                                        {
+                                          "type": "text",
+                                          "id": "NcSrB",
+                                          "name": "Label",
+                                          "fill": "#F1EEDD9E",
+                                          "content": "Solicitud pendiente",
+                                          "fontFamily": "$font",
+                                          "fontSize": 15,
+                                          "fontWeight": "600"
+                                        }
+                                      ]
+                                    },
+                                    {
+                                      "type": "frame",
+                                      "id": "YWyw6",
+                                      "name": "Botón Cancelar solicitud",
+                                      "cornerRadius": 100,
+                                      "stroke": "#F1EEDD38",
+                                      "strokeWidth": 1,
+                                      "padding": [
+                                        12,
+                                        18
+                                      ],
+                                      "justifyContent": "center",
+                                      "alignItems": "center",
+                                      "children": [
+                                        {
+                                          "type": "text",
+                                          "id": "A2faPe",
+                                          "name": "Label",
+                                          "fill": "#FF9B8C",
+                                          "content": "Cancelar",
+                                          "fontFamily": "$font",
+                                          "fontSize": 15,
+                                          "fontWeight": "600"
+                                        }
+                                      ]
+                                    }
+                                  ]
+                                },
+                                {
+                                  "type": "frame",
+                                  "id": "cu4JF",
+                                  "name": "Acciones secundarias",
+                                  "width": "fill_container",
+                                  "gap": 10,
+                                  "children": [
+                                    {
+                                      "type": "frame",
+                                      "id": "oxWcP",
+                                      "name": "Botón Seguir",
+                                      "width": "fill_container",
+                                      "cornerRadius": 100,
+                                      "stroke": "#F1EEDD38",
+                                      "strokeWidth": 1,
+                                      "gap": 8,
+                                      "padding": [
+                                        12,
+                                        18
+                                      ],
+                                      "justifyContent": "center",
+                                      "alignItems": "center",
+                                      "children": [
+                                        {
+                                          "type": "icon",
+                                          "id": "K1MoI8",
+                                          "name": "plus",
+                                          "width": 18,
+                                          "height": 18,
+                                          "icon": "plus",
+                                          "library": "phosphor",
+                                          "fill": "#F1EEDD"
+                                        },
+                                        {
+                                          "type": "text",
+                                          "id": "ZzK2D",
+                                          "name": "Seguir",
+                                          "fill": "#F1EEDD",
+                                          "content": "Seguir",
+                                          "fontFamily": "$font",
+                                          "fontSize": 15,
+                                          "fontWeight": "600"
+                                        }
+                                      ]
+                                    },
+                                    {
+                                      "type": "frame",
+                                      "id": "AInCE",
+                                      "name": "Botón Contactar",
+                                      "width": "fill_container",
+                                      "cornerRadius": 100,
+                                      "stroke": "#F1EEDD38",
+                                      "strokeWidth": 1,
+                                      "gap": 8,
+                                      "padding": [
+                                        12,
+                                        18
+                                      ],
+                                      "justifyContent": "center",
+                                      "alignItems": "center",
+                                      "children": [
+                                        {
+                                          "type": "icon",
+                                          "id": "LNuwD",
+                                          "name": "chat-circle",
+                                          "width": 18,
+                                          "height": 18,
+                                          "icon": "chat-circle",
+                                          "library": "phosphor",
+                                          "fill": "#F1EEDD"
+                                        },
+                                        {
+                                          "type": "text",
+                                          "id": "Z5wTnf",
+                                          "name": "Contactar",
+                                          "fill": "#F1EEDD",
+                                          "content": "Contactar",
+                                          "fontFamily": "$font",
+                                          "fontSize": 15,
+                                          "fontWeight": "600"
+                                        }
+                                      ]
+                                    }
+                                  ]
+                                },
+                                {
+                                  "type": "frame",
+                                  "id": "JJO8j",
+                                  "name": "Sección Capitán",
+                                  "width": "fill_container",
+                                  "padding": [
+                                    8,
+                                    0,
+                                    0,
+                                    0
+                                  ],
+                                  "alignItems": "center",
+                                  "children": [
+                                    {
+                                      "type": "text",
+                                      "id": "Fgg70",
+                                      "name": "Capitán",
+                                      "fill": "#F1EEDD80",
+                                      "content": "Capitán",
+                                      "fontFamily": "$font",
+                                      "fontSize": 13,
+                                      "fontWeight": "600"
+                                    },
+                                    {
+                                      "type": "frame",
+                                      "id": "pMaa4",
+                                      "name": "spacer",
+                                      "width": "fill_container",
+                                      "height": 1
+                                    }
+                                  ]
+                                },
+                                {
+                                  "type": "frame",
+                                  "id": "jDdnJ",
+                                  "name": "Capitán",
+                                  "width": "fill_container",
+                                  "fill": "#11281B",
+                                  "cornerRadius": 18,
+                                  "gap": 12,
+                                  "padding": [
+                                    12,
+                                    14
+                                  ],
+                                  "alignItems": "center",
+                                  "children": [
+                                    {
+                                      "type": "frame",
+                                      "id": "WRhlk",
+                                      "name": "Escudo LR",
+                                      "width": 40,
+                                      "height": 40,
+                                      "fill": "$crest1",
+                                      "cornerRadius": 20,
+                                      "justifyContent": "center",
+                                      "alignItems": "center",
+                                      "children": [
+                                        {
+                                          "type": "text",
+                                          "id": "SBimD",
+                                          "name": "LR",
+                                          "fill": "#F1EEDD",
+                                          "content": "LR",
+                                          "fontFamily": "$fontTitle",
+                                          "fontSize": 14,
+                                          "fontWeight": "700"
+                                        }
+                                      ]
+                                    },
+                                    {
+                                      "type": "text",
+                                      "id": "axm9q",
+                                      "name": "Luis Ramírez",
+                                      "fill": "#F1EEDD",
+                                      "content": "Luis Ramírez",
+                                      "fontFamily": "$font",
+                                      "fontSize": 15,
+                                      "fontWeight": "600"
+                                    },
+                                    {
+                                      "type": "frame",
+                                      "id": "mH0UI",
+                                      "name": "spacer",
+                                      "width": "fill_container",
+                                      "height": 1
+                                    },
+                                    {
+                                      "type": "frame",
+                                      "id": "JQbR5",
+                                      "name": "Role",
+                                      "height": 26,
+                                      "fill": "#F1EEDD24",
+                                      "cornerRadius": 100,
+                                      "gap": 6,
+                                      "padding": [
+                                        0,
+                                        10,
+                                        0,
+                                        8
+                                      ],
+                                      "alignItems": "center",
+                                      "children": [
+                                        {
+                                          "type": "frame",
+                                          "id": "sW0Df",
+                                          "name": "Banda de capitán",
+                                          "width": 20,
+                                          "height": 18,
+                                          "layout": "none",
+                                          "children": [
+                                            {
+                                              "type": "path",
+                                              "id": "pgBa7",
+                                              "x": 0,
+                                              "y": 0,
+                                              "name": "Contorno",
+                                              "geometry": "M1 4a9 3 0 1 0 18 0 9 3 0 1 0-18 0z m0 0l0 10m18-10l0 10m-18 0a9 3 0 0 0 18 0m-9-13l0 2.2m-9 5.8l1.6 0m-1.6 2.5l1.6 0m16.4-2.5l-1.6 0m1.6 2.5l-1.6 0",
+                                              "viewBox": [
+                                                0,
+                                                0,
+                                                20,
+                                                18
+                                              ],
+                                              "width": 20,
+                                              "height": 18,
+                                              "stroke": "$brandCream",
+                                              "strokeWidth": 1.4
+                                            },
+                                            {
+                                              "type": "text",
+                                              "id": "S7eUf",
+                                              "x": 6.6,
+                                              "y": 6.6,
+                                              "name": "C",
+                                              "fill": "$brandCream",
+                                              "content": "C",
+                                              "fontFamily": "$fontTitle",
+                                              "fontSize": 9,
+                                              "fontWeight": "800"
+                                            }
+                                          ]
+                                        },
+                                        {
+                                          "type": "text",
+                                          "id": "IMqsy",
+                                          "name": "Label",
+                                          "fill": "$brandCream",
+                                          "content": "Capitán",
+                                          "fontFamily": "$font",
+                                          "fontSize": 13,
+                                          "fontWeight": "600"
+                                        }
+                                      ]
+                                    }
+                                  ]
+                                },
+                                {
+                                  "type": "frame",
+                                  "id": "E8XJH",
+                                  "name": "Sección Publicaciones",
+                                  "width": "fill_container",
+                                  "padding": [
+                                    8,
+                                    0,
+                                    0,
+                                    0
+                                  ],
+                                  "alignItems": "center",
+                                  "children": [
+                                    {
+                                      "type": "text",
+                                      "id": "P3r3M",
+                                      "name": "Publicaciones",
+                                      "fill": "#F1EEDD80",
+                                      "content": "Publicaciones",
+                                      "fontFamily": "$font",
+                                      "fontSize": 13,
+                                      "fontWeight": "600"
+                                    },
+                                    {
+                                      "type": "frame",
+                                      "id": "vbRzc",
+                                      "name": "spacer",
+                                      "width": "fill_container",
+                                      "height": 1
+                                    }
+                                  ]
+                                },
+                                {
+                                  "type": "frame",
+                                  "id": "emrMe",
+                                  "name": "Post · Halcones Sur",
+                                  "width": "fill_container",
+                                  "fill": "#11281B",
+                                  "cornerRadius": 20,
+                                  "layout": "vertical",
+                                  "gap": 10,
+                                  "padding": 16,
+                                  "children": [
+                                    {
+                                      "type": "text",
+                                      "id": "BG4ie",
+                                      "name": "hace 1 h",
+                                      "fill": "#F1EEDDB3",
+                                      "content": "hace 1 h",
+                                      "fontFamily": "$font",
+                                      "fontSize": 12,
+                                      "fontWeight": "normal"
+                                    },
+                                    {
+                                      "type": "text",
+                                      "id": "v0rQW",
+                                      "name": "Buscamos portero para la Liga A 🧤 Jugam",
+                                      "fill": "#F1EEDD",
+                                      "textGrowth": "fixed-width",
+                                      "width": "fill_container",
+                                      "content": "Buscamos portero para la Liga A 🧤 Jugamos los lunes a las 20:00.",
+                                      "fontFamily": "$font",
+                                      "fontSize": 15,
+                                      "fontWeight": "normal"
+                                    }
+                                  ]
+                                }
+                              ]
+                            },
+                            {
+                              "id": "AfIho",
+                              "type": "ref",
+                              "ref": "sWDyF",
+                              "name": "Atrás",
+                              "x": 16,
+                              "y": 58
+                            },
+                            {
+                              "type": "frame",
+                              "id": "awsWN",
+                              "x": 333,
+                              "y": 58,
+                              "name": "Compartir",
+                              "width": 44,
+                              "height": 44,
+                              "fill": "#11281B",
+                              "cornerRadius": 100,
+                              "justifyContent": "center",
+                              "alignItems": "center",
+                              "children": [
+                                {
+                                  "type": "icon",
+                                  "id": "YswOD",
+                                  "name": "export",
+                                  "width": 20,
+                                  "height": 20,
+                                  "icon": "export",
+                                  "library": "phosphor",
+                                  "fill": "#F1EEDD"
+                                }
+                              ]
+                            },
+                            {
+                              "id": "JF9lT",
+                              "type": "ref",
+                              "ref": "X18zs",
+                              "name": "Nav/AppTabBar",
+                              "x": 16,
+                              "y": 756,
+                              "descendants": {
+                                "GkwUm": {
+                                  "fill": "#F1EEDD1A"
+                                },
+                                "k0aUTT": {
+                                  "fill": "#F1EEDD"
+                                },
+                                "R7F6b3": {
+                                  "fill": "#F1EEDD"
+                                },
+                                "F22rw": {
+                                  "content": "3"
+                                }
+                              }
+                            }
+                          ]
                         }
                       ]
                     }
@@ -23916,15 +24563,14 @@
                 },
                 {
                   "type": "frame",
-                  "id": "ZmPIx",
-                  "name": "falta · Equipo · ya soy miembro",
-                  "width": 417,
+                  "id": "PbxD7",
+                  "name": "view · Jugador / Capitán",
                   "layout": "vertical",
                   "gap": 20,
                   "children": [
                     {
                       "type": "frame",
-                      "id": "HecEd",
+                      "id": "Els8Z",
                       "name": "caption",
                       "width": 417,
                       "layout": "vertical",
@@ -23932,7 +24578,7 @@
                       "children": [
                         {
                           "type": "text",
-                          "id": "qQLzw",
+                          "id": "Urp6i",
                           "name": "caption title",
                           "fill": "#FFFFFF",
                           "content": "04 · Ya soy miembro",
@@ -23942,12 +24588,12 @@
                         },
                         {
                           "type": "text",
-                          "id": "wncgf",
+                          "id": "oBHha",
                           "name": "caption text",
                           "fill": "#FFFFFFB3",
                           "textGrowth": "fixed-width",
                           "width": "fill_container",
-                          "content": "Falta diseñar. Es miembro activo, así que no ve «Solicitar unirme» (R17.6).",
+                          "content": "Es miembro activo: no ve «Solicitar unirme» (R17.6). «Ir a mi equipo» abre Partidos de ese equipo.",
                           "lineHeight": 1.4,
                           "fontFamily": "$font",
                           "fontSize": 16,
@@ -23956,74 +24602,684 @@
                       ]
                     },
                     {
-                      "id": "q75lv",
+                      "id": "zeoxh",
                       "type": "ref",
                       "ref": "zLMR0",
                       "name": "role",
+                      "fill": "#FFFFFF",
+                      "stroke": "#D4D4D8",
+                      "strokeWidth": 1,
                       "descendants": {
                         "KKC1z": {
                           "enabled": false
                         },
                         "UNwwQ": {
                           "enabled": true,
-                          "fill": "#F1EEDD"
+                          "icon": "users"
                         },
                         "bwl4G": {
-                          "content": "Jugador / Capitán"
+                          "content": "Jugador / Capitán",
+                          "fill": "#18181B"
                         }
                       }
                     },
                     {
                       "type": "frame",
-                      "id": "XTMeJ",
-                      "name": "Falta · Equipo · ya soy miembro",
+                      "id": "TPf6j",
+                      "name": "iPhone · Equipo — Halcones Sur · miembro",
                       "width": 417,
                       "height": 876,
-                      "fill": "#E4E4E7",
-                      "cornerRadius": 56,
-                      "stroke": "#A1A1AA",
-                      "strokeWidth": 2,
-                      "layout": "vertical",
-                      "gap": 12,
-                      "padding": 40,
-                      "justifyContent": "center",
-                      "alignItems": "center",
+                      "fill": "#1C1C1E",
+                      "cornerRadius": 60,
+                      "stroke": "#48484A",
+                      "strokeWidth": 1.5,
+                      "strokeAlignment": "inner",
+                      "effect": {
+                        "type": "shadow",
+                        "shadowType": "outer",
+                        "color": "#0000002E",
+                        "offset": {
+                          "x": 0,
+                          "y": 12
+                        },
+                        "blur": 32
+                      },
+                      "layout": "none",
                       "children": [
                         {
-                          "type": "text",
-                          "id": "fg6xC",
-                          "name": "tag",
-                          "fill": "#B4532A",
-                          "content": "FALTA",
-                          "fontFamily": "$font",
-                          "fontSize": 15,
-                          "fontWeight": "700",
-                          "letterSpacing": 1.5
-                        },
-                        {
-                          "type": "text",
-                          "id": "v3BSu2",
-                          "name": "screen",
-                          "fill": "#27272A",
-                          "textGrowth": "fixed-width",
-                          "width": "fill_container",
-                          "content": "Equipo · ya soy miembro",
-                          "textAlign": "center",
-                          "fontFamily": "$fontTitle",
-                          "fontSize": 30,
-                          "fontWeight": "700",
-                          "letterSpacing": -0.9
-                        },
-                        {
-                          "type": "text",
-                          "id": "Jw1VP",
-                          "name": "req",
-                          "fill": "#71717A",
-                          "content": "R17.6",
-                          "textAlign": "center",
-                          "fontFamily": "$font",
-                          "fontSize": 17,
-                          "fontWeight": "normal"
+                          "type": "frame",
+                          "id": "Fhf2N",
+                          "x": 12,
+                          "y": 12,
+                          "name": "Equipo — ya soy miembro",
+                          "clip": true,
+                          "width": 393,
+                          "height": 852,
+                          "fill": "#08180F",
+                          "cornerRadius": 48,
+                          "layout": "none",
+                          "children": [
+                            {
+                              "id": "R6zqmC",
+                              "type": "ref",
+                              "ref": "mqPCF",
+                              "x": 0,
+                              "y": 0,
+                              "name": "StatusBar",
+                              "descendants": {
+                                "2FGm5": {
+                                  "fill": "#F1EEDD"
+                                },
+                                "MzV9b": {
+                                  "fill": "#F1EEDD"
+                                },
+                                "zdsqc": {
+                                  "fill": "#F1EEDD"
+                                },
+                                "ACYgf": {
+                                  "fill": "#F1EEDD"
+                                }
+                              }
+                            },
+                            {
+                              "type": "frame",
+                              "id": "m1lRlG",
+                              "x": 133.5,
+                              "y": 11,
+                              "name": "DynamicIsland",
+                              "width": 126,
+                              "height": 37,
+                              "fill": "#000000",
+                              "cornerRadius": 24
+                            },
+                            {
+                              "type": "frame",
+                              "id": "Wqy3d",
+                              "x": 127,
+                              "y": 839,
+                              "name": "HomeIndicator",
+                              "width": 139,
+                              "height": 5,
+                              "fill": "#F1EEDD",
+                              "cornerRadius": 100
+                            },
+                            {
+                              "type": "frame",
+                              "id": "K4kuct",
+                              "x": 16,
+                              "y": 112,
+                              "name": "content",
+                              "width": 361,
+                              "layout": "vertical",
+                              "gap": 16,
+                              "children": [
+                                {
+                                  "type": "frame",
+                                  "id": "WUWqb",
+                                  "name": "Encabezado equipo",
+                                  "width": "fill_container",
+                                  "layout": "vertical",
+                                  "gap": 10,
+                                  "alignItems": "center",
+                                  "children": [
+                                    {
+                                      "type": "frame",
+                                      "id": "M85ZVs",
+                                      "name": "Escudo HS",
+                                      "width": 84,
+                                      "height": 84,
+                                      "fill": "$crest2",
+                                      "cornerRadius": 42,
+                                      "justifyContent": "center",
+                                      "alignItems": "center",
+                                      "children": [
+                                        {
+                                          "type": "text",
+                                          "id": "jijlF",
+                                          "name": "HS",
+                                          "fill": "#F1EEDD",
+                                          "content": "HS",
+                                          "fontFamily": "$fontTitle",
+                                          "fontSize": 30,
+                                          "fontWeight": "700"
+                                        }
+                                      ]
+                                    },
+                                    {
+                                      "type": "text",
+                                      "id": "u8UtME",
+                                      "name": "Halcones Sur",
+                                      "fill": "#F1EEDD",
+                                      "content": "Halcones Sur",
+                                      "fontFamily": "$fontTitle",
+                                      "fontSize": 28,
+                                      "fontWeight": "600"
+                                    },
+                                    {
+                                      "type": "text",
+                                      "id": "A71OA",
+                                      "name": "Liga A · Lunes 20:00 · Unidad Deportiva ",
+                                      "fill": "#F1EEDDB3",
+                                      "textGrowth": "fixed-width",
+                                      "width": "fill_container",
+                                      "content": "Liga A · Lunes 20:00 · Unidad Deportiva Ensenada",
+                                      "textAlign": "center",
+                                      "fontFamily": "$font",
+                                      "fontSize": 14,
+                                      "fontWeight": "normal"
+                                    }
+                                  ]
+                                },
+                                {
+                                  "type": "frame",
+                                  "id": "aJKon",
+                                  "name": "Datos",
+                                  "width": "fill_container",
+                                  "fill": "#11281B",
+                                  "cornerRadius": 18,
+                                  "padding": [
+                                    12,
+                                    0
+                                  ],
+                                  "children": [
+                                    {
+                                      "type": "frame",
+                                      "id": "R7347",
+                                      "name": "Dato jugadores",
+                                      "width": "fill_container",
+                                      "layout": "vertical",
+                                      "gap": 2,
+                                      "alignItems": "center",
+                                      "children": [
+                                        {
+                                          "type": "text",
+                                          "id": "i3GTd",
+                                          "name": "18",
+                                          "fill": "#F1EEDD",
+                                          "content": "18",
+                                          "fontFamily": "$fontTitle",
+                                          "fontSize": 20,
+                                          "fontWeight": "700"
+                                        },
+                                        {
+                                          "type": "text",
+                                          "id": "mwwm5",
+                                          "name": "jugadores",
+                                          "fill": "#F1EEDDB3",
+                                          "content": "jugadores",
+                                          "fontFamily": "$font",
+                                          "fontSize": 12,
+                                          "fontWeight": "500"
+                                        }
+                                      ]
+                                    },
+                                    {
+                                      "type": "frame",
+                                      "id": "gEBNT",
+                                      "name": "Dato seguidores",
+                                      "width": "fill_container",
+                                      "layout": "vertical",
+                                      "gap": 2,
+                                      "alignItems": "center",
+                                      "children": [
+                                        {
+                                          "type": "text",
+                                          "id": "WhD3g",
+                                          "name": "124",
+                                          "fill": "#F1EEDD",
+                                          "content": "124",
+                                          "fontFamily": "$fontTitle",
+                                          "fontSize": 20,
+                                          "fontWeight": "700"
+                                        },
+                                        {
+                                          "type": "text",
+                                          "id": "t7hzjK",
+                                          "name": "seguidores",
+                                          "fill": "#F1EEDDB3",
+                                          "content": "seguidores",
+                                          "fontFamily": "$font",
+                                          "fontSize": 12,
+                                          "fontWeight": "500"
+                                        }
+                                      ]
+                                    },
+                                    {
+                                      "type": "frame",
+                                      "id": "Z5oDUW",
+                                      "name": "Dato desde",
+                                      "width": "fill_container",
+                                      "layout": "vertical",
+                                      "gap": 2,
+                                      "alignItems": "center",
+                                      "children": [
+                                        {
+                                          "type": "text",
+                                          "id": "HX0n8",
+                                          "name": "2024",
+                                          "fill": "#F1EEDD",
+                                          "content": "2024",
+                                          "fontFamily": "$fontTitle",
+                                          "fontSize": 20,
+                                          "fontWeight": "700"
+                                        },
+                                        {
+                                          "type": "text",
+                                          "id": "hCjoU",
+                                          "name": "desde",
+                                          "fill": "#F1EEDDB3",
+                                          "content": "desde",
+                                          "fontFamily": "$font",
+                                          "fontSize": 12,
+                                          "fontWeight": "500"
+                                        }
+                                      ]
+                                    }
+                                  ]
+                                },
+                                {
+                                  "type": "frame",
+                                  "id": "sllAT",
+                                  "name": "Botón Ir a mi equipo",
+                                  "width": "fill_container",
+                                  "fill": "#F1EEDD",
+                                  "cornerRadius": 100,
+                                  "gap": 8,
+                                  "padding": [
+                                    12,
+                                    18
+                                  ],
+                                  "justifyContent": "center",
+                                  "alignItems": "center",
+                                  "children": [
+                                    {
+                                      "type": "icon",
+                                      "id": "bj2ln",
+                                      "name": "users-three",
+                                      "width": 18,
+                                      "height": 18,
+                                      "icon": "users-three",
+                                      "library": "phosphor",
+                                      "fill": "$brandGreen"
+                                    },
+                                    {
+                                      "type": "text",
+                                      "id": "yNwaY",
+                                      "name": "Label",
+                                      "fill": "$brandGreen",
+                                      "content": "Ir a mi equipo",
+                                      "fontFamily": "$font",
+                                      "fontSize": 15,
+                                      "fontWeight": "600"
+                                    }
+                                  ]
+                                },
+                                {
+                                  "type": "frame",
+                                  "id": "DN8MW",
+                                  "name": "Acciones secundarias",
+                                  "width": "fill_container",
+                                  "gap": 10,
+                                  "children": [
+                                    {
+                                      "type": "frame",
+                                      "id": "S5pJaX",
+                                      "name": "Botón Seguir",
+                                      "width": "fill_container",
+                                      "cornerRadius": 100,
+                                      "stroke": "#F1EEDD38",
+                                      "strokeWidth": 1,
+                                      "gap": 8,
+                                      "padding": [
+                                        12,
+                                        18
+                                      ],
+                                      "justifyContent": "center",
+                                      "alignItems": "center",
+                                      "children": [
+                                        {
+                                          "type": "icon",
+                                          "id": "P9WOAK",
+                                          "name": "plus",
+                                          "width": 18,
+                                          "height": 18,
+                                          "icon": "plus",
+                                          "library": "phosphor",
+                                          "fill": "#F1EEDD"
+                                        },
+                                        {
+                                          "type": "text",
+                                          "id": "QssN1",
+                                          "name": "Seguir",
+                                          "fill": "#F1EEDD",
+                                          "content": "Seguir",
+                                          "fontFamily": "$font",
+                                          "fontSize": 15,
+                                          "fontWeight": "600"
+                                        }
+                                      ]
+                                    },
+                                    {
+                                      "type": "frame",
+                                      "id": "b68G9",
+                                      "name": "Botón Contactar",
+                                      "width": "fill_container",
+                                      "cornerRadius": 100,
+                                      "stroke": "#F1EEDD38",
+                                      "strokeWidth": 1,
+                                      "gap": 8,
+                                      "padding": [
+                                        12,
+                                        18
+                                      ],
+                                      "justifyContent": "center",
+                                      "alignItems": "center",
+                                      "children": [
+                                        {
+                                          "type": "icon",
+                                          "id": "NDVtg",
+                                          "name": "chat-circle",
+                                          "width": 18,
+                                          "height": 18,
+                                          "icon": "chat-circle",
+                                          "library": "phosphor",
+                                          "fill": "#F1EEDD"
+                                        },
+                                        {
+                                          "type": "text",
+                                          "id": "ArBKZ",
+                                          "name": "Contactar",
+                                          "fill": "#F1EEDD",
+                                          "content": "Contactar",
+                                          "fontFamily": "$font",
+                                          "fontSize": 15,
+                                          "fontWeight": "600"
+                                        }
+                                      ]
+                                    }
+                                  ]
+                                },
+                                {
+                                  "type": "frame",
+                                  "id": "K39i0",
+                                  "name": "Sección Capitán",
+                                  "width": "fill_container",
+                                  "padding": [
+                                    8,
+                                    0,
+                                    0,
+                                    0
+                                  ],
+                                  "alignItems": "center",
+                                  "children": [
+                                    {
+                                      "type": "text",
+                                      "id": "EuRnh",
+                                      "name": "Capitán",
+                                      "fill": "#F1EEDD80",
+                                      "content": "Capitán",
+                                      "fontFamily": "$font",
+                                      "fontSize": 13,
+                                      "fontWeight": "600"
+                                    },
+                                    {
+                                      "type": "frame",
+                                      "id": "otO9O",
+                                      "name": "spacer",
+                                      "width": "fill_container",
+                                      "height": 1
+                                    }
+                                  ]
+                                },
+                                {
+                                  "type": "frame",
+                                  "id": "YP7Xc",
+                                  "name": "Capitán",
+                                  "width": "fill_container",
+                                  "fill": "#11281B",
+                                  "cornerRadius": 18,
+                                  "gap": 12,
+                                  "padding": [
+                                    12,
+                                    14
+                                  ],
+                                  "alignItems": "center",
+                                  "children": [
+                                    {
+                                      "type": "frame",
+                                      "id": "BS5p0",
+                                      "name": "Escudo LR",
+                                      "width": 40,
+                                      "height": 40,
+                                      "fill": "$crest1",
+                                      "cornerRadius": 20,
+                                      "justifyContent": "center",
+                                      "alignItems": "center",
+                                      "children": [
+                                        {
+                                          "type": "text",
+                                          "id": "GXiQf",
+                                          "name": "LR",
+                                          "fill": "#F1EEDD",
+                                          "content": "LR",
+                                          "fontFamily": "$fontTitle",
+                                          "fontSize": 14,
+                                          "fontWeight": "700"
+                                        }
+                                      ]
+                                    },
+                                    {
+                                      "type": "text",
+                                      "id": "HinKX",
+                                      "name": "Luis Ramírez",
+                                      "fill": "#F1EEDD",
+                                      "content": "Luis Ramírez",
+                                      "fontFamily": "$font",
+                                      "fontSize": 15,
+                                      "fontWeight": "600"
+                                    },
+                                    {
+                                      "type": "frame",
+                                      "id": "U3I30V",
+                                      "name": "spacer",
+                                      "width": "fill_container",
+                                      "height": 1
+                                    },
+                                    {
+                                      "type": "frame",
+                                      "id": "N3EUI",
+                                      "name": "Role",
+                                      "height": 26,
+                                      "fill": "#F1EEDD24",
+                                      "cornerRadius": 100,
+                                      "gap": 6,
+                                      "padding": [
+                                        0,
+                                        10,
+                                        0,
+                                        8
+                                      ],
+                                      "alignItems": "center",
+                                      "children": [
+                                        {
+                                          "type": "frame",
+                                          "id": "J7EaW",
+                                          "name": "Banda de capitán",
+                                          "width": 20,
+                                          "height": 18,
+                                          "layout": "none",
+                                          "children": [
+                                            {
+                                              "type": "path",
+                                              "id": "w3IDZ",
+                                              "x": 0,
+                                              "y": 0,
+                                              "name": "Contorno",
+                                              "geometry": "M1 4a9 3 0 1 0 18 0 9 3 0 1 0-18 0z m0 0l0 10m18-10l0 10m-18 0a9 3 0 0 0 18 0m-9-13l0 2.2m-9 5.8l1.6 0m-1.6 2.5l1.6 0m16.4-2.5l-1.6 0m1.6 2.5l-1.6 0",
+                                              "viewBox": [
+                                                0,
+                                                0,
+                                                20,
+                                                18
+                                              ],
+                                              "width": 20,
+                                              "height": 18,
+                                              "stroke": "$brandCream",
+                                              "strokeWidth": 1.4
+                                            },
+                                            {
+                                              "type": "text",
+                                              "id": "bs0zD",
+                                              "x": 6.6,
+                                              "y": 6.6,
+                                              "name": "C",
+                                              "fill": "$brandCream",
+                                              "content": "C",
+                                              "fontFamily": "$fontTitle",
+                                              "fontSize": 9,
+                                              "fontWeight": "800"
+                                            }
+                                          ]
+                                        },
+                                        {
+                                          "type": "text",
+                                          "id": "IT4yn",
+                                          "name": "Label",
+                                          "fill": "$brandCream",
+                                          "content": "Capitán",
+                                          "fontFamily": "$font",
+                                          "fontSize": 13,
+                                          "fontWeight": "600"
+                                        }
+                                      ]
+                                    }
+                                  ]
+                                },
+                                {
+                                  "type": "frame",
+                                  "id": "pkRuy",
+                                  "name": "Sección Publicaciones",
+                                  "width": "fill_container",
+                                  "padding": [
+                                    8,
+                                    0,
+                                    0,
+                                    0
+                                  ],
+                                  "alignItems": "center",
+                                  "children": [
+                                    {
+                                      "type": "text",
+                                      "id": "EiXrL",
+                                      "name": "Publicaciones",
+                                      "fill": "#F1EEDD80",
+                                      "content": "Publicaciones",
+                                      "fontFamily": "$font",
+                                      "fontSize": 13,
+                                      "fontWeight": "600"
+                                    },
+                                    {
+                                      "type": "frame",
+                                      "id": "eE1T6",
+                                      "name": "spacer",
+                                      "width": "fill_container",
+                                      "height": 1
+                                    }
+                                  ]
+                                },
+                                {
+                                  "type": "frame",
+                                  "id": "atlde",
+                                  "name": "Post · Halcones Sur",
+                                  "width": "fill_container",
+                                  "fill": "#11281B",
+                                  "cornerRadius": 20,
+                                  "layout": "vertical",
+                                  "gap": 10,
+                                  "padding": 16,
+                                  "children": [
+                                    {
+                                      "type": "text",
+                                      "id": "kJXGE",
+                                      "name": "hace 1 h",
+                                      "fill": "#F1EEDDB3",
+                                      "content": "hace 1 h",
+                                      "fontFamily": "$font",
+                                      "fontSize": 12,
+                                      "fontWeight": "normal"
+                                    },
+                                    {
+                                      "type": "text",
+                                      "id": "E65O5",
+                                      "name": "Buscamos portero para la Liga A 🧤 Jugam",
+                                      "fill": "#F1EEDD",
+                                      "textGrowth": "fixed-width",
+                                      "width": "fill_container",
+                                      "content": "Buscamos portero para la Liga A 🧤 Jugamos los lunes a las 20:00.",
+                                      "fontFamily": "$font",
+                                      "fontSize": 15,
+                                      "fontWeight": "normal"
+                                    }
+                                  ]
+                                }
+                              ]
+                            },
+                            {
+                              "id": "rC6eQ",
+                              "type": "ref",
+                              "ref": "sWDyF",
+                              "name": "Atrás",
+                              "x": 16,
+                              "y": 58
+                            },
+                            {
+                              "type": "frame",
+                              "id": "zG2op",
+                              "x": 333,
+                              "y": 58,
+                              "name": "Compartir",
+                              "width": 44,
+                              "height": 44,
+                              "fill": "#11281B",
+                              "cornerRadius": 100,
+                              "justifyContent": "center",
+                              "alignItems": "center",
+                              "children": [
+                                {
+                                  "type": "icon",
+                                  "id": "MHYZk",
+                                  "name": "export",
+                                  "width": 20,
+                                  "height": 20,
+                                  "icon": "export",
+                                  "library": "phosphor",
+                                  "fill": "#F1EEDD"
+                                }
+                              ]
+                            },
+                            {
+                              "id": "ayEPB",
+                              "type": "ref",
+                              "ref": "X18zs",
+                              "name": "Nav/AppTabBar",
+                              "x": 16,
+                              "y": 756,
+                              "descendants": {
+                                "GkwUm": {
+                                  "fill": "#F1EEDD1A"
+                                },
+                                "k0aUTT": {
+                                  "fill": "#F1EEDD"
+                                },
+                                "R7F6b3": {
+                                  "fill": "#F1EEDD"
+                                },
+                                "F22rw": {
+                                  "content": "3"
+                                }
+                              }
+                            }
+                          ]
                         }
                       ]
                     }
@@ -24141,6 +25397,50 @@
                     },
                     {
                       "type": "frame",
+                      "id": "rf1vm",
+                      "name": "BOTÓN DE UNIRSE",
+                      "width": "fill_container",
+                      "stroke": "#E4E4E7",
+                      "strokeWidth": {
+                        "top": 1
+                      },
+                      "layout": "vertical",
+                      "gap": 6,
+                      "padding": [
+                        16,
+                        0,
+                        0,
+                        0
+                      ],
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "q7Ibkd",
+                          "name": "block label",
+                          "fill": "#71717A",
+                          "content": "BOTÓN DE UNIRSE",
+                          "fontFamily": "$font",
+                          "fontSize": 13,
+                          "fontWeight": "700",
+                          "letterSpacing": 0.8
+                        },
+                        {
+                          "type": "text",
+                          "id": "yYA4L",
+                          "name": "block text",
+                          "fill": "#3F3F46",
+                          "textGrowth": "fixed-width",
+                          "width": "fill_container",
+                          "content": "Sin membresía: «Solicitar unirme» (R13.1). Con membresía pending: «Solicitud pendiente» y «Cancelar», que retira la solicitud (R13.7). Miembro activo: no hay botón de unirse; ve «Ir a mi equipo», que abre Partidos del equipo (R17.6).",
+                          "lineHeight": 1.45,
+                          "fontFamily": "$font",
+                          "fontSize": 16,
+                          "fontWeight": "normal"
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
                       "id": "UFFWG",
                       "name": "PENDIENTE",
                       "width": "fill_container",
@@ -24175,7 +25475,7 @@
                           "fill": "#3F3F46",
                           "textGrowth": "fixed-width",
                           "width": "fill_container",
-                          "content": "Open question 13: ¿mostramos el nombre de todos los Capitanes a quien no es del equipo?",
+                          "content": "Open question 13: ¿mostramos el nombre de todos los Capitanes a quien no es del equipo?\n«Cancelar» (03) todavía no está en R13 ni en la API. Falta R13.9 en el spec (issue #450).",
                           "lineHeight": 1.45,
                           "fontFamily": "$font",
                           "fontSize": 16,
