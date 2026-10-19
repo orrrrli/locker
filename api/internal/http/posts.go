@@ -45,6 +45,16 @@ type postJSON struct {
 	// ponytail: no photo URLs yet; signed GET URLs come with the feed
 	// (design.md Photo upload flow, step 5).
 	Photos []postPhotoJSON `json:"photos"`
+	// R19.4: counts per kind and the caller's own kinds.
+	ReactionCounts reactionCountsJSON    `json:"reaction_counts"`
+	MyReactions    []domain.ReactionKind `json:"my_reactions"`
+}
+
+// reactionCountsJSON is a struct, not a map, so every kind is always present.
+type reactionCountsJSON struct {
+	Fire int `json:"fire"`
+	Ball int `json:"ball"`
+	Clap int `json:"clap"`
 }
 
 type postPhotoJSON struct {
@@ -74,6 +84,10 @@ func (h postHandlers) publish(w http.ResponseWriter, r *http.Request) {
 	out := postJSON{
 		ID: p.ID, AsKind: p.AsKind, TeamID: p.TeamID, LeagueID: p.LeagueID, VenueID: p.VenueID, Body: p.Body,
 		ShareToken: p.ShareToken, CreatedAt: apiTime(p.CreatedAt), Photos: make([]postPhotoJSON, len(p.Media)),
+		// ponytail: a new post has no reactions, so no query. The first
+		// readers of existing posts, the feed (BE-FEED-5) and the shared post
+		// (BE-FEED-4), read real counts and own kinds.
+		MyReactions: []domain.ReactionKind{},
 	}
 	for i, m := range p.Media {
 		out.Photos[i] = postPhotoJSON{Position: m.Position, ContentType: m.ContentType}

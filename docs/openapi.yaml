@@ -2484,7 +2484,7 @@ paths:
             application/json:
               schema:
                 type: object
-                required: [id, as_kind, team_id, league_id, venue_id, body, share_token, created_at, photos]
+                required: [id, as_kind, team_id, league_id, venue_id, body, share_token, created_at, photos, reaction_counts, my_reactions]
                 properties:
                   id:
                     type: integer
@@ -2520,6 +2520,22 @@ paths:
                         content_type:
                           type: string
                           enum: [image/jpeg, image/png]
+                  reaction_counts:
+                    type: object
+                    description: How many users set each kind (R19.4). A new post has 0 of each.
+                    required: [fire, ball, clap]
+                    properties:
+                      fire:
+                        type: integer
+                      ball:
+                        type: integer
+                      clap:
+                        type: integer
+                  my_reactions:
+                    type: array
+                    description: The kinds the caller set on this post (R19.4); empty for a new post.
+                    items:
+                      $ref: "#/components/schemas/ReactionKind"
         "400":
           $ref: "#/components/responses/InvalidRequest"
         "401":
@@ -2605,6 +2621,55 @@ paths:
           $ref: "#/components/responses/NotFound"
         "503":
           $ref: "#/components/responses/TeamBusy"
+        "500":
+          $ref: "#/components/responses/Internal"
+
+  /posts/{id}/reactions/{kind}:
+    post:
+      tags: [feed]
+      operationId: toggleReaction
+      summary: Set or clear a reaction
+      description: |
+        Toggles the caller's reaction of this kind on the post: sets it when
+        the caller has none, clears it when they do (R19.3). A user may set
+        all three kinds on one post (R19.2). Any signed-in user may react,
+        the author included (R19.5). A removed or deleted post takes no
+        reaction, and an unknown kind is not found (R19.1, R19.6).
+        At most 120 calls per user per hour.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+        - name: kind
+          in: path
+          required: true
+          schema:
+            $ref: "#/components/schemas/ReactionKind"
+      responses:
+        "200":
+          description: The caller's reaction of this kind after the toggle.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [kind, reacted]
+                properties:
+                  kind:
+                    $ref: "#/components/schemas/ReactionKind"
+                  reacted:
+                    type: boolean
+                    description: True when the reaction is set now, false when it was cleared.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyAttempts"
         "500":
           $ref: "#/components/responses/Internal"
 
@@ -3762,6 +3827,9 @@ components:
       properties:
         error:
           $ref: "#/components/schemas/ErrorCode"
+    ReactionKind:
+      type: string
+      enum: [fire, ball, clap]
     ErrorCode:
       type: string
       description: Every error code the API emits.

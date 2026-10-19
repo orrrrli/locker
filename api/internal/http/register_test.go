@@ -26,6 +26,7 @@ import (
 	"github.com/orrrrli/locker/api/internal/application/notifications"
 	"github.com/orrrrli/locker/api/internal/application/pages"
 	"github.com/orrrrli/locker/api/internal/application/posts"
+	"github.com/orrrrli/locker/api/internal/application/reactions"
 	"github.com/orrrrli/locker/api/internal/application/teams"
 	"github.com/orrrrli/locker/api/internal/application/venues"
 	"github.com/orrrrli/locker/api/internal/infrastructure/password"
@@ -152,6 +153,7 @@ func newAPI(t *testing.T, now func() time.Time) apiTest {
 			Tx: postgres.NewTxRunner(pool), Posts: postgres.NewPosts(pool), Memberships: memberships,
 			Users: postgres.NewUsers(pool), Photos: fakePhotos{}, Now: now,
 		}),
+		Reactions:          reactions.NewService(postgres.NewTxRunner(pool), postgres.NewReactions(pool)),
 		NotificationFinder: notificationRepo,
 	}))
 	mux.Handle("GET /test/whoami", authHandlers{svc: svc}.requireAuth(http.HandlerFunc(

@@ -27,6 +27,7 @@ import (
 	"github.com/orrrrli/locker/api/internal/application/notifications"
 	"github.com/orrrrli/locker/api/internal/application/pages"
 	"github.com/orrrrli/locker/api/internal/application/posts"
+	"github.com/orrrrli/locker/api/internal/application/reactions"
 	"github.com/orrrrli/locker/api/internal/application/teams"
 	"github.com/orrrrli/locker/api/internal/application/venues"
 	apihttp "github.com/orrrrli/locker/api/internal/http"
@@ -191,6 +192,7 @@ func start() error {
 		Follows:            follows.NewService(postgres.NewFollows(pool)),
 		Media:              mediaSvc,
 		Posts:              postSvc,
+		Reactions:          reactions.NewService(postgres.NewTxRunner(pool), postgres.NewReactions(pool)),
 		MatchFinder:        matchRepo,
 		ChargeFinder:       chargeRepo,
 		AppleAppID:         cfg.AppleAppID,
