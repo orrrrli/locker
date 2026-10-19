@@ -16,6 +16,7 @@ import (
 	"github.com/orrrrli/locker/api/internal/application/auth"
 	"github.com/orrrrli/locker/api/internal/application/blocks"
 	"github.com/orrrrli/locker/api/internal/application/charges"
+	"github.com/orrrrli/locker/api/internal/application/feed"
 	"github.com/orrrrli/locker/api/internal/application/follows"
 	"github.com/orrrrli/locker/api/internal/application/invites"
 	"github.com/orrrrli/locker/api/internal/application/leads"
@@ -75,6 +76,13 @@ func (m *fakeMailer) next(t *testing.T) sentMail {
 // newAPI wires the real router, use cases and repositories on a fresh
 // database. The hasher uses cheap params so the suite stays fast.
 func newAPI(t *testing.T, now func() time.Time) apiTest {
+	t.Helper()
+	return newAPIWithFeedSigner(t, now, nil)
+}
+
+// newAPIWithFeedSigner is newAPI with a signer for the feed photo URLs; nil
+// means no bucket is configured.
+func newAPIWithFeedSigner(t *testing.T, now func() time.Time, feedSigner feed.Signer) apiTest {
 	t.Helper()
 	pool := testdb.New(t)
 	mail := &fakeMailer{sent: make(chan sentMail, 64)}
@@ -154,6 +162,7 @@ func newAPI(t *testing.T, now func() time.Time) apiTest {
 			Users: postgres.NewUsers(pool), Photos: fakePhotos{}, Now: now,
 		}),
 		Reactions:          reactions.NewService(postgres.NewTxRunner(pool), postgres.NewReactions(pool)),
+		Feed:               feed.NewService(postgres.NewFeed(pool), feedSigner),
 		NotificationFinder: notificationRepo,
 	}))
 	mux.Handle("GET /test/whoami", authHandlers{svc: svc}.requireAuth(http.HandlerFunc(

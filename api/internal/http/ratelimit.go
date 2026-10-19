@@ -399,6 +399,10 @@ const (
 	// stops a script from churning the table.
 	reactionMaxPerUser = 120
 	reactionWindow     = time.Hour
+	// A feed page runs three queries and signs up to 80 photo URLs; a real
+	// scroll reads a few pages, this stops a script looping it.
+	feedMaxPerUser = 600
+	feedWindow     = time.Hour
 	// Each reset request can send an email: the IP cap stops one client
 	// spraying addresses and burning the Resend quota, and the service caps
 	// live links per account (auth.MaxLiveResetLinks) so one inbox cannot be
@@ -476,6 +480,7 @@ type Limits struct {
 	MatchWrite  *RateLimiter // per user, match create and update together
 	PostWrite   *RateLimiter // per user, POST /posts attempts
 	Reaction    *RateLimiter // per user, POST /posts/{id}/reactions/{kind}
+	Feed        *RateLimiter // per user, GET /feed
 	// ResetRequestIP limits POST /auth/password-reset per client IP;
 	// ResetConfirm limits setting the new password per client IP.
 	ResetRequestIP *IPRateLimiter
@@ -493,6 +498,7 @@ func NewLimits(now func() time.Time) Limits {
 		MatchWrite:   NewRateLimiter(matchWriteMaxPerUser, matchWriteWindow, now),
 		PostWrite:    NewRateLimiter(postWriteMaxPerUser, postWriteWindow, now),
 		Reaction:     NewRateLimiter(reactionMaxPerUser, reactionWindow, now),
+		Feed:         NewRateLimiter(feedMaxPerUser, feedWindow, now),
 
 		ResetRequestIP: NewIPRateLimiter(resetRequestMaxPerIP, resetRequestWindow, now),
 		ResetConfirm:   NewIPRateLimiter(resetConfirmMaxPerIP, resetConfirmWindow, now),
@@ -509,6 +515,7 @@ func (l Limits) Prune() {
 	l.MatchWrite.Prune()
 	l.PostWrite.Prune()
 	l.Reaction.Prune()
+	l.Feed.Prune()
 	l.ResetRequestIP.Prune()
 	l.ResetConfirm.Prune()
 }
