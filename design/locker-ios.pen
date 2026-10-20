@@ -11383,15 +11383,14 @@
                 },
                 {
                   "type": "frame",
-                  "id": "ASQW0",
-                  "name": "falta · Tu ficha · con Apple",
-                  "width": 417,
+                  "id": "po2tW",
+                  "name": "view · Jugador / Capitán",
                   "layout": "vertical",
                   "gap": 20,
                   "children": [
                     {
                       "type": "frame",
-                      "id": "dmuRh",
+                      "id": "GhlUB",
                       "name": "caption",
                       "width": 417,
                       "layout": "vertical",
@@ -11399,7 +11398,7 @@
                       "children": [
                         {
                           "type": "text",
-                          "id": "H9ektL",
+                          "id": "x7Xw1l",
                           "name": "caption title",
                           "fill": "#FFFFFF",
                           "content": "04 · Tu ficha · con Apple",
@@ -11409,12 +11408,12 @@
                         },
                         {
                           "type": "text",
-                          "id": "erTON",
+                          "id": "SzaVh",
                           "name": "caption text",
                           "fill": "#FFFFFFB3",
                           "textGrowth": "fixed-width",
                           "width": "fill_container",
-                          "content": "Falta diseñar. El mismo formulario con nombre y correo de Apple, sin contraseña. Pide la fecha de nacimiento (R2.4).",
+                          "content": "Paso 2 de 2. Nombre y correo vienen de Apple, sin contraseña. Solo pide la fecha de nacimiento (R2.4).",
                           "lineHeight": 1.4,
                           "fontFamily": "$font",
                           "fontSize": 16,
@@ -11423,74 +11422,747 @@
                       ]
                     },
                     {
-                      "id": "HuXWa",
+                      "id": "txoWw",
                       "type": "ref",
                       "ref": "zLMR0",
                       "name": "role",
+                      "fill": "#FFFFFF",
+                      "stroke": "#D4D4D8",
+                      "strokeWidth": 1,
                       "descendants": {
                         "KKC1z": {
                           "enabled": false
                         },
                         "UNwwQ": {
                           "enabled": true,
-                          "fill": "#F1EEDD"
+                          "icon": "users"
                         },
                         "bwl4G": {
-                          "content": "Jugador / Capitán"
+                          "content": "Jugador / Capitán",
+                          "fill": "#18181B"
                         }
                       }
                     },
                     {
                       "type": "frame",
-                      "id": "sFQYK",
-                      "name": "Falta · Tu ficha · con Apple",
+                      "id": "aAqjV",
+                      "name": "iPhone · Tu ficha · con Apple",
                       "width": 417,
                       "height": 876,
-                      "fill": "#E4E4E7",
-                      "cornerRadius": 56,
-                      "stroke": "#A1A1AA",
-                      "strokeWidth": 2,
-                      "layout": "vertical",
-                      "gap": 12,
-                      "padding": 40,
-                      "justifyContent": "center",
-                      "alignItems": "center",
+                      "fill": "#1C1C1E",
+                      "cornerRadius": 60,
+                      "stroke": "#48484A",
+                      "strokeWidth": 1.5,
+                      "strokeAlignment": "inner",
+                      "effect": {
+                        "type": "shadow",
+                        "shadowType": "outer",
+                        "color": "#0000002E",
+                        "offset": {
+                          "x": 0,
+                          "y": 12
+                        },
+                        "blur": 32
+                      },
+                      "layout": "none",
                       "children": [
                         {
-                          "type": "text",
-                          "id": "uEwhL",
-                          "name": "tag",
-                          "fill": "#B4532A",
-                          "content": "FALTA",
-                          "fontFamily": "$font",
-                          "fontSize": 15,
-                          "fontWeight": "700",
-                          "letterSpacing": 1.5
-                        },
-                        {
-                          "type": "text",
-                          "id": "Vc6QX",
-                          "name": "screen",
-                          "fill": "#27272A",
-                          "textGrowth": "fixed-width",
-                          "width": "fill_container",
-                          "content": "Tu ficha · con Apple",
-                          "textAlign": "center",
-                          "fontFamily": "$fontTitle",
-                          "fontSize": 30,
-                          "fontWeight": "700",
-                          "letterSpacing": -0.9
-                        },
-                        {
-                          "type": "text",
-                          "id": "s04LDw",
-                          "name": "req",
-                          "fill": "#71717A",
-                          "content": "R2.4",
-                          "textAlign": "center",
-                          "fontFamily": "$font",
-                          "fontSize": 17,
-                          "fontWeight": "normal"
+                          "type": "frame",
+                          "id": "L63lQ6",
+                          "x": 12,
+                          "y": 12,
+                          "name": "Tu ficha · con Apple",
+                          "clip": true,
+                          "width": 393,
+                          "height": 852,
+                          "fill": {
+                            "type": "gradient",
+                            "gradientType": "linear",
+                            "enabled": true,
+                            "rotation": 180,
+                            "size": {
+                              "height": 1
+                            },
+                            "colors": [
+                              {
+                                "color": "$obBgTop",
+                                "position": 0
+                              },
+                              {
+                                "color": "$obBgBottom",
+                                "position": 1
+                              }
+                            ]
+                          },
+                          "cornerRadius": 48,
+                          "layout": "none",
+                          "children": [
+                            {
+                              "type": "frame",
+                              "id": "QQMeX",
+                              "x": 0,
+                              "y": 0,
+                              "name": "Pasto",
+                              "width": 393,
+                              "height": 852,
+                              "layout": "vertical",
+                              "children": [
+                                {
+                                  "type": "rectangle",
+                                  "id": "K1yqO",
+                                  "name": "Franja 1",
+                                  "fill": "$obStripe",
+                                  "width": "fill_container",
+                                  "height": 52
+                                },
+                                {
+                                  "type": "rectangle",
+                                  "id": "cTUqh",
+                                  "name": "Franja 2",
+                                  "fill": "#FFFFFF00",
+                                  "width": "fill_container",
+                                  "height": 60
+                                },
+                                {
+                                  "type": "rectangle",
+                                  "id": "V9R7Y",
+                                  "name": "Franja 3",
+                                  "fill": "$obStripe",
+                                  "width": "fill_container",
+                                  "height": 70
+                                },
+                                {
+                                  "type": "rectangle",
+                                  "id": "Q4yzq",
+                                  "name": "Franja 4",
+                                  "fill": "#FFFFFF00",
+                                  "width": "fill_container",
+                                  "height": 80
+                                },
+                                {
+                                  "type": "rectangle",
+                                  "id": "ojHlK",
+                                  "name": "Franja 5",
+                                  "fill": "$obStripeSoft",
+                                  "width": "fill_container",
+                                  "height": 92
+                                },
+                                {
+                                  "type": "rectangle",
+                                  "id": "QdezO",
+                                  "name": "Franja 6",
+                                  "fill": "#FFFFFF00",
+                                  "width": "fill_container",
+                                  "height": 106
+                                },
+                                {
+                                  "type": "rectangle",
+                                  "id": "N4l4wd",
+                                  "name": "Franja 7",
+                                  "fill": "$obStripeSoft",
+                                  "width": "fill_container",
+                                  "height": 122
+                                },
+                                {
+                                  "type": "rectangle",
+                                  "id": "Z7eu2",
+                                  "name": "Franja 8",
+                                  "fill": "#FFFFFF00",
+                                  "width": "fill_container",
+                                  "height": 128
+                                },
+                                {
+                                  "type": "rectangle",
+                                  "id": "E1xohE",
+                                  "name": "Franja 9",
+                                  "fill": "$obStripe",
+                                  "width": "fill_container",
+                                  "height": 142
+                                }
+                              ]
+                            },
+                            {
+                              "type": "rectangle",
+                              "id": "XhWiQ",
+                              "x": -89.5,
+                              "y": -1,
+                              "name": "área grande",
+                              "width": 572,
+                              "height": 235,
+                              "stroke": "$obInk1F",
+                              "strokeWidth": 1
+                            },
+                            {
+                              "type": "rectangle",
+                              "id": "JTtFf",
+                              "x": 66.5,
+                              "y": -1,
+                              "name": "área chica",
+                              "width": 260,
+                              "height": 79,
+                              "stroke": "$obInk1F",
+                              "strokeWidth": 1
+                            },
+                            {
+                              "type": "ellipse",
+                              "id": "DdceO",
+                              "x": 193,
+                              "y": 152.5,
+                              "name": "punto penal",
+                              "fill": "$obInk33",
+                              "width": 7,
+                              "height": 7
+                            },
+                            {
+                              "type": "path",
+                              "id": "mssrw",
+                              "x": 0,
+                              "y": 0,
+                              "name": "medialuna",
+                              "geometry": "M92.5 234a130 130 0 0 0 208 0",
+                              "viewBox": [
+                                0,
+                                0,
+                                393,
+                                852
+                              ],
+                              "width": 393,
+                              "height": 852,
+                              "stroke": "$obInk1F",
+                              "strokeWidth": 1
+                            },
+                            {
+                              "type": "ellipse",
+                              "id": "JMWpN",
+                              "x": 66,
+                              "y": 706,
+                              "name": "círculo central",
+                              "width": 260,
+                              "height": 260,
+                              "stroke": "$obInk1F",
+                              "strokeWidth": 1
+                            },
+                            {
+                              "type": "rectangle",
+                              "id": "Nqycs",
+                              "x": 0,
+                              "y": 836,
+                              "name": "línea media",
+                              "fill": "$obInk1F",
+                              "width": 393,
+                              "height": 1
+                            },
+                            {
+                              "id": "tvAKx",
+                              "type": "ref",
+                              "ref": "0GA9R",
+                              "name": "BackButton",
+                              "x": 16,
+                              "y": 58,
+                              "descendants": {
+                                "GjAiZ": {
+                                  "x": 7,
+                                  "y": 4.5,
+                                  "geometry": "M6.5 0l-6.5 6.5 6.5 6.5",
+                                  "viewBox": [
+                                    0,
+                                    0,
+                                    6.5,
+                                    13
+                                  ],
+                                  "width": 6.5,
+                                  "height": 13,
+                                  "stroke": "$accent",
+                                  "strokeWidth": 2.4,
+                                  "fill": "#00000000"
+                                }
+                              }
+                            },
+                            {
+                              "type": "frame",
+                              "id": "ywsDR",
+                              "x": 175,
+                              "y": 71,
+                              "name": "progress",
+                              "gap": 12,
+                              "alignItems": "center",
+                              "children": [
+                                {
+                                  "type": "frame",
+                                  "id": "w8Nq4",
+                                  "name": "segs",
+                                  "gap": 4,
+                                  "children": [
+                                    {
+                                      "type": "path",
+                                      "id": "JG5nq",
+                                      "name": "seg 1",
+                                      "geometry": "M8 0l68 0-8 8-68 0z",
+                                      "viewBox": [
+                                        0,
+                                        0,
+                                        76,
+                                        8
+                                      ],
+                                      "fill": "$obInk",
+                                      "width": 76,
+                                      "height": 8,
+                                      "effect": {
+                                        "type": "shadow",
+                                        "shadowType": "outer",
+                                        "color": "$obInk8C",
+                                        "blur": 12
+                                      }
+                                    },
+                                    {
+                                      "type": "path",
+                                      "id": "Z5lbR",
+                                      "name": "seg 2",
+                                      "geometry": "M8 0l68 0-8 8-68 0z",
+                                      "viewBox": [
+                                        0,
+                                        0,
+                                        76,
+                                        8
+                                      ],
+                                      "fill": "$obInk",
+                                      "width": 76,
+                                      "height": 8,
+                                      "effect": {
+                                        "type": "shadow",
+                                        "shadowType": "outer",
+                                        "color": "$obInk8C",
+                                        "blur": 12
+                                      }
+                                    }
+                                  ]
+                                },
+                                {
+                                  "type": "frame",
+                                  "id": "SwAUu",
+                                  "name": "contador",
+                                  "gap": 1,
+                                  "children": [
+                                    {
+                                      "type": "text",
+                                      "id": "HG9nU",
+                                      "name": "n",
+                                      "fill": "$obInk",
+                                      "content": "2",
+                                      "fontFamily": "$fontTitle",
+                                      "fontSize": 15,
+                                      "fontWeight": "700",
+                                      "letterSpacing": -0.3
+                                    },
+                                    {
+                                      "type": "text",
+                                      "id": "fPESj",
+                                      "name": "n",
+                                      "fill": "$obInk66",
+                                      "content": "/2",
+                                      "fontFamily": "$fontTitle",
+                                      "fontSize": 15,
+                                      "fontWeight": "700",
+                                      "letterSpacing": -0.3
+                                    }
+                                  ]
+                                }
+                              ]
+                            },
+                            {
+                              "type": "frame",
+                              "id": "hB5li",
+                              "x": 24,
+                              "y": 144,
+                              "name": "head",
+                              "width": 345,
+                              "layout": "vertical",
+                              "gap": 8,
+                              "children": [
+                                {
+                                  "type": "text",
+                                  "id": "whaBF",
+                                  "name": "Title",
+                                  "fill": "$obInk",
+                                  "textGrowth": "fixed-width",
+                                  "width": "fill_container",
+                                  "content": "Tu ficha",
+                                  "lineHeight": 1.15,
+                                  "fontFamily": "$fontTitle",
+                                  "fontSize": 30,
+                                  "fontWeight": "600",
+                                  "letterSpacing": -1
+                                },
+                                {
+                                  "type": "text",
+                                  "id": "y9XSQ",
+                                  "name": "Sub",
+                                  "fill": "$obInkA6",
+                                  "textGrowth": "fixed-width",
+                                  "width": "fill_container",
+                                  "content": "Así te van a ver en el equipo.",
+                                  "lineHeight": 1.4,
+                                  "fontFamily": "$font",
+                                  "fontSize": 16,
+                                  "fontWeight": "normal"
+                                }
+                              ]
+                            },
+                            {
+                              "type": "frame",
+                              "id": "aDwRc",
+                              "x": 24,
+                              "y": 276,
+                              "name": "fields",
+                              "width": 345,
+                              "layout": "vertical",
+                              "gap": 12,
+                              "children": [
+                                {
+                                  "type": "frame",
+                                  "id": "gPsRL",
+                                  "name": "Field · Nombre",
+                                  "width": "fill_container",
+                                  "layout": "vertical",
+                                  "gap": 6,
+                                  "children": [
+                                    {
+                                      "type": "frame",
+                                      "id": "Tzq3N",
+                                      "name": "Input",
+                                      "width": "fill_container",
+                                      "height": 64,
+                                      "fill": "$obInk0F",
+                                      "cornerRadius": 16,
+                                      "stroke": "$obInk8C",
+                                      "strokeWidth": 1,
+                                      "strokeAlignment": "inner",
+                                      "padding": [
+                                        0,
+                                        18
+                                      ],
+                                      "justifyContent": "space_between",
+                                      "alignItems": "center",
+                                      "children": [
+                                        {
+                                          "type": "frame",
+                                          "id": "IX7Ti",
+                                          "name": "text",
+                                          "layout": "vertical",
+                                          "gap": 3,
+                                          "children": [
+                                            {
+                                              "type": "text",
+                                              "id": "PTy3W",
+                                              "name": "Label",
+                                              "fill": "$obInk70",
+                                              "content": "Nombre",
+                                              "fontFamily": "$font",
+                                              "fontSize": 13,
+                                              "fontWeight": "500"
+                                            },
+                                            {
+                                              "type": "text",
+                                              "id": "ssNzY",
+                                              "name": "Value",
+                                              "fill": "$obInk",
+                                              "content": "Diego Ramírez",
+                                              "fontFamily": "$font",
+                                              "fontSize": 17,
+                                              "fontWeight": "normal"
+                                            }
+                                          ]
+                                        }
+                                      ]
+                                    },
+                                    {
+                                      "type": "frame",
+                                      "id": "Q7eCSr",
+                                      "name": "Help",
+                                      "gap": 6,
+                                      "padding": [
+                                        0,
+                                        4
+                                      ],
+                                      "alignItems": "center",
+                                      "children": [
+                                        {
+                                          "type": "text",
+                                          "id": "J0CrcC",
+                                          "name": "Help text",
+                                          "fill": "$obInk70",
+                                          "content": "Viene de tu Apple ID. Puedes cambiarlo.",
+                                          "fontFamily": "$font",
+                                          "fontSize": 13,
+                                          "fontWeight": "normal"
+                                        }
+                                      ]
+                                    }
+                                  ]
+                                },
+                                {
+                                  "type": "frame",
+                                  "id": "GzMrZ",
+                                  "name": "Field · Correo",
+                                  "width": "fill_container",
+                                  "layout": "vertical",
+                                  "gap": 6,
+                                  "children": [
+                                    {
+                                      "type": "frame",
+                                      "id": "MsXpM",
+                                      "name": "Input",
+                                      "width": "fill_container",
+                                      "height": 64,
+                                      "fill": "$obInk0F",
+                                      "cornerRadius": 16,
+                                      "stroke": "$obInk24",
+                                      "strokeWidth": 1,
+                                      "strokeAlignment": "inner",
+                                      "padding": [
+                                        0,
+                                        18
+                                      ],
+                                      "justifyContent": "space_between",
+                                      "alignItems": "center",
+                                      "children": [
+                                        {
+                                          "type": "frame",
+                                          "id": "xsvuz",
+                                          "name": "text",
+                                          "layout": "vertical",
+                                          "gap": 3,
+                                          "children": [
+                                            {
+                                              "type": "text",
+                                              "id": "j6w5L",
+                                              "name": "Label",
+                                              "fill": "$obInk70",
+                                              "content": "Correo",
+                                              "fontFamily": "$font",
+                                              "fontSize": 13,
+                                              "fontWeight": "500"
+                                            },
+                                            {
+                                              "type": "text",
+                                              "id": "FGMJB",
+                                              "name": "Value",
+                                              "fill": "$obInk",
+                                              "content": "dr7x2kq9mz@privaterelay.appleid.com",
+                                              "fontFamily": "$font",
+                                              "fontSize": 17,
+                                              "fontWeight": "normal"
+                                            }
+                                          ]
+                                        }
+                                      ]
+                                    },
+                                    {
+                                      "type": "frame",
+                                      "id": "pwHcS",
+                                      "name": "Help",
+                                      "gap": 6,
+                                      "padding": [
+                                        0,
+                                        4
+                                      ],
+                                      "alignItems": "center",
+                                      "children": [
+                                        {
+                                          "type": "text",
+                                          "id": "JHGDn",
+                                          "name": "Help text",
+                                          "fill": "$obInk70",
+                                          "content": "Correo privado de Apple. Te llegan igual los avisos.",
+                                          "fontFamily": "$font",
+                                          "fontSize": 13,
+                                          "fontWeight": "normal"
+                                        }
+                                      ]
+                                    }
+                                  ]
+                                },
+                                {
+                                  "type": "frame",
+                                  "id": "PjZPG",
+                                  "name": "Field · Fecha de nacimiento",
+                                  "width": "fill_container",
+                                  "layout": "vertical",
+                                  "gap": 6,
+                                  "children": [
+                                    {
+                                      "type": "frame",
+                                      "id": "O4ZIX",
+                                      "name": "Input",
+                                      "width": "fill_container",
+                                      "height": 64,
+                                      "fill": "$obInk0F",
+                                      "cornerRadius": 16,
+                                      "stroke": "$obInk24",
+                                      "strokeWidth": 1,
+                                      "strokeAlignment": "inner",
+                                      "padding": [
+                                        0,
+                                        18
+                                      ],
+                                      "justifyContent": "space_between",
+                                      "alignItems": "center",
+                                      "children": [
+                                        {
+                                          "type": "frame",
+                                          "id": "LcX6Y",
+                                          "name": "text",
+                                          "layout": "vertical",
+                                          "gap": 3,
+                                          "children": [
+                                            {
+                                              "type": "text",
+                                              "id": "JuRXR",
+                                              "name": "Label",
+                                              "fill": "$obInk70",
+                                              "content": "Fecha de nacimiento",
+                                              "fontFamily": "$font",
+                                              "fontSize": 13,
+                                              "fontWeight": "500"
+                                            },
+                                            {
+                                              "type": "text",
+                                              "id": "MimiW",
+                                              "name": "Value",
+                                              "fill": "$obInk",
+                                              "content": "12 mar 1998",
+                                              "fontFamily": "$font",
+                                              "fontSize": 17,
+                                              "fontWeight": "normal"
+                                            }
+                                          ]
+                                        },
+                                        {
+                                          "type": "icon",
+                                          "id": "d0zk9R",
+                                          "name": "icon",
+                                          "width": 20,
+                                          "height": 20,
+                                          "icon": "calendar-blank",
+                                          "library": "phosphor",
+                                          "fill": "$obInk70"
+                                        }
+                                      ]
+                                    },
+                                    {
+                                      "type": "frame",
+                                      "id": "D2nPG",
+                                      "name": "Help",
+                                      "gap": 6,
+                                      "padding": [
+                                        0,
+                                        4
+                                      ],
+                                      "alignItems": "center",
+                                      "children": [
+                                        {
+                                          "type": "text",
+                                          "id": "qlKyo",
+                                          "name": "Help text",
+                                          "fill": "$obInk70",
+                                          "content": "Tienes que tener 15 años o más.",
+                                          "fontFamily": "$font",
+                                          "fontSize": 13,
+                                          "fontWeight": "normal"
+                                        }
+                                      ]
+                                    }
+                                  ]
+                                }
+                              ]
+                            },
+                            {
+                              "type": "frame",
+                              "id": "QHEgu",
+                              "x": 24,
+                              "y": 752,
+                              "name": "actions",
+                              "width": 345,
+                              "layout": "vertical",
+                              "children": [
+                                {
+                                  "type": "frame",
+                                  "id": "vFbwR",
+                                  "name": "Button · Crear cuenta",
+                                  "width": "fill_container",
+                                  "height": 56,
+                                  "fill": "$obCta",
+                                  "cornerRadius": 100,
+                                  "gap": 10,
+                                  "justifyContent": "center",
+                                  "alignItems": "center",
+                                  "children": [
+                                    {
+                                      "type": "text",
+                                      "id": "Z2xoj",
+                                      "name": "Label",
+                                      "fill": "$obOnCta",
+                                      "content": "Crear cuenta",
+                                      "fontFamily": "$font",
+                                      "fontSize": 17,
+                                      "fontWeight": "600",
+                                      "letterSpacing": -0.2
+                                    }
+                                  ]
+                                }
+                              ]
+                            },
+                            {
+                              "id": "NAFyp",
+                              "type": "ref",
+                              "ref": "mqPCF",
+                              "x": 0,
+                              "y": 0,
+                              "name": "StatusBar",
+                              "descendants": {
+                                "2FGm5": {
+                                  "fill": "$obStatus"
+                                },
+                                "MzV9b": {
+                                  "fill": "$obStatus"
+                                },
+                                "zdsqc": {
+                                  "fill": "$obStatus"
+                                },
+                                "1hEPr": {
+                                  "fill": "$obStatusDim"
+                                },
+                                "w6jtk": {
+                                  "fill": "$obStatusDim"
+                                },
+                                "ACYgf": {
+                                  "fill": "$obStatus"
+                                }
+                              }
+                            },
+                            {
+                              "type": "frame",
+                              "id": "M1I65",
+                              "x": 133.5,
+                              "y": 11,
+                              "name": "DynamicIsland",
+                              "width": 126,
+                              "height": 37,
+                              "fill": "#000000",
+                              "cornerRadius": 24
+                            },
+                            {
+                              "type": "frame",
+                              "id": "O0vWei",
+                              "x": 127,
+                              "y": 839,
+                              "name": "HomeIndicator",
+                              "width": 139,
+                              "height": 5,
+                              "fill": "$obInk80",
+                              "cornerRadius": 100
+                            }
+                          ]
                         }
                       ]
                     }
@@ -12342,15 +13014,14 @@
                 },
                 {
                   "type": "frame",
-                  "id": "E167FZ",
-                  "name": "falta · Revisa tu correo",
-                  "width": 417,
+                  "id": "EAiyL",
+                  "name": "view · Jugador / Capitán",
                   "layout": "vertical",
                   "gap": 20,
                   "children": [
                     {
                       "type": "frame",
-                      "id": "B2arWp",
+                      "id": "PzF9A",
                       "name": "caption",
                       "width": 417,
                       "layout": "vertical",
@@ -12358,7 +13029,7 @@
                       "children": [
                         {
                           "type": "text",
-                          "id": "ukuR1",
+                          "id": "qhRUF",
                           "name": "caption title",
                           "fill": "#FFFFFF",
                           "content": "06 · Revisa tu correo",
@@ -12368,12 +13039,12 @@
                         },
                         {
                           "type": "text",
-                          "id": "P7FxG",
+                          "id": "R7opC",
                           "name": "caption text",
                           "fill": "#FFFFFFB3",
                           "textGrowth": "fixed-width",
                           "width": "fill_container",
-                          "content": "Falta diseñar. Al registrarse con correo le mandamos un link de verificación (R3.2).",
+                          "content": "Cuenta creada. Le mandamos un link para verificar el correo (R3.2). Puede seguir sin verificar; «Continuar» lo lleva a donde eligió en el paso 1.",
                           "lineHeight": 1.4,
                           "fontFamily": "$font",
                           "fontSize": 16,
@@ -12382,74 +13053,435 @@
                       ]
                     },
                     {
-                      "id": "jNefi",
+                      "id": "ncNRy",
                       "type": "ref",
                       "ref": "zLMR0",
                       "name": "role",
+                      "fill": "#FFFFFF",
+                      "stroke": "#D4D4D8",
+                      "strokeWidth": 1,
                       "descendants": {
                         "KKC1z": {
                           "enabled": false
                         },
                         "UNwwQ": {
                           "enabled": true,
-                          "fill": "#F1EEDD"
+                          "icon": "users"
                         },
                         "bwl4G": {
-                          "content": "Jugador / Capitán"
+                          "content": "Jugador / Capitán",
+                          "fill": "#18181B"
                         }
                       }
                     },
                     {
                       "type": "frame",
-                      "id": "nl4xD",
-                      "name": "Falta · Revisa tu correo",
+                      "id": "i5Cb9",
+                      "name": "iPhone · Revisa tu correo",
                       "width": 417,
                       "height": 876,
-                      "fill": "#E4E4E7",
-                      "cornerRadius": 56,
-                      "stroke": "#A1A1AA",
-                      "strokeWidth": 2,
-                      "layout": "vertical",
-                      "gap": 12,
-                      "padding": 40,
-                      "justifyContent": "center",
-                      "alignItems": "center",
+                      "fill": "#1C1C1E",
+                      "cornerRadius": 60,
+                      "stroke": "#48484A",
+                      "strokeWidth": 1.5,
+                      "strokeAlignment": "inner",
+                      "effect": {
+                        "type": "shadow",
+                        "shadowType": "outer",
+                        "color": "#0000002E",
+                        "offset": {
+                          "x": 0,
+                          "y": 12
+                        },
+                        "blur": 32
+                      },
+                      "layout": "none",
                       "children": [
                         {
-                          "type": "text",
-                          "id": "fBSP0",
-                          "name": "tag",
-                          "fill": "#B4532A",
-                          "content": "FALTA",
-                          "fontFamily": "$font",
-                          "fontSize": 15,
-                          "fontWeight": "700",
-                          "letterSpacing": 1.5
-                        },
-                        {
-                          "type": "text",
-                          "id": "Id3Xg",
-                          "name": "screen",
-                          "fill": "#27272A",
-                          "textGrowth": "fixed-width",
-                          "width": "fill_container",
-                          "content": "Revisa tu correo",
-                          "textAlign": "center",
-                          "fontFamily": "$fontTitle",
-                          "fontSize": 30,
-                          "fontWeight": "700",
-                          "letterSpacing": -0.9
-                        },
-                        {
-                          "type": "text",
-                          "id": "UITy2",
-                          "name": "req",
-                          "fill": "#71717A",
-                          "content": "R3.2",
-                          "textAlign": "center",
-                          "fontFamily": "$font",
-                          "fontSize": 17,
-                          "fontWeight": "normal"
+                          "type": "frame",
+                          "id": "nzdUv",
+                          "x": 12,
+                          "y": 12,
+                          "name": "Revisa tu correo",
+                          "clip": true,
+                          "width": 393,
+                          "height": 852,
+                          "fill": {
+                            "type": "gradient",
+                            "gradientType": "linear",
+                            "enabled": true,
+                            "rotation": 180,
+                            "size": {
+                              "height": 1
+                            },
+                            "colors": [
+                              {
+                                "color": "$obBgTop",
+                                "position": 0
+                              },
+                              {
+                                "color": "$obBgBottom",
+                                "position": 1
+                              }
+                            ]
+                          },
+                          "cornerRadius": 48,
+                          "layout": "none",
+                          "children": [
+                            {
+                              "type": "frame",
+                              "id": "OR3rB",
+                              "x": 0,
+                              "y": 0,
+                              "name": "Pasto",
+                              "width": 393,
+                              "height": 852,
+                              "layout": "vertical",
+                              "children": [
+                                {
+                                  "type": "rectangle",
+                                  "id": "w0aAZQ",
+                                  "name": "Franja 1",
+                                  "fill": "$obStripe",
+                                  "width": "fill_container",
+                                  "height": 52
+                                },
+                                {
+                                  "type": "rectangle",
+                                  "id": "rUMeO",
+                                  "name": "Franja 2",
+                                  "fill": "#FFFFFF00",
+                                  "width": "fill_container",
+                                  "height": 60
+                                },
+                                {
+                                  "type": "rectangle",
+                                  "id": "DhUGF",
+                                  "name": "Franja 3",
+                                  "fill": "$obStripe",
+                                  "width": "fill_container",
+                                  "height": 70
+                                },
+                                {
+                                  "type": "rectangle",
+                                  "id": "n4hy3",
+                                  "name": "Franja 4",
+                                  "fill": "#FFFFFF00",
+                                  "width": "fill_container",
+                                  "height": 80
+                                },
+                                {
+                                  "type": "rectangle",
+                                  "id": "Y7kib",
+                                  "name": "Franja 5",
+                                  "fill": "$obStripeSoft",
+                                  "width": "fill_container",
+                                  "height": 92
+                                },
+                                {
+                                  "type": "rectangle",
+                                  "id": "cUAir",
+                                  "name": "Franja 6",
+                                  "fill": "#FFFFFF00",
+                                  "width": "fill_container",
+                                  "height": 106
+                                },
+                                {
+                                  "type": "rectangle",
+                                  "id": "YoPW9",
+                                  "name": "Franja 7",
+                                  "fill": "$obStripeSoft",
+                                  "width": "fill_container",
+                                  "height": 122
+                                },
+                                {
+                                  "type": "rectangle",
+                                  "id": "gRyzr",
+                                  "name": "Franja 8",
+                                  "fill": "#FFFFFF00",
+                                  "width": "fill_container",
+                                  "height": 128
+                                },
+                                {
+                                  "type": "rectangle",
+                                  "id": "iUzoP",
+                                  "name": "Franja 9",
+                                  "fill": "$obStripe",
+                                  "width": "fill_container",
+                                  "height": 142
+                                }
+                              ]
+                            },
+                            {
+                              "type": "rectangle",
+                              "id": "HuIQH",
+                              "x": -89.5,
+                              "y": -1,
+                              "name": "área grande",
+                              "width": 572,
+                              "height": 235,
+                              "stroke": "$obInk1F",
+                              "strokeWidth": 1
+                            },
+                            {
+                              "type": "rectangle",
+                              "id": "sKXIo",
+                              "x": 66.5,
+                              "y": -1,
+                              "name": "área chica",
+                              "width": 260,
+                              "height": 79,
+                              "stroke": "$obInk1F",
+                              "strokeWidth": 1
+                            },
+                            {
+                              "type": "ellipse",
+                              "id": "wChJH",
+                              "x": 193,
+                              "y": 152.5,
+                              "name": "punto penal",
+                              "fill": "$obInk33",
+                              "width": 7,
+                              "height": 7
+                            },
+                            {
+                              "type": "path",
+                              "id": "sqRSY",
+                              "x": 0,
+                              "y": 0,
+                              "name": "medialuna",
+                              "geometry": "M92.5 234a130 130 0 0 0 208 0",
+                              "viewBox": [
+                                0,
+                                0,
+                                393,
+                                852
+                              ],
+                              "width": 393,
+                              "height": 852,
+                              "stroke": "$obInk1F",
+                              "strokeWidth": 1
+                            },
+                            {
+                              "type": "ellipse",
+                              "id": "m2AFx",
+                              "x": 66,
+                              "y": 706,
+                              "name": "círculo central",
+                              "width": 260,
+                              "height": 260,
+                              "stroke": "$obInk1F",
+                              "strokeWidth": 1
+                            },
+                            {
+                              "type": "rectangle",
+                              "id": "COjrm",
+                              "x": 0,
+                              "y": 836,
+                              "name": "línea media",
+                              "fill": "$obInk1F",
+                              "width": 393,
+                              "height": 1
+                            },
+                            {
+                              "type": "ellipse",
+                              "id": "WQJr4",
+                              "x": 193,
+                              "y": 832.5,
+                              "name": "punto central",
+                              "fill": "$obInk33",
+                              "width": 7,
+                              "height": 7
+                            },
+                            {
+                              "type": "path",
+                              "id": "q9ogy",
+                              "x": 136.5,
+                              "y": 66,
+                              "name": "Wordmark",
+                              "geometry": "M0 120c0-66.27 53.73-120 120-120l1295.5 0c66.27 0 120 53.73 120 120l0 144c0 66.27-53.73 120-120 120l-1295.5 0c-66.27 0-120-53.73-120-120l0-144z m29 144c0 50.26 40.74 91 91 91l1295.5 0c50.26 0 91-40.74 91-91l0-144c0-50.26-40.74-91-91-91l-1295.5 0c-50.26 0-91 40.74-91 91l0 144z m84.06-188.1c0.67-2.13 2.96-3.87 5.09-3.87l75.48 0c2.14 0 3.32999 1.74 2.65 3.87l-51.56 163.55c-0.5 1.61 0.39001 2.90001 1.99001 2.90001l75.47999 0c2.14 0 3.32999 1.73999 2.65 3.87999l-12.57 39.89c-0.27 0.82-0.16001 1.61 0.29 2.16l18.16 22.29999c0.96 1.18-0.57001 3.39001-2.35 3.39001l-141.98 0c-26.72 0-41.56-21.67002-33.14-48.39001l59.81-189.67999z m163.51999 52.26c9.78-30.99 42.83001-56.13 73.82-56.13l133.55002 0c31.01 0 48.21 25.14001 38.44 56.13l-40.89001 129.68c-9.77 30.99-42.82999 56.13-73.82999 56.13l-133.54001 0c-31 0-48.21001-25.14001-38.43-56.13l40.87999-129.68z m48.14001 111.29c-0.5 1.61 0.39001 2.90001 1.98001 2.90001l73.54999 0c1.61 0 3.32001-1.29001 3.82001-2.90001l32.03998-101.61c0.51-1.61-0.37999-2.89999-1.98999-2.9l-73.54999 0c-1.6 0-3.31001 1.28999-3.82001 2.9l-32.03 101.61z m211.22-111.29c9.77-30.99 42.82-56.13 73.81-56.13l143.22998 0c2.14 0 3.33002 1.74 2.65002 3.87l-17.69 56.13c-0.51 1.61-2.22001 2.91-3.82 2.91l-114.19001 0c-1.61 0-3.31002 1.28999-3.83001 2.9l-32.02997 101.61c-0.5 1.61 0.38999 2.90001 1.98999 2.90001l114.19 0c1.6 0 2.48999 1.29999 1.98999 2.90998l-9.10999 28.86001c-0.26 0.84-0.15001 1.62001 0.29999 2.17001l27.93 34.28998c0.96 1.18-0.56998 3.39001-2.34998 3.39001l-185.53003 0c-31 0-48.19999-25.14001-38.42999-56.13l40.89001-129.68z m233.23999-52.26c0.68-2.13 2.96003-3.87 5.09003-3.87l76.44995 0c1.61 0 2.50005 1.3 1.99005 2.91l-22.06 69.98c-0.14 0.44-0.18 0.85999-0.11999 1.25999l3.53998 21.27001c0.39 2.37-1.45999 5.22-4.18 6.41l-0.34002 0.14999c-2.71 1.19-5.30001 0.31-5.82001-2l-2.27997-10.02999c-0.26-1.12-1.33003-1.71-2.66003-1.47001l-18.33997 3.46001c-3.32 0.63-6.67001 2.32999-9.45001 4.81999l-5.73999 5.15001c-3.77 3.38-5.82 8-5.31 11.97l1.25 9.64c0.1 0.88 0.38999 1.67 0.85999 2.34l4.53003 6.61c0.05 0.07 0.09998 0.15 0.16998 0.22l0.35999 0.38001c0.27 0.29 0.23999 0.77-0.07001 1.19999l-6.01001 8.32c-0.57 0.8-0.61999 1.71001-0.10999 2.24l1.56 1.67c0.53 0.56 1.52002 0.56 2.40002 0l8.19001-5.19c0.66-0.41 1.40999-0.41 1.79998 0l3.90998 4.16c0.38 0.39 0.34999 1.07-0.07001 1.66l-5.16998 7.4c-0.56 0.78-0.58998 1.68001-0.09998 2.21l1.60999 1.7c0.52 0.55 1.49 0.56 2.36999 0.03l7.51001-4.61c0.65-0.4 1.37997-0.39 1.77997 0.02l32.15003 34.16999c0.38 0.39 0.35 1.07-0.06 1.66l-5.18 7.40002c-0.55 0.78-0.58998 1.67999-0.09997 2.21l1.60998 1.69998c0.51 0.55 1.48999 0.56 2.35999 0.03l7.52002-4.60999c0.66-0.4 1.37996-0.39001 1.76996 0.01999l3.94 4.18002c0.37 0.39 0.35001 1.04997-0.04999 1.62998l-4.55999 6.77002c-0.52 0.79-0.54999 1.65998-0.04999 2.16998l1.64001 1.75c0.5 0.53 1.45 0.56002 2.31 0.05002l6.85998-4.02002c0.65-0.39 1.35999-0.37 1.74 0.03l3.98999 4.24002c0.35 0.37 0.35001 0.97999 0.01001 1.54999l-3.35999 5.55001c-0.46 0.75-0.46 1.55999 0 2.04999l1.76001 1.87c0.47 0.51 1.36 0.56002 2.19 0.11001l5.57001-2.92001c0.62-0.33 1.27995-0.29 1.63995 0.09l4.09003 4.33999c0.32 0.34 0.35001 0.88 0.07001 1.41001l-2.23999 4.39999c-0.36 0.7-0.32001 1.43 0.10998 1.88001l1.89002 2.02001c0.45 0.47 1.22996 0.54999 2.01996 0.21l4.34002-1.9c0.58-0.26 1.17001-0.19003 1.51001 0.15998l4.13996 4.41c1.08 1.13-0.44998 3.45001-2.28998 3.45001l-142.62 0c-0.7 0-1.3-0.26001-1.69-0.73001l-32.02002-39.31998c-0.46-0.55-0.55999-1.33001-0.29999-2.17001l61.75-195.85z m184.76001-2.41c0.8-0.9 1.93998-1.46 2.97998-1.46l96.51007 0c2.48 0 2.89994 2.92 0.68995 4.8l-132.40998 112.66001c-0.94 0.8-1.24004 2.00999-0.67004 2.70999l95.07001 116.69001c1.45 1.77-0.85997 5.07999-3.52997 5.07999l-108.93 0c-1.79 0-2.65-1.60002-1.80999-3.36001l3.52997-7.46c2.28-4.82 2.53001-9.75 0.70001-13.55999l-15.87-33.07999c-0.33-0.68-1.03998-1.09001-1.91998-1.09001l-15.92004 0c-3.48 0-5.41-2.81999-4.31-6.29l0.03003-0.1c1.09-3.47 4.79997-6.28999 8.27997-6.28999l4.42999 0c1.52 0 2.97001-1.67001 2.57001-2.96001l-3.26996-10.45c-0.18-0.57-0.70004-0.91-1.35004-0.91l-23.13 0c-3.21 0-4.98998-2.6-3.97999-5.81l0.37-1.16c1.01-3.2 4.43-5.81 7.63-5.81l18.38001 0c1.22 0 2.48-1.09999 2.63-2.28999l2.32001-18.24001c0.16-1.25-0.57005-2.21001-1.80005-2.35001l-10.65997-1.22c-2.19-0.25-3.07002-2.40999-1.90002-4.64999l15.84002-30.23c4.18-7.98 9.49998-15.65 15.78998-22.72l53.71002-60.45z m86.46002 32.32c0.22-0.69 0.66992-1.37 1.28992-1.89l36.29004-30.88c0.76-0.64 1.68002-1.01 2.52002-1.01l179.56995 0c2.14 0 3.33002 1.74 2.65002 3.87l-17.68994 56.13c-0.51 1.61-2.21007 2.91-3.82007 2.91l-123.86999 0c-1.61 0-3.30995 1.28999-3.81995 2.9l-5.19006 16.44999c-0.5 1.61 0.38999 2.90001 1.98999 2.90001l117.29004 0c2.35 0 2.90005 2.67 0.93005 4.58l-58.41004 57.1c-0.78 0.77-1.81001 1.23001-2.76 1.23001l-76.89002 0c-1.59 0-3.29994 1.28999-3.80994 2.89999l-5.18005 16.45c-0.51 1.61 0.37998 2.90001 1.97998 2.90001l126.77002 0c1.61 0 2.5 1.29999 2 2.90998l-9.10999 28.86001c-0.26 0.84-0.15995 1.62001 0.30005 2.17001l27.92994 34.28998c0.96 1.18-0.56998 3.39001-2.34998 3.39001l-191.44006 0c-0.71 0-1.30994-0.26001-1.68995-0.73001l-43.19-53.01999c-0.45-0.55-0.55998-1.34001-0.28998-2.17001l48-152.23999z m239.26001-29.91c0.67-2.13 2.95997-3.87 5.08997-3.87l154.34998 0c40.89 0 63.59006 33.15001 50.69006 74.04001l-13.03003 41.31999c-5.69 18.06-24.95002 32.71001-43.02002 32.71001l-27.60999 0c-1.78 0-3.30998 2.19999-2.34997 3.37999l69.58997 85.41001c1.44 1.77-0.86003 5.07999-3.53003 5.07999l-111.23999 0c-0.71 0-1.30994-0.26001-1.68995-0.73001l-47.32006-58.07999c-0.9-1.12-3.15993-0.23-3.67994 1.44001l-17.17004 54.45999c-0.51 1.61-2.20995 2.91-3.81995 2.91l-33.4801 0c-0.71 0-1.30995-0.26001-1.69995-0.73001l-31.67004-38.88c-0.45-0.55-0.55992-1.34999-0.28992-2.18l35.32996-112.07998c0.51-1.61 2.22007-2.91 3.82006-2.91001l137.90992 0c6.14 0 12.69-4.98 14.63-11.11999l0 0c1.94-6.15-1.47-11.13-7.61999-11.13001l-137.90003 0c-1.61 0-2.49998-1.3-1.97998-2.91l17.69006-56.13z",
+                              "viewBox": [
+                                0,
+                                0,
+                                1535.5,
+                                384
+                              ],
+                              "fill": "$obInk",
+                              "width": 120,
+                              "height": 30
+                            },
+                            {
+                              "type": "frame",
+                              "id": "nNrPq",
+                              "x": 24,
+                              "y": 200,
+                              "name": "head",
+                              "width": 345,
+                              "layout": "vertical",
+                              "gap": 10,
+                              "children": [
+                                {
+                                  "type": "frame",
+                                  "id": "lbndd",
+                                  "name": "Icono correo",
+                                  "width": 72,
+                                  "height": 72,
+                                  "fill": "$obBgTopE6",
+                                  "cornerRadius": 36,
+                                  "stroke": "$obInk24",
+                                  "strokeWidth": 1,
+                                  "justifyContent": "center",
+                                  "alignItems": "center",
+                                  "children": [
+                                    {
+                                      "type": "icon",
+                                      "id": "bzrAR",
+                                      "name": "envelope",
+                                      "width": 32,
+                                      "height": 32,
+                                      "icon": "envelope-simple-open",
+                                      "library": "phosphor",
+                                      "fill": "$obInk"
+                                    }
+                                  ]
+                                },
+                                {
+                                  "type": "frame",
+                                  "id": "lKOdZ",
+                                  "name": "spacer",
+                                  "width": "fill_container",
+                                  "height": 6
+                                },
+                                {
+                                  "type": "text",
+                                  "id": "HEQkx",
+                                  "name": "Title",
+                                  "fill": "$obInk",
+                                  "textGrowth": "fixed-width",
+                                  "width": "fill_container",
+                                  "content": "Revisa tu correo",
+                                  "fontFamily": "$fontTitle",
+                                  "fontSize": 30,
+                                  "fontWeight": "600",
+                                  "letterSpacing": -1
+                                },
+                                {
+                                  "type": "text",
+                                  "id": "y5tBN1",
+                                  "name": "Sub",
+                                  "fill": "$obInkA6",
+                                  "textGrowth": "fixed-width",
+                                  "width": "fill_container",
+                                  "content": "Te mandamos un link a diego.ramirez@gmail.com para confirmar que es tuyo.",
+                                  "lineHeight": 1.4,
+                                  "fontFamily": "$font",
+                                  "fontSize": 16,
+                                  "fontWeight": "normal"
+                                },
+                                {
+                                  "type": "text",
+                                  "id": "Klo0p",
+                                  "name": "Note",
+                                  "fill": "$obInk70",
+                                  "textGrowth": "fixed-width",
+                                  "width": "fill_container",
+                                  "content": "El link vence en 24 horas. Puedes seguir usando Locker mientras tanto.",
+                                  "lineHeight": 1.4,
+                                  "fontFamily": "$font",
+                                  "fontSize": 14,
+                                  "fontWeight": "normal"
+                                }
+                              ]
+                            },
+                            {
+                              "type": "frame",
+                              "id": "Dli1u",
+                              "x": 24,
+                              "y": 510,
+                              "name": "actions",
+                              "width": 345,
+                              "layout": "vertical",
+                              "gap": 16,
+                              "alignItems": "center",
+                              "children": [
+                                {
+                                  "type": "frame",
+                                  "id": "AHQMu",
+                                  "name": "Button · Continuar",
+                                  "width": "fill_container",
+                                  "height": 56,
+                                  "fill": "$obCta",
+                                  "cornerRadius": 100,
+                                  "gap": 8,
+                                  "justifyContent": "center",
+                                  "alignItems": "center",
+                                  "children": [
+                                    {
+                                      "type": "text",
+                                      "id": "sLkZl",
+                                      "name": "Label",
+                                      "fill": "$obOnCta",
+                                      "content": "Continuar",
+                                      "fontFamily": "$font",
+                                      "fontSize": 17,
+                                      "fontWeight": "600",
+                                      "letterSpacing": -0.2
+                                    }
+                                  ]
+                                }
+                              ]
+                            },
+                            {
+                              "id": "G18Sf",
+                              "type": "ref",
+                              "ref": "mqPCF",
+                              "x": 0,
+                              "y": 0,
+                              "name": "StatusBar",
+                              "descendants": {
+                                "2FGm5": {
+                                  "fill": "$obStatus"
+                                },
+                                "MzV9b": {
+                                  "fill": "$obStatus"
+                                },
+                                "zdsqc": {
+                                  "fill": "$obStatus"
+                                },
+                                "1hEPr": {
+                                  "fill": "$obStatusDim"
+                                },
+                                "w6jtk": {
+                                  "fill": "$obStatusDim"
+                                },
+                                "ACYgf": {
+                                  "fill": "$obStatus"
+                                }
+                              }
+                            },
+                            {
+                              "type": "frame",
+                              "id": "CXkD3",
+                              "x": 133.5,
+                              "y": 11,
+                              "name": "DynamicIsland",
+                              "width": 126,
+                              "height": 37,
+                              "fill": "#000000",
+                              "cornerRadius": 24
+                            },
+                            {
+                              "type": "frame",
+                              "id": "pZUyp",
+                              "x": 127,
+                              "y": 839,
+                              "name": "HomeIndicator",
+                              "width": 139,
+                              "height": 5,
+                              "fill": "$obInk80",
+                              "cornerRadius": 100
+                            }
+                          ]
                         }
                       ]
                     }
@@ -12557,7 +13589,7 @@
                           "fill": "#3F3F46",
                           "textGrowth": "fixed-width",
                           "width": "fill_container",
-                          "content": "Apple manda el nombre solo la primera vez, así que lo guardamos. Aceptamos los correos privados de Apple (R2.2, R2.3).",
+                          "content": "Apple manda el nombre solo la primera vez, así que lo guardamos. Aceptamos los correos privados de Apple (R2.2, R2.3). Si la cuenta es nueva, la ficha llega llena con nombre y correo de Apple, sin contraseña (R2.4).",
                           "lineHeight": 1.45,
                           "fontFamily": "$font",
                           "fontSize": 16,
@@ -12601,7 +13633,51 @@
                           "fill": "#3F3F46",
                           "textGrowth": "fixed-width",
                           "width": "fill_container",
-                          "content": "Al registrarse con correo mandamos un link de verificación (R3.2).",
+                          "content": "Al registrarse con correo mandamos un link de verificación que vence en 24 horas (R3.2). Verificar no bloquea nada: puede seguir usando la app.",
+                          "lineHeight": 1.45,
+                          "fontFamily": "$font",
+                          "fontSize": 16,
+                          "fontWeight": "normal"
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "F1aZoI",
+                      "name": "PENDIENTE",
+                      "width": "fill_container",
+                      "stroke": "#E4E4E7",
+                      "strokeWidth": {
+                        "top": 1
+                      },
+                      "layout": "vertical",
+                      "gap": 6,
+                      "padding": [
+                        16,
+                        0,
+                        0,
+                        0
+                      ],
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "fLVRq",
+                          "name": "block label",
+                          "fill": "#B45309",
+                          "content": "PENDIENTE",
+                          "fontFamily": "$font",
+                          "fontSize": 13,
+                          "fontWeight": "700",
+                          "letterSpacing": 0.8
+                        },
+                        {
+                          "type": "text",
+                          "id": "JVjMo",
+                          "name": "block text",
+                          "fill": "#3F3F46",
+                          "textGrowth": "fixed-width",
+                          "width": "fill_container",
+                          "content": "«Revisa tu correo» (06) no tiene «Reenviar»: la API no tiene endpoint para mandar otra vez el link de verificación.",
                           "lineHeight": 1.45,
                           "fontFamily": "$font",
                           "fontSize": 16,
@@ -13938,15 +15014,14 @@
                 },
                 {
                   "type": "frame",
-                  "id": "JlFd0",
-                  "name": "falta · Iniciar sesión · error",
-                  "width": 417,
+                  "id": "fA93T",
+                  "name": "view · Jugador / Capitán",
                   "layout": "vertical",
                   "gap": 20,
                   "children": [
                     {
                       "type": "frame",
-                      "id": "p3Aocd",
+                      "id": "S7FlHn",
                       "name": "caption",
                       "width": 417,
                       "layout": "vertical",
@@ -13954,7 +15029,7 @@
                       "children": [
                         {
                           "type": "text",
-                          "id": "C7Ut1n",
+                          "id": "ZkyMk",
                           "name": "caption title",
                           "fill": "#FFFFFF",
                           "content": "03 · Error",
@@ -13964,12 +15039,12 @@
                         },
                         {
                           "type": "text",
-                          "id": "JtUQU",
+                          "id": "VsBzx",
                           "name": "caption text",
                           "fill": "#FFFFFFB3",
                           "textGrowth": "fixed-width",
                           "width": "fill_container",
-                          "content": "Falta diseñar. Correo o contraseña incorrectos, o demasiados intentos (R3.4).",
+                          "content": "Correo o contraseña incorrectos. No decimos cuál de los dos falló. Si hay demasiados intentos, el mismo aviso pide esperar (R3.4).",
                           "lineHeight": 1.4,
                           "fontFamily": "$font",
                           "fontSize": 16,
@@ -13978,74 +15053,626 @@
                       ]
                     },
                     {
-                      "id": "kl0AV",
+                      "id": "sOthS",
                       "type": "ref",
                       "ref": "zLMR0",
                       "name": "role",
+                      "fill": "#FFFFFF",
+                      "stroke": "#D4D4D8",
+                      "strokeWidth": 1,
                       "descendants": {
                         "KKC1z": {
                           "enabled": false
                         },
                         "UNwwQ": {
                           "enabled": true,
-                          "fill": "#F1EEDD"
+                          "icon": "users"
                         },
                         "bwl4G": {
-                          "content": "Jugador / Capitán"
+                          "content": "Jugador / Capitán",
+                          "fill": "#18181B"
                         }
                       }
                     },
                     {
                       "type": "frame",
-                      "id": "DAROo",
-                      "name": "Falta · Iniciar sesión · error",
+                      "id": "hO4hB",
+                      "name": "iPhone · Iniciar sesión · error",
                       "width": 417,
                       "height": 876,
-                      "fill": "#E4E4E7",
-                      "cornerRadius": 56,
-                      "stroke": "#A1A1AA",
-                      "strokeWidth": 2,
-                      "layout": "vertical",
-                      "gap": 12,
-                      "padding": 40,
-                      "justifyContent": "center",
-                      "alignItems": "center",
+                      "fill": "#1C1C1E",
+                      "cornerRadius": 60,
+                      "stroke": "#48484A",
+                      "strokeWidth": 1.5,
+                      "strokeAlignment": "inner",
+                      "effect": {
+                        "type": "shadow",
+                        "shadowType": "outer",
+                        "color": "#0000002E",
+                        "offset": {
+                          "x": 0,
+                          "y": 12
+                        },
+                        "blur": 32
+                      },
+                      "layout": "none",
                       "children": [
                         {
-                          "type": "text",
-                          "id": "J7Cc9",
-                          "name": "tag",
-                          "fill": "#B4532A",
-                          "content": "FALTA",
-                          "fontFamily": "$font",
-                          "fontSize": 15,
-                          "fontWeight": "700",
-                          "letterSpacing": 1.5
-                        },
-                        {
-                          "type": "text",
-                          "id": "bV097",
-                          "name": "screen",
-                          "fill": "#27272A",
-                          "textGrowth": "fixed-width",
-                          "width": "fill_container",
-                          "content": "Iniciar sesión · error",
-                          "textAlign": "center",
-                          "fontFamily": "$fontTitle",
-                          "fontSize": 30,
-                          "fontWeight": "700",
-                          "letterSpacing": -0.9
-                        },
-                        {
-                          "type": "text",
-                          "id": "E890GD",
-                          "name": "req",
-                          "fill": "#71717A",
-                          "content": "R3.4",
-                          "textAlign": "center",
-                          "fontFamily": "$font",
-                          "fontSize": 17,
-                          "fontWeight": "normal"
+                          "type": "frame",
+                          "id": "s5ZIS",
+                          "x": 12,
+                          "y": 12,
+                          "name": "Iniciar sesión · error",
+                          "clip": true,
+                          "width": 393,
+                          "height": 852,
+                          "fill": {
+                            "type": "gradient",
+                            "gradientType": "linear",
+                            "enabled": true,
+                            "rotation": 180,
+                            "size": {
+                              "height": 1
+                            },
+                            "colors": [
+                              {
+                                "color": "$obBgTop",
+                                "position": 0
+                              },
+                              {
+                                "color": "$obBgBottom",
+                                "position": 1
+                              }
+                            ]
+                          },
+                          "cornerRadius": 48,
+                          "layout": "none",
+                          "children": [
+                            {
+                              "type": "frame",
+                              "id": "hQy9X",
+                              "x": 0,
+                              "y": 0,
+                              "name": "Pasto",
+                              "width": 393,
+                              "height": 852,
+                              "layout": "vertical",
+                              "children": [
+                                {
+                                  "type": "rectangle",
+                                  "id": "yKmww",
+                                  "name": "Franja 1",
+                                  "fill": "$obStripe",
+                                  "width": "fill_container",
+                                  "height": 52
+                                },
+                                {
+                                  "type": "rectangle",
+                                  "id": "g5DVUN",
+                                  "name": "Franja 2",
+                                  "fill": "#FFFFFF00",
+                                  "width": "fill_container",
+                                  "height": 60
+                                },
+                                {
+                                  "type": "rectangle",
+                                  "id": "lqhUY",
+                                  "name": "Franja 3",
+                                  "fill": "$obStripe",
+                                  "width": "fill_container",
+                                  "height": 70
+                                },
+                                {
+                                  "type": "rectangle",
+                                  "id": "pN9Vk",
+                                  "name": "Franja 4",
+                                  "fill": "#FFFFFF00",
+                                  "width": "fill_container",
+                                  "height": 80
+                                },
+                                {
+                                  "type": "rectangle",
+                                  "id": "RW0gd",
+                                  "name": "Franja 5",
+                                  "fill": "$obStripeSoft",
+                                  "width": "fill_container",
+                                  "height": 92
+                                },
+                                {
+                                  "type": "rectangle",
+                                  "id": "If9kO",
+                                  "name": "Franja 6",
+                                  "fill": "#FFFFFF00",
+                                  "width": "fill_container",
+                                  "height": 106
+                                },
+                                {
+                                  "type": "rectangle",
+                                  "id": "d8aF8",
+                                  "name": "Franja 7",
+                                  "fill": "$obStripeSoft",
+                                  "width": "fill_container",
+                                  "height": 122
+                                },
+                                {
+                                  "type": "rectangle",
+                                  "id": "rgKWr",
+                                  "name": "Franja 8",
+                                  "fill": "#FFFFFF00",
+                                  "width": "fill_container",
+                                  "height": 128
+                                },
+                                {
+                                  "type": "rectangle",
+                                  "id": "Bxu0z",
+                                  "name": "Franja 9",
+                                  "fill": "$obStripe",
+                                  "width": "fill_container",
+                                  "height": 142
+                                }
+                              ]
+                            },
+                            {
+                              "type": "rectangle",
+                              "id": "w22JuF",
+                              "x": -89.5,
+                              "y": -1,
+                              "name": "área grande",
+                              "width": 572,
+                              "height": 235,
+                              "stroke": "$obInk1F",
+                              "strokeWidth": 1
+                            },
+                            {
+                              "type": "rectangle",
+                              "id": "IC1yz",
+                              "x": 66.5,
+                              "y": -1,
+                              "name": "área chica",
+                              "width": 260,
+                              "height": 79,
+                              "stroke": "$obInk1F",
+                              "strokeWidth": 1
+                            },
+                            {
+                              "type": "ellipse",
+                              "id": "fqTGZ",
+                              "x": 193,
+                              "y": 152.5,
+                              "name": "punto penal",
+                              "fill": "$obInk33",
+                              "width": 7,
+                              "height": 7
+                            },
+                            {
+                              "type": "path",
+                              "id": "YIqXq",
+                              "x": 0,
+                              "y": 0,
+                              "name": "medialuna",
+                              "geometry": "M92.5 234a130 130 0 0 0 208 0",
+                              "viewBox": [
+                                0,
+                                0,
+                                393,
+                                852
+                              ],
+                              "width": 393,
+                              "height": 852,
+                              "stroke": "$obInk1F",
+                              "strokeWidth": 1
+                            },
+                            {
+                              "type": "ellipse",
+                              "id": "Xxeab",
+                              "x": 66,
+                              "y": 706,
+                              "name": "círculo central",
+                              "width": 260,
+                              "height": 260,
+                              "stroke": "$obInk1F",
+                              "strokeWidth": 1
+                            },
+                            {
+                              "type": "rectangle",
+                              "id": "t7rlTR",
+                              "x": 0,
+                              "y": 836,
+                              "name": "línea media",
+                              "fill": "$obInk1F",
+                              "width": 393,
+                              "height": 1
+                            },
+                            {
+                              "type": "ellipse",
+                              "id": "zXmlJ",
+                              "x": 193,
+                              "y": 832.5,
+                              "name": "punto central",
+                              "fill": "$obInk33",
+                              "width": 7,
+                              "height": 7
+                            },
+                            {
+                              "id": "Bu2MI",
+                              "type": "ref",
+                              "ref": "0GA9R",
+                              "name": "BackButton",
+                              "x": 16,
+                              "y": 58,
+                              "descendants": {
+                                "GjAiZ": {
+                                  "x": 7,
+                                  "y": 4.5,
+                                  "geometry": "M6.5 0l-6.5 6.5 6.5 6.5",
+                                  "viewBox": [
+                                    0,
+                                    0,
+                                    6.5,
+                                    13
+                                  ],
+                                  "width": 6.5,
+                                  "height": 13,
+                                  "stroke": "$accent",
+                                  "strokeWidth": 2.4,
+                                  "fill": "#00000000"
+                                }
+                              }
+                            },
+                            {
+                              "type": "path",
+                              "id": "FncG5",
+                              "x": 136.5,
+                              "y": 66,
+                              "name": "Wordmark",
+                              "geometry": "M0 120c0-66.27 53.73-120 120-120l1295.5 0c66.27 0 120 53.73 120 120l0 144c0 66.27-53.73 120-120 120l-1295.5 0c-66.27 0-120-53.73-120-120l0-144z m29 144c0 50.26 40.74 91 91 91l1295.5 0c50.26 0 91-40.74 91-91l0-144c0-50.26-40.74-91-91-91l-1295.5 0c-50.26 0-91 40.74-91 91l0 144z m84.06-188.1c0.67-2.13 2.96-3.87 5.09-3.87l75.48 0c2.14 0 3.32999 1.74 2.65 3.87l-51.56 163.55c-0.5 1.61 0.39001 2.90001 1.99001 2.90001l75.47999 0c2.14 0 3.32999 1.73999 2.65 3.87999l-12.57 39.89c-0.27 0.82-0.16001 1.61 0.29 2.16l18.16 22.29999c0.96 1.18-0.57001 3.39001-2.35 3.39001l-141.98 0c-26.72 0-41.56-21.67002-33.14-48.39001l59.81-189.67999z m163.51999 52.26c9.78-30.99 42.83001-56.13 73.82-56.13l133.55002 0c31.01 0 48.21 25.14001 38.44 56.13l-40.89001 129.68c-9.77 30.99-42.82999 56.13-73.82999 56.13l-133.54001 0c-31 0-48.21001-25.14001-38.43-56.13l40.87999-129.68z m48.14001 111.29c-0.5 1.61 0.39001 2.90001 1.98001 2.90001l73.54999 0c1.61 0 3.32001-1.29001 3.82001-2.90001l32.03998-101.61c0.51-1.61-0.37999-2.89999-1.98999-2.9l-73.54999 0c-1.6 0-3.31001 1.28999-3.82001 2.9l-32.03 101.61z m211.22-111.29c9.77-30.99 42.82-56.13 73.81-56.13l143.22998 0c2.14 0 3.33002 1.74 2.65002 3.87l-17.69 56.13c-0.51 1.61-2.22001 2.91-3.82 2.91l-114.19001 0c-1.61 0-3.31002 1.28999-3.83001 2.9l-32.02997 101.61c-0.5 1.61 0.38999 2.90001 1.98999 2.90001l114.19 0c1.6 0 2.48999 1.29999 1.98999 2.90998l-9.10999 28.86001c-0.26 0.84-0.15001 1.62001 0.29999 2.17001l27.93 34.28998c0.96 1.18-0.56998 3.39001-2.34998 3.39001l-185.53003 0c-31 0-48.19999-25.14001-38.42999-56.13l40.89001-129.68z m233.23999-52.26c0.68-2.13 2.96003-3.87 5.09003-3.87l76.44995 0c1.61 0 2.50005 1.3 1.99005 2.91l-22.06 69.98c-0.14 0.44-0.18 0.85999-0.11999 1.25999l3.53998 21.27001c0.39 2.37-1.45999 5.22-4.18 6.41l-0.34002 0.14999c-2.71 1.19-5.30001 0.31-5.82001-2l-2.27997-10.02999c-0.26-1.12-1.33003-1.71-2.66003-1.47001l-18.33997 3.46001c-3.32 0.63-6.67001 2.32999-9.45001 4.81999l-5.73999 5.15001c-3.77 3.38-5.82 8-5.31 11.97l1.25 9.64c0.1 0.88 0.38999 1.67 0.85999 2.34l4.53003 6.61c0.05 0.07 0.09998 0.15 0.16998 0.22l0.35999 0.38001c0.27 0.29 0.23999 0.77-0.07001 1.19999l-6.01001 8.32c-0.57 0.8-0.61999 1.71001-0.10999 2.24l1.56 1.67c0.53 0.56 1.52002 0.56 2.40002 0l8.19001-5.19c0.66-0.41 1.40999-0.41 1.79998 0l3.90998 4.16c0.38 0.39 0.34999 1.07-0.07001 1.66l-5.16998 7.4c-0.56 0.78-0.58998 1.68001-0.09998 2.21l1.60999 1.7c0.52 0.55 1.49 0.56 2.36999 0.03l7.51001-4.61c0.65-0.4 1.37997-0.39 1.77997 0.02l32.15003 34.16999c0.38 0.39 0.35 1.07-0.06 1.66l-5.18 7.40002c-0.55 0.78-0.58998 1.67999-0.09997 2.21l1.60998 1.69998c0.51 0.55 1.48999 0.56 2.35999 0.03l7.52002-4.60999c0.66-0.4 1.37996-0.39001 1.76996 0.01999l3.94 4.18002c0.37 0.39 0.35001 1.04997-0.04999 1.62998l-4.55999 6.77002c-0.52 0.79-0.54999 1.65998-0.04999 2.16998l1.64001 1.75c0.5 0.53 1.45 0.56002 2.31 0.05002l6.85998-4.02002c0.65-0.39 1.35999-0.37 1.74 0.03l3.98999 4.24002c0.35 0.37 0.35001 0.97999 0.01001 1.54999l-3.35999 5.55001c-0.46 0.75-0.46 1.55999 0 2.04999l1.76001 1.87c0.47 0.51 1.36 0.56002 2.19 0.11001l5.57001-2.92001c0.62-0.33 1.27995-0.29 1.63995 0.09l4.09003 4.33999c0.32 0.34 0.35001 0.88 0.07001 1.41001l-2.23999 4.39999c-0.36 0.7-0.32001 1.43 0.10998 1.88001l1.89002 2.02001c0.45 0.47 1.22996 0.54999 2.01996 0.21l4.34002-1.9c0.58-0.26 1.17001-0.19003 1.51001 0.15998l4.13996 4.41c1.08 1.13-0.44998 3.45001-2.28998 3.45001l-142.62 0c-0.7 0-1.3-0.26001-1.69-0.73001l-32.02002-39.31998c-0.46-0.55-0.55999-1.33001-0.29999-2.17001l61.75-195.85z m184.76001-2.41c0.8-0.9 1.93998-1.46 2.97998-1.46l96.51007 0c2.48 0 2.89994 2.92 0.68995 4.8l-132.40998 112.66001c-0.94 0.8-1.24004 2.00999-0.67004 2.70999l95.07001 116.69001c1.45 1.77-0.85997 5.07999-3.52997 5.07999l-108.93 0c-1.79 0-2.65-1.60002-1.80999-3.36001l3.52997-7.46c2.28-4.82 2.53001-9.75 0.70001-13.55999l-15.87-33.07999c-0.33-0.68-1.03998-1.09001-1.91998-1.09001l-15.92004 0c-3.48 0-5.41-2.81999-4.31-6.29l0.03003-0.1c1.09-3.47 4.79997-6.28999 8.27997-6.28999l4.42999 0c1.52 0 2.97001-1.67001 2.57001-2.96001l-3.26996-10.45c-0.18-0.57-0.70004-0.91-1.35004-0.91l-23.13 0c-3.21 0-4.98998-2.6-3.97999-5.81l0.37-1.16c1.01-3.2 4.43-5.81 7.63-5.81l18.38001 0c1.22 0 2.48-1.09999 2.63-2.28999l2.32001-18.24001c0.16-1.25-0.57005-2.21001-1.80005-2.35001l-10.65997-1.22c-2.19-0.25-3.07002-2.40999-1.90002-4.64999l15.84002-30.23c4.18-7.98 9.49998-15.65 15.78998-22.72l53.71002-60.45z m86.46002 32.32c0.22-0.69 0.66992-1.37 1.28992-1.89l36.29004-30.88c0.76-0.64 1.68002-1.01 2.52002-1.01l179.56995 0c2.14 0 3.33002 1.74 2.65002 3.87l-17.68994 56.13c-0.51 1.61-2.21007 2.91-3.82007 2.91l-123.86999 0c-1.61 0-3.30995 1.28999-3.81995 2.9l-5.19006 16.44999c-0.5 1.61 0.38999 2.90001 1.98999 2.90001l117.29004 0c2.35 0 2.90005 2.67 0.93005 4.58l-58.41004 57.1c-0.78 0.77-1.81001 1.23001-2.76 1.23001l-76.89002 0c-1.59 0-3.29994 1.28999-3.80994 2.89999l-5.18005 16.45c-0.51 1.61 0.37998 2.90001 1.97998 2.90001l126.77002 0c1.61 0 2.5 1.29999 2 2.90998l-9.10999 28.86001c-0.26 0.84-0.15995 1.62001 0.30005 2.17001l27.92994 34.28998c0.96 1.18-0.56998 3.39001-2.34998 3.39001l-191.44006 0c-0.71 0-1.30994-0.26001-1.68995-0.73001l-43.19-53.01999c-0.45-0.55-0.55998-1.34001-0.28998-2.17001l48-152.23999z m239.26001-29.91c0.67-2.13 2.95997-3.87 5.08997-3.87l154.34998 0c40.89 0 63.59006 33.15001 50.69006 74.04001l-13.03003 41.31999c-5.69 18.06-24.95002 32.71001-43.02002 32.71001l-27.60999 0c-1.78 0-3.30998 2.19999-2.34997 3.37999l69.58997 85.41001c1.44 1.77-0.86003 5.07999-3.53003 5.07999l-111.23999 0c-0.71 0-1.30994-0.26001-1.68995-0.73001l-47.32006-58.07999c-0.9-1.12-3.15993-0.23-3.67994 1.44001l-17.17004 54.45999c-0.51 1.61-2.20995 2.91-3.81995 2.91l-33.4801 0c-0.71 0-1.30995-0.26001-1.69995-0.73001l-31.67004-38.88c-0.45-0.55-0.55992-1.34999-0.28992-2.18l35.32996-112.07998c0.51-1.61 2.22007-2.91 3.82006-2.91001l137.90992 0c6.14 0 12.69-4.98 14.63-11.11999l0 0c1.94-6.15-1.47-11.13-7.61999-11.13001l-137.90003 0c-1.61 0-2.49998-1.3-1.97998-2.91l17.69006-56.13z",
+                              "viewBox": [
+                                0,
+                                0,
+                                1535.5,
+                                384
+                              ],
+                              "fill": "$obInk",
+                              "width": 120,
+                              "height": 30
+                            },
+                            {
+                              "type": "frame",
+                              "id": "OEQXp",
+                              "x": 24,
+                              "y": 168,
+                              "name": "head",
+                              "width": 345,
+                              "layout": "vertical",
+                              "gap": 8,
+                              "children": [
+                                {
+                                  "type": "text",
+                                  "id": "mfGC4",
+                                  "name": "Title",
+                                  "fill": "$obInk",
+                                  "content": "Hola de nuevo",
+                                  "fontFamily": "$fontTitle",
+                                  "fontSize": 30,
+                                  "fontWeight": "600",
+                                  "letterSpacing": -1
+                                },
+                                {
+                                  "type": "text",
+                                  "id": "avAOk",
+                                  "name": "Sub",
+                                  "fill": "$obInkA6",
+                                  "content": "Tu equipo te espera.",
+                                  "fontFamily": "$font",
+                                  "fontSize": 16,
+                                  "fontWeight": "normal"
+                                }
+                              ]
+                            },
+                            {
+                              "type": "frame",
+                              "id": "NhuW6",
+                              "x": 24,
+                              "y": 276,
+                              "name": "fields",
+                              "width": 345,
+                              "layout": "vertical",
+                              "gap": 14,
+                              "children": [
+                                {
+                                  "type": "frame",
+                                  "id": "Cv7lI",
+                                  "name": "Field · Correo",
+                                  "width": "fill_container",
+                                  "height": 64,
+                                  "fill": "$obInk0F",
+                                  "cornerRadius": 16,
+                                  "stroke": "$obError",
+                                  "strokeWidth": 1.5,
+                                  "strokeAlignment": "inner",
+                                  "padding": [
+                                    0,
+                                    18
+                                  ],
+                                  "justifyContent": "space_between",
+                                  "alignItems": "center",
+                                  "children": [
+                                    {
+                                      "type": "frame",
+                                      "id": "HfBnb",
+                                      "name": "text",
+                                      "layout": "vertical",
+                                      "gap": 3,
+                                      "children": [
+                                        {
+                                          "type": "text",
+                                          "id": "mVP2T",
+                                          "name": "Label",
+                                          "fill": "$obError",
+                                          "content": "Correo",
+                                          "fontFamily": "$font",
+                                          "fontSize": 13,
+                                          "fontWeight": "500"
+                                        },
+                                        {
+                                          "type": "text",
+                                          "id": "K1JOM",
+                                          "name": "Value",
+                                          "fill": "$obInk",
+                                          "content": "diego.ramirez@gmail.com",
+                                          "fontFamily": "$font",
+                                          "fontSize": 17,
+                                          "fontWeight": "normal"
+                                        }
+                                      ]
+                                    }
+                                  ]
+                                },
+                                {
+                                  "type": "frame",
+                                  "id": "OVJ7M",
+                                  "name": "Field · Contraseña",
+                                  "width": "fill_container",
+                                  "layout": "vertical",
+                                  "gap": 6,
+                                  "children": [
+                                    {
+                                      "type": "frame",
+                                      "id": "s1O3Pn",
+                                      "name": "Input",
+                                      "width": "fill_container",
+                                      "height": 64,
+                                      "fill": "$obInk0F",
+                                      "cornerRadius": 16,
+                                      "stroke": "$obError",
+                                      "strokeWidth": 1.5,
+                                      "strokeAlignment": "inner",
+                                      "padding": [
+                                        0,
+                                        18
+                                      ],
+                                      "justifyContent": "space_between",
+                                      "alignItems": "center",
+                                      "children": [
+                                        {
+                                          "type": "frame",
+                                          "id": "chdX3",
+                                          "name": "text",
+                                          "layout": "vertical",
+                                          "gap": 3,
+                                          "children": [
+                                            {
+                                              "type": "text",
+                                              "id": "yYiMD",
+                                              "name": "Label",
+                                              "fill": "$obError",
+                                              "content": "Contraseña",
+                                              "fontFamily": "$font",
+                                              "fontSize": 13,
+                                              "fontWeight": "500"
+                                            },
+                                            {
+                                              "type": "text",
+                                              "id": "uHDyi",
+                                              "name": "Value",
+                                              "fill": "$obInk",
+                                              "content": "••••••••••",
+                                              "fontFamily": "$font",
+                                              "fontSize": 17,
+                                              "fontWeight": "normal"
+                                            }
+                                          ]
+                                        },
+                                        {
+                                          "type": "icon",
+                                          "id": "q3xLir",
+                                          "name": "icon",
+                                          "width": 20,
+                                          "height": 20,
+                                          "icon": "eye",
+                                          "library": "phosphor",
+                                          "fill": "$obInk70"
+                                        }
+                                      ]
+                                    },
+                                    {
+                                      "type": "frame",
+                                      "id": "tFnZ6",
+                                      "name": "Help",
+                                      "gap": 6,
+                                      "padding": [
+                                        0,
+                                        4
+                                      ],
+                                      "alignItems": "center",
+                                      "children": [
+                                        {
+                                          "type": "icon",
+                                          "id": "Ijynv",
+                                          "name": "warn",
+                                          "width": 16,
+                                          "height": 16,
+                                          "icon": "warning-circle",
+                                          "library": "phosphor",
+                                          "weight": 600,
+                                          "fill": "$obError"
+                                        },
+                                        {
+                                          "type": "text",
+                                          "id": "q1vLlj",
+                                          "name": "Help text",
+                                          "fill": "$obError",
+                                          "content": "Correo o contraseña incorrectos.",
+                                          "fontFamily": "$font",
+                                          "fontSize": 13,
+                                          "fontWeight": "normal"
+                                        }
+                                      ]
+                                    }
+                                  ]
+                                },
+                                {
+                                  "type": "frame",
+                                  "id": "YBBeu",
+                                  "name": "forgot",
+                                  "width": "fill_container",
+                                  "padding": [
+                                    2,
+                                    4
+                                  ],
+                                  "justifyContent": "end",
+                                  "children": [
+                                    {
+                                      "type": "text",
+                                      "id": "JtNZY",
+                                      "name": "link",
+                                      "fill": "$obInkCC",
+                                      "content": "¿Olvidaste tu contraseña?",
+                                      "fontFamily": "$font",
+                                      "fontSize": 15,
+                                      "fontWeight": "500"
+                                    }
+                                  ]
+                                }
+                              ]
+                            },
+                            {
+                              "type": "frame",
+                              "id": "FkNeY",
+                              "x": 24,
+                              "y": 522,
+                              "name": "actions",
+                              "width": 345,
+                              "layout": "vertical",
+                              "gap": 16,
+                              "alignItems": "center",
+                              "children": [
+                                {
+                                  "type": "frame",
+                                  "id": "a9vznT",
+                                  "name": "Button · Entrar",
+                                  "width": "fill_container",
+                                  "height": 56,
+                                  "fill": "$obCta",
+                                  "cornerRadius": 100,
+                                  "gap": 8,
+                                  "justifyContent": "center",
+                                  "alignItems": "center",
+                                  "children": [
+                                    {
+                                      "type": "text",
+                                      "id": "UMjgp",
+                                      "name": "Label",
+                                      "fill": "$obOnCta",
+                                      "content": "Entrar",
+                                      "fontFamily": "$font",
+                                      "fontSize": 17,
+                                      "fontWeight": "600",
+                                      "letterSpacing": -0.2
+                                    }
+                                  ]
+                                },
+                                {
+                                  "type": "frame",
+                                  "id": "lFBxy",
+                                  "name": "signup",
+                                  "gap": 4,
+                                  "children": [
+                                    {
+                                      "type": "text",
+                                      "id": "Z6eHFs",
+                                      "name": "q",
+                                      "fill": "$obInk70",
+                                      "content": "¿Primera vez?",
+                                      "fontFamily": "$font",
+                                      "fontSize": 15,
+                                      "fontWeight": "normal"
+                                    },
+                                    {
+                                      "type": "text",
+                                      "id": "aI1qR",
+                                      "name": "link",
+                                      "fill": "$obInk",
+                                      "content": "Crea tu cuenta",
+                                      "fontFamily": "$font",
+                                      "fontSize": 15,
+                                      "fontWeight": "600"
+                                    }
+                                  ]
+                                }
+                              ]
+                            },
+                            {
+                              "id": "MUONl",
+                              "type": "ref",
+                              "ref": "mqPCF",
+                              "x": 0,
+                              "y": 0,
+                              "name": "StatusBar",
+                              "descendants": {
+                                "2FGm5": {
+                                  "fill": "$obStatus"
+                                },
+                                "MzV9b": {
+                                  "fill": "$obStatus"
+                                },
+                                "zdsqc": {
+                                  "fill": "$obStatus"
+                                },
+                                "1hEPr": {
+                                  "fill": "$obStatusDim"
+                                },
+                                "w6jtk": {
+                                  "fill": "$obStatusDim"
+                                },
+                                "ACYgf": {
+                                  "fill": "$obStatus"
+                                }
+                              }
+                            },
+                            {
+                              "type": "frame",
+                              "id": "bveud",
+                              "x": 133.5,
+                              "y": 11,
+                              "name": "DynamicIsland",
+                              "width": 126,
+                              "height": 37,
+                              "fill": "#000000",
+                              "cornerRadius": 24
+                            },
+                            {
+                              "type": "frame",
+                              "id": "puFs3",
+                              "x": 127,
+                              "y": 839,
+                              "name": "HomeIndicator",
+                              "width": 139,
+                              "height": 5,
+                              "fill": "$obInk80",
+                              "cornerRadius": 100
+                            }
+                          ]
                         }
                       ]
                     }
@@ -14053,15 +15680,14 @@
                 },
                 {
                   "type": "frame",
-                  "id": "tsFO0",
-                  "name": "falta · Olvidé mi contraseña",
-                  "width": 417,
+                  "id": "b1mHwr",
+                  "name": "view · Jugador / Capitán",
                   "layout": "vertical",
                   "gap": 20,
                   "children": [
                     {
                       "type": "frame",
-                      "id": "A0FEfh",
+                      "id": "OGggx",
                       "name": "caption",
                       "width": 417,
                       "layout": "vertical",
@@ -14069,7 +15695,7 @@
                       "children": [
                         {
                           "type": "text",
-                          "id": "blPxI",
+                          "id": "U3M4s",
                           "name": "caption title",
                           "fill": "#FFFFFF",
                           "content": "04 · Olvidé mi contraseña",
@@ -14079,12 +15705,12 @@
                         },
                         {
                           "type": "text",
-                          "id": "sKNnT",
+                          "id": "cBO8M",
                           "name": "caption text",
                           "fill": "#FFFFFFB3",
                           "textGrowth": "fixed-width",
                           "width": "fill_container",
-                          "content": "Falta diseñar. Pide el correo para mandar el link de recuperación (R3.3).",
+                          "content": "Pide el correo de la cuenta y manda el link para elegir una contraseña nueva (R3.3).",
                           "lineHeight": 1.4,
                           "fontFamily": "$font",
                           "fontSize": 16,
@@ -14093,74 +15719,477 @@
                       ]
                     },
                     {
-                      "id": "ffEvr",
+                      "id": "UmzyE",
                       "type": "ref",
                       "ref": "zLMR0",
                       "name": "role",
+                      "fill": "#FFFFFF",
+                      "stroke": "#D4D4D8",
+                      "strokeWidth": 1,
                       "descendants": {
                         "KKC1z": {
                           "enabled": false
                         },
                         "UNwwQ": {
                           "enabled": true,
-                          "fill": "#F1EEDD"
+                          "icon": "users"
                         },
                         "bwl4G": {
-                          "content": "Jugador / Capitán"
+                          "content": "Jugador / Capitán",
+                          "fill": "#18181B"
                         }
                       }
                     },
                     {
                       "type": "frame",
-                      "id": "PNyx1",
-                      "name": "Falta · Olvidé mi contraseña",
+                      "id": "SCg0P",
+                      "name": "iPhone · Olvidé mi contraseña",
                       "width": 417,
                       "height": 876,
-                      "fill": "#E4E4E7",
-                      "cornerRadius": 56,
-                      "stroke": "#A1A1AA",
-                      "strokeWidth": 2,
-                      "layout": "vertical",
-                      "gap": 12,
-                      "padding": 40,
-                      "justifyContent": "center",
-                      "alignItems": "center",
+                      "fill": "#1C1C1E",
+                      "cornerRadius": 60,
+                      "stroke": "#48484A",
+                      "strokeWidth": 1.5,
+                      "strokeAlignment": "inner",
+                      "effect": {
+                        "type": "shadow",
+                        "shadowType": "outer",
+                        "color": "#0000002E",
+                        "offset": {
+                          "x": 0,
+                          "y": 12
+                        },
+                        "blur": 32
+                      },
+                      "layout": "none",
                       "children": [
                         {
-                          "type": "text",
-                          "id": "DlroQ",
-                          "name": "tag",
-                          "fill": "#B4532A",
-                          "content": "FALTA",
-                          "fontFamily": "$font",
-                          "fontSize": 15,
-                          "fontWeight": "700",
-                          "letterSpacing": 1.5
-                        },
-                        {
-                          "type": "text",
-                          "id": "lHoT1",
-                          "name": "screen",
-                          "fill": "#27272A",
-                          "textGrowth": "fixed-width",
-                          "width": "fill_container",
-                          "content": "Olvidé mi contraseña",
-                          "textAlign": "center",
-                          "fontFamily": "$fontTitle",
-                          "fontSize": 30,
-                          "fontWeight": "700",
-                          "letterSpacing": -0.9
-                        },
-                        {
-                          "type": "text",
-                          "id": "wdTMz",
-                          "name": "req",
-                          "fill": "#71717A",
-                          "content": "R3.3",
-                          "textAlign": "center",
-                          "fontFamily": "$font",
-                          "fontSize": 17,
-                          "fontWeight": "normal"
+                          "type": "frame",
+                          "id": "VpCmm",
+                          "x": 12,
+                          "y": 12,
+                          "name": "Olvidé mi contraseña",
+                          "clip": true,
+                          "width": 393,
+                          "height": 852,
+                          "fill": {
+                            "type": "gradient",
+                            "gradientType": "linear",
+                            "enabled": true,
+                            "rotation": 180,
+                            "size": {
+                              "height": 1
+                            },
+                            "colors": [
+                              {
+                                "color": "$obBgTop",
+                                "position": 0
+                              },
+                              {
+                                "color": "$obBgBottom",
+                                "position": 1
+                              }
+                            ]
+                          },
+                          "cornerRadius": 48,
+                          "layout": "none",
+                          "children": [
+                            {
+                              "type": "frame",
+                              "id": "GHprK",
+                              "x": 0,
+                              "y": 0,
+                              "name": "Pasto",
+                              "width": 393,
+                              "height": 852,
+                              "layout": "vertical",
+                              "children": [
+                                {
+                                  "type": "rectangle",
+                                  "id": "NuOsP",
+                                  "name": "Franja 1",
+                                  "fill": "$obStripe",
+                                  "width": "fill_container",
+                                  "height": 52
+                                },
+                                {
+                                  "type": "rectangle",
+                                  "id": "EEztR",
+                                  "name": "Franja 2",
+                                  "fill": "#FFFFFF00",
+                                  "width": "fill_container",
+                                  "height": 60
+                                },
+                                {
+                                  "type": "rectangle",
+                                  "id": "uAUpM",
+                                  "name": "Franja 3",
+                                  "fill": "$obStripe",
+                                  "width": "fill_container",
+                                  "height": 70
+                                },
+                                {
+                                  "type": "rectangle",
+                                  "id": "ynfhK",
+                                  "name": "Franja 4",
+                                  "fill": "#FFFFFF00",
+                                  "width": "fill_container",
+                                  "height": 80
+                                },
+                                {
+                                  "type": "rectangle",
+                                  "id": "yi1LV",
+                                  "name": "Franja 5",
+                                  "fill": "$obStripeSoft",
+                                  "width": "fill_container",
+                                  "height": 92
+                                },
+                                {
+                                  "type": "rectangle",
+                                  "id": "dm73W",
+                                  "name": "Franja 6",
+                                  "fill": "#FFFFFF00",
+                                  "width": "fill_container",
+                                  "height": 106
+                                },
+                                {
+                                  "type": "rectangle",
+                                  "id": "Awtol",
+                                  "name": "Franja 7",
+                                  "fill": "$obStripeSoft",
+                                  "width": "fill_container",
+                                  "height": 122
+                                },
+                                {
+                                  "type": "rectangle",
+                                  "id": "x2oqFO",
+                                  "name": "Franja 8",
+                                  "fill": "#FFFFFF00",
+                                  "width": "fill_container",
+                                  "height": 128
+                                },
+                                {
+                                  "type": "rectangle",
+                                  "id": "S6f9F",
+                                  "name": "Franja 9",
+                                  "fill": "$obStripe",
+                                  "width": "fill_container",
+                                  "height": 142
+                                }
+                              ]
+                            },
+                            {
+                              "type": "rectangle",
+                              "id": "S3tsL0",
+                              "x": -89.5,
+                              "y": -1,
+                              "name": "área grande",
+                              "width": 572,
+                              "height": 235,
+                              "stroke": "$obInk1F",
+                              "strokeWidth": 1
+                            },
+                            {
+                              "type": "rectangle",
+                              "id": "oUwxB",
+                              "x": 66.5,
+                              "y": -1,
+                              "name": "área chica",
+                              "width": 260,
+                              "height": 79,
+                              "stroke": "$obInk1F",
+                              "strokeWidth": 1
+                            },
+                            {
+                              "type": "ellipse",
+                              "id": "x1Chw",
+                              "x": 193,
+                              "y": 152.5,
+                              "name": "punto penal",
+                              "fill": "$obInk33",
+                              "width": 7,
+                              "height": 7
+                            },
+                            {
+                              "type": "path",
+                              "id": "u5raK",
+                              "x": 0,
+                              "y": 0,
+                              "name": "medialuna",
+                              "geometry": "M92.5 234a130 130 0 0 0 208 0",
+                              "viewBox": [
+                                0,
+                                0,
+                                393,
+                                852
+                              ],
+                              "width": 393,
+                              "height": 852,
+                              "stroke": "$obInk1F",
+                              "strokeWidth": 1
+                            },
+                            {
+                              "type": "ellipse",
+                              "id": "YsK95",
+                              "x": 66,
+                              "y": 706,
+                              "name": "círculo central",
+                              "width": 260,
+                              "height": 260,
+                              "stroke": "$obInk1F",
+                              "strokeWidth": 1
+                            },
+                            {
+                              "type": "rectangle",
+                              "id": "aCFFP",
+                              "x": 0,
+                              "y": 836,
+                              "name": "línea media",
+                              "fill": "$obInk1F",
+                              "width": 393,
+                              "height": 1
+                            },
+                            {
+                              "type": "ellipse",
+                              "id": "EHqMY",
+                              "x": 193,
+                              "y": 832.5,
+                              "name": "punto central",
+                              "fill": "$obInk33",
+                              "width": 7,
+                              "height": 7
+                            },
+                            {
+                              "id": "IKKyu",
+                              "type": "ref",
+                              "ref": "0GA9R",
+                              "name": "BackButton",
+                              "x": 16,
+                              "y": 58,
+                              "descendants": {
+                                "GjAiZ": {
+                                  "x": 7,
+                                  "y": 4.5,
+                                  "geometry": "M6.5 0l-6.5 6.5 6.5 6.5",
+                                  "viewBox": [
+                                    0,
+                                    0,
+                                    6.5,
+                                    13
+                                  ],
+                                  "width": 6.5,
+                                  "height": 13,
+                                  "stroke": "$accent",
+                                  "strokeWidth": 2.4,
+                                  "fill": "#00000000"
+                                }
+                              }
+                            },
+                            {
+                              "type": "path",
+                              "id": "CLZi0",
+                              "x": 136.5,
+                              "y": 66,
+                              "name": "Wordmark",
+                              "geometry": "M0 120c0-66.27 53.73-120 120-120l1295.5 0c66.27 0 120 53.73 120 120l0 144c0 66.27-53.73 120-120 120l-1295.5 0c-66.27 0-120-53.73-120-120l0-144z m29 144c0 50.26 40.74 91 91 91l1295.5 0c50.26 0 91-40.74 91-91l0-144c0-50.26-40.74-91-91-91l-1295.5 0c-50.26 0-91 40.74-91 91l0 144z m84.06-188.1c0.67-2.13 2.96-3.87 5.09-3.87l75.48 0c2.14 0 3.32999 1.74 2.65 3.87l-51.56 163.55c-0.5 1.61 0.39001 2.90001 1.99001 2.90001l75.47999 0c2.14 0 3.32999 1.73999 2.65 3.87999l-12.57 39.89c-0.27 0.82-0.16001 1.61 0.29 2.16l18.16 22.29999c0.96 1.18-0.57001 3.39001-2.35 3.39001l-141.98 0c-26.72 0-41.56-21.67002-33.14-48.39001l59.81-189.67999z m163.51999 52.26c9.78-30.99 42.83001-56.13 73.82-56.13l133.55002 0c31.01 0 48.21 25.14001 38.44 56.13l-40.89001 129.68c-9.77 30.99-42.82999 56.13-73.82999 56.13l-133.54001 0c-31 0-48.21001-25.14001-38.43-56.13l40.87999-129.68z m48.14001 111.29c-0.5 1.61 0.39001 2.90001 1.98001 2.90001l73.54999 0c1.61 0 3.32001-1.29001 3.82001-2.90001l32.03998-101.61c0.51-1.61-0.37999-2.89999-1.98999-2.9l-73.54999 0c-1.6 0-3.31001 1.28999-3.82001 2.9l-32.03 101.61z m211.22-111.29c9.77-30.99 42.82-56.13 73.81-56.13l143.22998 0c2.14 0 3.33002 1.74 2.65002 3.87l-17.69 56.13c-0.51 1.61-2.22001 2.91-3.82 2.91l-114.19001 0c-1.61 0-3.31002 1.28999-3.83001 2.9l-32.02997 101.61c-0.5 1.61 0.38999 2.90001 1.98999 2.90001l114.19 0c1.6 0 2.48999 1.29999 1.98999 2.90998l-9.10999 28.86001c-0.26 0.84-0.15001 1.62001 0.29999 2.17001l27.93 34.28998c0.96 1.18-0.56998 3.39001-2.34998 3.39001l-185.53003 0c-31 0-48.19999-25.14001-38.42999-56.13l40.89001-129.68z m233.23999-52.26c0.68-2.13 2.96003-3.87 5.09003-3.87l76.44995 0c1.61 0 2.50005 1.3 1.99005 2.91l-22.06 69.98c-0.14 0.44-0.18 0.85999-0.11999 1.25999l3.53998 21.27001c0.39 2.37-1.45999 5.22-4.18 6.41l-0.34002 0.14999c-2.71 1.19-5.30001 0.31-5.82001-2l-2.27997-10.02999c-0.26-1.12-1.33003-1.71-2.66003-1.47001l-18.33997 3.46001c-3.32 0.63-6.67001 2.32999-9.45001 4.81999l-5.73999 5.15001c-3.77 3.38-5.82 8-5.31 11.97l1.25 9.64c0.1 0.88 0.38999 1.67 0.85999 2.34l4.53003 6.61c0.05 0.07 0.09998 0.15 0.16998 0.22l0.35999 0.38001c0.27 0.29 0.23999 0.77-0.07001 1.19999l-6.01001 8.32c-0.57 0.8-0.61999 1.71001-0.10999 2.24l1.56 1.67c0.53 0.56 1.52002 0.56 2.40002 0l8.19001-5.19c0.66-0.41 1.40999-0.41 1.79998 0l3.90998 4.16c0.38 0.39 0.34999 1.07-0.07001 1.66l-5.16998 7.4c-0.56 0.78-0.58998 1.68001-0.09998 2.21l1.60999 1.7c0.52 0.55 1.49 0.56 2.36999 0.03l7.51001-4.61c0.65-0.4 1.37997-0.39 1.77997 0.02l32.15003 34.16999c0.38 0.39 0.35 1.07-0.06 1.66l-5.18 7.40002c-0.55 0.78-0.58998 1.67999-0.09997 2.21l1.60998 1.69998c0.51 0.55 1.48999 0.56 2.35999 0.03l7.52002-4.60999c0.66-0.4 1.37996-0.39001 1.76996 0.01999l3.94 4.18002c0.37 0.39 0.35001 1.04997-0.04999 1.62998l-4.55999 6.77002c-0.52 0.79-0.54999 1.65998-0.04999 2.16998l1.64001 1.75c0.5 0.53 1.45 0.56002 2.31 0.05002l6.85998-4.02002c0.65-0.39 1.35999-0.37 1.74 0.03l3.98999 4.24002c0.35 0.37 0.35001 0.97999 0.01001 1.54999l-3.35999 5.55001c-0.46 0.75-0.46 1.55999 0 2.04999l1.76001 1.87c0.47 0.51 1.36 0.56002 2.19 0.11001l5.57001-2.92001c0.62-0.33 1.27995-0.29 1.63995 0.09l4.09003 4.33999c0.32 0.34 0.35001 0.88 0.07001 1.41001l-2.23999 4.39999c-0.36 0.7-0.32001 1.43 0.10998 1.88001l1.89002 2.02001c0.45 0.47 1.22996 0.54999 2.01996 0.21l4.34002-1.9c0.58-0.26 1.17001-0.19003 1.51001 0.15998l4.13996 4.41c1.08 1.13-0.44998 3.45001-2.28998 3.45001l-142.62 0c-0.7 0-1.3-0.26001-1.69-0.73001l-32.02002-39.31998c-0.46-0.55-0.55999-1.33001-0.29999-2.17001l61.75-195.85z m184.76001-2.41c0.8-0.9 1.93998-1.46 2.97998-1.46l96.51007 0c2.48 0 2.89994 2.92 0.68995 4.8l-132.40998 112.66001c-0.94 0.8-1.24004 2.00999-0.67004 2.70999l95.07001 116.69001c1.45 1.77-0.85997 5.07999-3.52997 5.07999l-108.93 0c-1.79 0-2.65-1.60002-1.80999-3.36001l3.52997-7.46c2.28-4.82 2.53001-9.75 0.70001-13.55999l-15.87-33.07999c-0.33-0.68-1.03998-1.09001-1.91998-1.09001l-15.92004 0c-3.48 0-5.41-2.81999-4.31-6.29l0.03003-0.1c1.09-3.47 4.79997-6.28999 8.27997-6.28999l4.42999 0c1.52 0 2.97001-1.67001 2.57001-2.96001l-3.26996-10.45c-0.18-0.57-0.70004-0.91-1.35004-0.91l-23.13 0c-3.21 0-4.98998-2.6-3.97999-5.81l0.37-1.16c1.01-3.2 4.43-5.81 7.63-5.81l18.38001 0c1.22 0 2.48-1.09999 2.63-2.28999l2.32001-18.24001c0.16-1.25-0.57005-2.21001-1.80005-2.35001l-10.65997-1.22c-2.19-0.25-3.07002-2.40999-1.90002-4.64999l15.84002-30.23c4.18-7.98 9.49998-15.65 15.78998-22.72l53.71002-60.45z m86.46002 32.32c0.22-0.69 0.66992-1.37 1.28992-1.89l36.29004-30.88c0.76-0.64 1.68002-1.01 2.52002-1.01l179.56995 0c2.14 0 3.33002 1.74 2.65002 3.87l-17.68994 56.13c-0.51 1.61-2.21007 2.91-3.82007 2.91l-123.86999 0c-1.61 0-3.30995 1.28999-3.81995 2.9l-5.19006 16.44999c-0.5 1.61 0.38999 2.90001 1.98999 2.90001l117.29004 0c2.35 0 2.90005 2.67 0.93005 4.58l-58.41004 57.1c-0.78 0.77-1.81001 1.23001-2.76 1.23001l-76.89002 0c-1.59 0-3.29994 1.28999-3.80994 2.89999l-5.18005 16.45c-0.51 1.61 0.37998 2.90001 1.97998 2.90001l126.77002 0c1.61 0 2.5 1.29999 2 2.90998l-9.10999 28.86001c-0.26 0.84-0.15995 1.62001 0.30005 2.17001l27.92994 34.28998c0.96 1.18-0.56998 3.39001-2.34998 3.39001l-191.44006 0c-0.71 0-1.30994-0.26001-1.68995-0.73001l-43.19-53.01999c-0.45-0.55-0.55998-1.34001-0.28998-2.17001l48-152.23999z m239.26001-29.91c0.67-2.13 2.95997-3.87 5.08997-3.87l154.34998 0c40.89 0 63.59006 33.15001 50.69006 74.04001l-13.03003 41.31999c-5.69 18.06-24.95002 32.71001-43.02002 32.71001l-27.60999 0c-1.78 0-3.30998 2.19999-2.34997 3.37999l69.58997 85.41001c1.44 1.77-0.86003 5.07999-3.53003 5.07999l-111.23999 0c-0.71 0-1.30994-0.26001-1.68995-0.73001l-47.32006-58.07999c-0.9-1.12-3.15993-0.23-3.67994 1.44001l-17.17004 54.45999c-0.51 1.61-2.20995 2.91-3.81995 2.91l-33.4801 0c-0.71 0-1.30995-0.26001-1.69995-0.73001l-31.67004-38.88c-0.45-0.55-0.55992-1.34999-0.28992-2.18l35.32996-112.07998c0.51-1.61 2.22007-2.91 3.82006-2.91001l137.90992 0c6.14 0 12.69-4.98 14.63-11.11999l0 0c1.94-6.15-1.47-11.13-7.61999-11.13001l-137.90003 0c-1.61 0-2.49998-1.3-1.97998-2.91l17.69006-56.13z",
+                              "viewBox": [
+                                0,
+                                0,
+                                1535.5,
+                                384
+                              ],
+                              "fill": "$obInk",
+                              "width": 120,
+                              "height": 30
+                            },
+                            {
+                              "type": "frame",
+                              "id": "b1noCf",
+                              "x": 24,
+                              "y": 168,
+                              "name": "head",
+                              "width": 345,
+                              "layout": "vertical",
+                              "gap": 8,
+                              "children": [
+                                {
+                                  "type": "text",
+                                  "id": "T8OXzl",
+                                  "name": "Title",
+                                  "fill": "$obInk",
+                                  "textGrowth": "fixed-width",
+                                  "width": "fill_container",
+                                  "content": "Recupera tu contraseña",
+                                  "fontFamily": "$fontTitle",
+                                  "fontSize": 30,
+                                  "fontWeight": "600",
+                                  "letterSpacing": -1
+                                },
+                                {
+                                  "type": "text",
+                                  "id": "L836ne",
+                                  "name": "Sub",
+                                  "fill": "$obInkA6",
+                                  "textGrowth": "fixed-width",
+                                  "width": "fill_container",
+                                  "content": "Escribe tu correo y te mandamos un link para elegir una nueva.",
+                                  "lineHeight": 1.4,
+                                  "fontFamily": "$font",
+                                  "fontSize": 16,
+                                  "fontWeight": "normal"
+                                }
+                              ]
+                            },
+                            {
+                              "type": "frame",
+                              "id": "ZyFdk",
+                              "x": 24,
+                              "y": 301,
+                              "name": "fields",
+                              "width": 345,
+                              "layout": "vertical",
+                              "gap": 14,
+                              "children": [
+                                {
+                                  "type": "frame",
+                                  "id": "s3oTx",
+                                  "name": "Field · Correo",
+                                  "width": "fill_container",
+                                  "height": 64,
+                                  "fill": "$obInk0F",
+                                  "cornerRadius": 16,
+                                  "stroke": "$obInk24",
+                                  "strokeWidth": 1,
+                                  "strokeAlignment": "inner",
+                                  "padding": [
+                                    0,
+                                    18
+                                  ],
+                                  "justifyContent": "space_between",
+                                  "alignItems": "center",
+                                  "children": [
+                                    {
+                                      "type": "frame",
+                                      "id": "PKwLZ",
+                                      "name": "text",
+                                      "layout": "vertical",
+                                      "gap": 3,
+                                      "children": [
+                                        {
+                                          "type": "text",
+                                          "id": "PwEM4",
+                                          "name": "Label",
+                                          "fill": "$obInk70",
+                                          "content": "Correo",
+                                          "fontFamily": "$font",
+                                          "fontSize": 13,
+                                          "fontWeight": "500"
+                                        },
+                                        {
+                                          "type": "text",
+                                          "id": "pdjde",
+                                          "name": "Value",
+                                          "fill": "$obInk",
+                                          "content": "diego.ramirez@gmail.com",
+                                          "fontFamily": "$font",
+                                          "fontSize": 17,
+                                          "fontWeight": "normal"
+                                        }
+                                      ]
+                                    }
+                                  ]
+                                }
+                              ]
+                            },
+                            {
+                              "type": "frame",
+                              "id": "DmSss",
+                              "x": 24,
+                              "y": 411,
+                              "name": "actions",
+                              "width": 345,
+                              "layout": "vertical",
+                              "gap": 16,
+                              "alignItems": "center",
+                              "children": [
+                                {
+                                  "type": "frame",
+                                  "id": "oTnDY",
+                                  "name": "Button · Mandar link",
+                                  "width": "fill_container",
+                                  "height": 56,
+                                  "fill": "$obCta",
+                                  "cornerRadius": 100,
+                                  "gap": 8,
+                                  "justifyContent": "center",
+                                  "alignItems": "center",
+                                  "children": [
+                                    {
+                                      "type": "text",
+                                      "id": "e1wO6",
+                                      "name": "Label",
+                                      "fill": "$obOnCta",
+                                      "content": "Mandar link",
+                                      "fontFamily": "$font",
+                                      "fontSize": 17,
+                                      "fontWeight": "600",
+                                      "letterSpacing": -0.2
+                                    }
+                                  ]
+                                }
+                              ]
+                            },
+                            {
+                              "id": "itm0z",
+                              "type": "ref",
+                              "ref": "mqPCF",
+                              "x": 0,
+                              "y": 0,
+                              "name": "StatusBar",
+                              "descendants": {
+                                "2FGm5": {
+                                  "fill": "$obStatus"
+                                },
+                                "MzV9b": {
+                                  "fill": "$obStatus"
+                                },
+                                "zdsqc": {
+                                  "fill": "$obStatus"
+                                },
+                                "1hEPr": {
+                                  "fill": "$obStatusDim"
+                                },
+                                "w6jtk": {
+                                  "fill": "$obStatusDim"
+                                },
+                                "ACYgf": {
+                                  "fill": "$obStatus"
+                                }
+                              }
+                            },
+                            {
+                              "type": "frame",
+                              "id": "qEOkC",
+                              "x": 133.5,
+                              "y": 11,
+                              "name": "DynamicIsland",
+                              "width": 126,
+                              "height": 37,
+                              "fill": "#000000",
+                              "cornerRadius": 24
+                            },
+                            {
+                              "type": "frame",
+                              "id": "D5yTel",
+                              "x": 127,
+                              "y": 839,
+                              "name": "HomeIndicator",
+                              "width": 139,
+                              "height": 5,
+                              "fill": "$obInk80",
+                              "cornerRadius": 100
+                            }
+                          ]
                         }
                       ]
                     }
@@ -14168,15 +16197,14 @@
                 },
                 {
                   "type": "frame",
-                  "id": "bxkzC",
-                  "name": "falta · Te mandamos el link",
-                  "width": 417,
+                  "id": "QgNH5",
+                  "name": "view · Jugador / Capitán",
                   "layout": "vertical",
                   "gap": 20,
                   "children": [
                     {
                       "type": "frame",
-                      "id": "J52Bau",
+                      "id": "M8bzH",
                       "name": "caption",
                       "width": 417,
                       "layout": "vertical",
@@ -14184,7 +16212,7 @@
                       "children": [
                         {
                           "type": "text",
-                          "id": "J1CsK",
+                          "id": "tTuHj",
                           "name": "caption title",
                           "fill": "#FFFFFF",
                           "content": "05 · Te mandamos el link",
@@ -14194,12 +16222,12 @@
                         },
                         {
                           "type": "text",
-                          "id": "hoNe0",
+                          "id": "JrNvR",
                           "name": "caption text",
                           "fill": "#FFFFFFB3",
                           "textGrowth": "fixed-width",
                           "width": "fill_container",
-                          "content": "Falta diseñar. Confirma que el link va en camino.",
+                          "content": "Confirma que el link va en camino. No dice si el correo tiene cuenta: la API responde igual en los dos casos (R3.3).",
                           "lineHeight": 1.4,
                           "fontFamily": "$font",
                           "fontSize": 16,
@@ -14208,74 +16236,489 @@
                       ]
                     },
                     {
-                      "id": "AOLcd",
+                      "id": "WmbWc",
                       "type": "ref",
                       "ref": "zLMR0",
                       "name": "role",
+                      "fill": "#FFFFFF",
+                      "stroke": "#D4D4D8",
+                      "strokeWidth": 1,
                       "descendants": {
                         "KKC1z": {
                           "enabled": false
                         },
                         "UNwwQ": {
                           "enabled": true,
-                          "fill": "#F1EEDD"
+                          "icon": "users"
                         },
                         "bwl4G": {
-                          "content": "Jugador / Capitán"
+                          "content": "Jugador / Capitán",
+                          "fill": "#18181B"
                         }
                       }
                     },
                     {
                       "type": "frame",
-                      "id": "HAG3o",
-                      "name": "Falta · Te mandamos el link",
+                      "id": "MoqXA",
+                      "name": "iPhone · Te mandamos el link",
                       "width": 417,
                       "height": 876,
-                      "fill": "#E4E4E7",
-                      "cornerRadius": 56,
-                      "stroke": "#A1A1AA",
-                      "strokeWidth": 2,
-                      "layout": "vertical",
-                      "gap": 12,
-                      "padding": 40,
-                      "justifyContent": "center",
-                      "alignItems": "center",
+                      "fill": "#1C1C1E",
+                      "cornerRadius": 60,
+                      "stroke": "#48484A",
+                      "strokeWidth": 1.5,
+                      "strokeAlignment": "inner",
+                      "effect": {
+                        "type": "shadow",
+                        "shadowType": "outer",
+                        "color": "#0000002E",
+                        "offset": {
+                          "x": 0,
+                          "y": 12
+                        },
+                        "blur": 32
+                      },
+                      "layout": "none",
                       "children": [
                         {
-                          "type": "text",
-                          "id": "f4swxa",
-                          "name": "tag",
-                          "fill": "#B4532A",
-                          "content": "FALTA",
-                          "fontFamily": "$font",
-                          "fontSize": 15,
-                          "fontWeight": "700",
-                          "letterSpacing": 1.5
-                        },
-                        {
-                          "type": "text",
-                          "id": "bc3TA",
-                          "name": "screen",
-                          "fill": "#27272A",
-                          "textGrowth": "fixed-width",
-                          "width": "fill_container",
-                          "content": "Te mandamos el link",
-                          "textAlign": "center",
-                          "fontFamily": "$fontTitle",
-                          "fontSize": 30,
-                          "fontWeight": "700",
-                          "letterSpacing": -0.9
-                        },
-                        {
-                          "type": "text",
-                          "id": "BxIiu",
-                          "name": "req",
-                          "fill": "#71717A",
-                          "content": "R3.3",
-                          "textAlign": "center",
-                          "fontFamily": "$font",
-                          "fontSize": 17,
-                          "fontWeight": "normal"
+                          "type": "frame",
+                          "id": "JEzuR",
+                          "x": 12,
+                          "y": 12,
+                          "name": "Te mandamos el link",
+                          "clip": true,
+                          "width": 393,
+                          "height": 852,
+                          "fill": {
+                            "type": "gradient",
+                            "gradientType": "linear",
+                            "enabled": true,
+                            "rotation": 180,
+                            "size": {
+                              "height": 1
+                            },
+                            "colors": [
+                              {
+                                "color": "$obBgTop",
+                                "position": 0
+                              },
+                              {
+                                "color": "$obBgBottom",
+                                "position": 1
+                              }
+                            ]
+                          },
+                          "cornerRadius": 48,
+                          "layout": "none",
+                          "children": [
+                            {
+                              "type": "frame",
+                              "id": "ddlII",
+                              "x": 0,
+                              "y": 0,
+                              "name": "Pasto",
+                              "width": 393,
+                              "height": 852,
+                              "layout": "vertical",
+                              "children": [
+                                {
+                                  "type": "rectangle",
+                                  "id": "sSWL2",
+                                  "name": "Franja 1",
+                                  "fill": "$obStripe",
+                                  "width": "fill_container",
+                                  "height": 52
+                                },
+                                {
+                                  "type": "rectangle",
+                                  "id": "igFFs",
+                                  "name": "Franja 2",
+                                  "fill": "#FFFFFF00",
+                                  "width": "fill_container",
+                                  "height": 60
+                                },
+                                {
+                                  "type": "rectangle",
+                                  "id": "bUffQ",
+                                  "name": "Franja 3",
+                                  "fill": "$obStripe",
+                                  "width": "fill_container",
+                                  "height": 70
+                                },
+                                {
+                                  "type": "rectangle",
+                                  "id": "j9tNLL",
+                                  "name": "Franja 4",
+                                  "fill": "#FFFFFF00",
+                                  "width": "fill_container",
+                                  "height": 80
+                                },
+                                {
+                                  "type": "rectangle",
+                                  "id": "f3Czy",
+                                  "name": "Franja 5",
+                                  "fill": "$obStripeSoft",
+                                  "width": "fill_container",
+                                  "height": 92
+                                },
+                                {
+                                  "type": "rectangle",
+                                  "id": "b8UxjS",
+                                  "name": "Franja 6",
+                                  "fill": "#FFFFFF00",
+                                  "width": "fill_container",
+                                  "height": 106
+                                },
+                                {
+                                  "type": "rectangle",
+                                  "id": "Y7qT4",
+                                  "name": "Franja 7",
+                                  "fill": "$obStripeSoft",
+                                  "width": "fill_container",
+                                  "height": 122
+                                },
+                                {
+                                  "type": "rectangle",
+                                  "id": "fszJL",
+                                  "name": "Franja 8",
+                                  "fill": "#FFFFFF00",
+                                  "width": "fill_container",
+                                  "height": 128
+                                },
+                                {
+                                  "type": "rectangle",
+                                  "id": "lgp3P",
+                                  "name": "Franja 9",
+                                  "fill": "$obStripe",
+                                  "width": "fill_container",
+                                  "height": 142
+                                }
+                              ]
+                            },
+                            {
+                              "type": "rectangle",
+                              "id": "j9v23h",
+                              "x": -89.5,
+                              "y": -1,
+                              "name": "área grande",
+                              "width": 572,
+                              "height": 235,
+                              "stroke": "$obInk1F",
+                              "strokeWidth": 1
+                            },
+                            {
+                              "type": "rectangle",
+                              "id": "CTzPu",
+                              "x": 66.5,
+                              "y": -1,
+                              "name": "área chica",
+                              "width": 260,
+                              "height": 79,
+                              "stroke": "$obInk1F",
+                              "strokeWidth": 1
+                            },
+                            {
+                              "type": "ellipse",
+                              "id": "vKMIG",
+                              "x": 193,
+                              "y": 152.5,
+                              "name": "punto penal",
+                              "fill": "$obInk33",
+                              "width": 7,
+                              "height": 7
+                            },
+                            {
+                              "type": "path",
+                              "id": "CKF30",
+                              "x": 0,
+                              "y": 0,
+                              "name": "medialuna",
+                              "geometry": "M92.5 234a130 130 0 0 0 208 0",
+                              "viewBox": [
+                                0,
+                                0,
+                                393,
+                                852
+                              ],
+                              "width": 393,
+                              "height": 852,
+                              "stroke": "$obInk1F",
+                              "strokeWidth": 1
+                            },
+                            {
+                              "type": "ellipse",
+                              "id": "EgWu8",
+                              "x": 66,
+                              "y": 706,
+                              "name": "círculo central",
+                              "width": 260,
+                              "height": 260,
+                              "stroke": "$obInk1F",
+                              "strokeWidth": 1
+                            },
+                            {
+                              "type": "rectangle",
+                              "id": "awXaM",
+                              "x": 0,
+                              "y": 836,
+                              "name": "línea media",
+                              "fill": "$obInk1F",
+                              "width": 393,
+                              "height": 1
+                            },
+                            {
+                              "type": "ellipse",
+                              "id": "aYLbs",
+                              "x": 193,
+                              "y": 832.5,
+                              "name": "punto central",
+                              "fill": "$obInk33",
+                              "width": 7,
+                              "height": 7
+                            },
+                            {
+                              "id": "jNYTy",
+                              "type": "ref",
+                              "ref": "0GA9R",
+                              "name": "BackButton",
+                              "x": 16,
+                              "y": 58,
+                              "descendants": {
+                                "GjAiZ": {
+                                  "x": 7,
+                                  "y": 4.5,
+                                  "geometry": "M6.5 0l-6.5 6.5 6.5 6.5",
+                                  "viewBox": [
+                                    0,
+                                    0,
+                                    6.5,
+                                    13
+                                  ],
+                                  "width": 6.5,
+                                  "height": 13,
+                                  "stroke": "$accent",
+                                  "strokeWidth": 2.4,
+                                  "fill": "#00000000"
+                                }
+                              }
+                            },
+                            {
+                              "type": "path",
+                              "id": "PAJNv",
+                              "x": 136.5,
+                              "y": 66,
+                              "name": "Wordmark",
+                              "geometry": "M0 120c0-66.27 53.73-120 120-120l1295.5 0c66.27 0 120 53.73 120 120l0 144c0 66.27-53.73 120-120 120l-1295.5 0c-66.27 0-120-53.73-120-120l0-144z m29 144c0 50.26 40.74 91 91 91l1295.5 0c50.26 0 91-40.74 91-91l0-144c0-50.26-40.74-91-91-91l-1295.5 0c-50.26 0-91 40.74-91 91l0 144z m84.06-188.1c0.67-2.13 2.96-3.87 5.09-3.87l75.48 0c2.14 0 3.32999 1.74 2.65 3.87l-51.56 163.55c-0.5 1.61 0.39001 2.90001 1.99001 2.90001l75.47999 0c2.14 0 3.32999 1.73999 2.65 3.87999l-12.57 39.89c-0.27 0.82-0.16001 1.61 0.29 2.16l18.16 22.29999c0.96 1.18-0.57001 3.39001-2.35 3.39001l-141.98 0c-26.72 0-41.56-21.67002-33.14-48.39001l59.81-189.67999z m163.51999 52.26c9.78-30.99 42.83001-56.13 73.82-56.13l133.55002 0c31.01 0 48.21 25.14001 38.44 56.13l-40.89001 129.68c-9.77 30.99-42.82999 56.13-73.82999 56.13l-133.54001 0c-31 0-48.21001-25.14001-38.43-56.13l40.87999-129.68z m48.14001 111.29c-0.5 1.61 0.39001 2.90001 1.98001 2.90001l73.54999 0c1.61 0 3.32001-1.29001 3.82001-2.90001l32.03998-101.61c0.51-1.61-0.37999-2.89999-1.98999-2.9l-73.54999 0c-1.6 0-3.31001 1.28999-3.82001 2.9l-32.03 101.61z m211.22-111.29c9.77-30.99 42.82-56.13 73.81-56.13l143.22998 0c2.14 0 3.33002 1.74 2.65002 3.87l-17.69 56.13c-0.51 1.61-2.22001 2.91-3.82 2.91l-114.19001 0c-1.61 0-3.31002 1.28999-3.83001 2.9l-32.02997 101.61c-0.5 1.61 0.38999 2.90001 1.98999 2.90001l114.19 0c1.6 0 2.48999 1.29999 1.98999 2.90998l-9.10999 28.86001c-0.26 0.84-0.15001 1.62001 0.29999 2.17001l27.93 34.28998c0.96 1.18-0.56998 3.39001-2.34998 3.39001l-185.53003 0c-31 0-48.19999-25.14001-38.42999-56.13l40.89001-129.68z m233.23999-52.26c0.68-2.13 2.96003-3.87 5.09003-3.87l76.44995 0c1.61 0 2.50005 1.3 1.99005 2.91l-22.06 69.98c-0.14 0.44-0.18 0.85999-0.11999 1.25999l3.53998 21.27001c0.39 2.37-1.45999 5.22-4.18 6.41l-0.34002 0.14999c-2.71 1.19-5.30001 0.31-5.82001-2l-2.27997-10.02999c-0.26-1.12-1.33003-1.71-2.66003-1.47001l-18.33997 3.46001c-3.32 0.63-6.67001 2.32999-9.45001 4.81999l-5.73999 5.15001c-3.77 3.38-5.82 8-5.31 11.97l1.25 9.64c0.1 0.88 0.38999 1.67 0.85999 2.34l4.53003 6.61c0.05 0.07 0.09998 0.15 0.16998 0.22l0.35999 0.38001c0.27 0.29 0.23999 0.77-0.07001 1.19999l-6.01001 8.32c-0.57 0.8-0.61999 1.71001-0.10999 2.24l1.56 1.67c0.53 0.56 1.52002 0.56 2.40002 0l8.19001-5.19c0.66-0.41 1.40999-0.41 1.79998 0l3.90998 4.16c0.38 0.39 0.34999 1.07-0.07001 1.66l-5.16998 7.4c-0.56 0.78-0.58998 1.68001-0.09998 2.21l1.60999 1.7c0.52 0.55 1.49 0.56 2.36999 0.03l7.51001-4.61c0.65-0.4 1.37997-0.39 1.77997 0.02l32.15003 34.16999c0.38 0.39 0.35 1.07-0.06 1.66l-5.18 7.40002c-0.55 0.78-0.58998 1.67999-0.09997 2.21l1.60998 1.69998c0.51 0.55 1.48999 0.56 2.35999 0.03l7.52002-4.60999c0.66-0.4 1.37996-0.39001 1.76996 0.01999l3.94 4.18002c0.37 0.39 0.35001 1.04997-0.04999 1.62998l-4.55999 6.77002c-0.52 0.79-0.54999 1.65998-0.04999 2.16998l1.64001 1.75c0.5 0.53 1.45 0.56002 2.31 0.05002l6.85998-4.02002c0.65-0.39 1.35999-0.37 1.74 0.03l3.98999 4.24002c0.35 0.37 0.35001 0.97999 0.01001 1.54999l-3.35999 5.55001c-0.46 0.75-0.46 1.55999 0 2.04999l1.76001 1.87c0.47 0.51 1.36 0.56002 2.19 0.11001l5.57001-2.92001c0.62-0.33 1.27995-0.29 1.63995 0.09l4.09003 4.33999c0.32 0.34 0.35001 0.88 0.07001 1.41001l-2.23999 4.39999c-0.36 0.7-0.32001 1.43 0.10998 1.88001l1.89002 2.02001c0.45 0.47 1.22996 0.54999 2.01996 0.21l4.34002-1.9c0.58-0.26 1.17001-0.19003 1.51001 0.15998l4.13996 4.41c1.08 1.13-0.44998 3.45001-2.28998 3.45001l-142.62 0c-0.7 0-1.3-0.26001-1.69-0.73001l-32.02002-39.31998c-0.46-0.55-0.55999-1.33001-0.29999-2.17001l61.75-195.85z m184.76001-2.41c0.8-0.9 1.93998-1.46 2.97998-1.46l96.51007 0c2.48 0 2.89994 2.92 0.68995 4.8l-132.40998 112.66001c-0.94 0.8-1.24004 2.00999-0.67004 2.70999l95.07001 116.69001c1.45 1.77-0.85997 5.07999-3.52997 5.07999l-108.93 0c-1.79 0-2.65-1.60002-1.80999-3.36001l3.52997-7.46c2.28-4.82 2.53001-9.75 0.70001-13.55999l-15.87-33.07999c-0.33-0.68-1.03998-1.09001-1.91998-1.09001l-15.92004 0c-3.48 0-5.41-2.81999-4.31-6.29l0.03003-0.1c1.09-3.47 4.79997-6.28999 8.27997-6.28999l4.42999 0c1.52 0 2.97001-1.67001 2.57001-2.96001l-3.26996-10.45c-0.18-0.57-0.70004-0.91-1.35004-0.91l-23.13 0c-3.21 0-4.98998-2.6-3.97999-5.81l0.37-1.16c1.01-3.2 4.43-5.81 7.63-5.81l18.38001 0c1.22 0 2.48-1.09999 2.63-2.28999l2.32001-18.24001c0.16-1.25-0.57005-2.21001-1.80005-2.35001l-10.65997-1.22c-2.19-0.25-3.07002-2.40999-1.90002-4.64999l15.84002-30.23c4.18-7.98 9.49998-15.65 15.78998-22.72l53.71002-60.45z m86.46002 32.32c0.22-0.69 0.66992-1.37 1.28992-1.89l36.29004-30.88c0.76-0.64 1.68002-1.01 2.52002-1.01l179.56995 0c2.14 0 3.33002 1.74 2.65002 3.87l-17.68994 56.13c-0.51 1.61-2.21007 2.91-3.82007 2.91l-123.86999 0c-1.61 0-3.30995 1.28999-3.81995 2.9l-5.19006 16.44999c-0.5 1.61 0.38999 2.90001 1.98999 2.90001l117.29004 0c2.35 0 2.90005 2.67 0.93005 4.58l-58.41004 57.1c-0.78 0.77-1.81001 1.23001-2.76 1.23001l-76.89002 0c-1.59 0-3.29994 1.28999-3.80994 2.89999l-5.18005 16.45c-0.51 1.61 0.37998 2.90001 1.97998 2.90001l126.77002 0c1.61 0 2.5 1.29999 2 2.90998l-9.10999 28.86001c-0.26 0.84-0.15995 1.62001 0.30005 2.17001l27.92994 34.28998c0.96 1.18-0.56998 3.39001-2.34998 3.39001l-191.44006 0c-0.71 0-1.30994-0.26001-1.68995-0.73001l-43.19-53.01999c-0.45-0.55-0.55998-1.34001-0.28998-2.17001l48-152.23999z m239.26001-29.91c0.67-2.13 2.95997-3.87 5.08997-3.87l154.34998 0c40.89 0 63.59006 33.15001 50.69006 74.04001l-13.03003 41.31999c-5.69 18.06-24.95002 32.71001-43.02002 32.71001l-27.60999 0c-1.78 0-3.30998 2.19999-2.34997 3.37999l69.58997 85.41001c1.44 1.77-0.86003 5.07999-3.53003 5.07999l-111.23999 0c-0.71 0-1.30994-0.26001-1.68995-0.73001l-47.32006-58.07999c-0.9-1.12-3.15993-0.23-3.67994 1.44001l-17.17004 54.45999c-0.51 1.61-2.20995 2.91-3.81995 2.91l-33.4801 0c-0.71 0-1.30995-0.26001-1.69995-0.73001l-31.67004-38.88c-0.45-0.55-0.55992-1.34999-0.28992-2.18l35.32996-112.07998c0.51-1.61 2.22007-2.91 3.82006-2.91001l137.90992 0c6.14 0 12.69-4.98 14.63-11.11999l0 0c1.94-6.15-1.47-11.13-7.61999-11.13001l-137.90003 0c-1.61 0-2.49998-1.3-1.97998-2.91l17.69006-56.13z",
+                              "viewBox": [
+                                0,
+                                0,
+                                1535.5,
+                                384
+                              ],
+                              "fill": "$obInk",
+                              "width": 120,
+                              "height": 30
+                            },
+                            {
+                              "type": "frame",
+                              "id": "Ro2ha",
+                              "x": 24,
+                              "y": 200,
+                              "name": "head",
+                              "width": 345,
+                              "layout": "vertical",
+                              "gap": 10,
+                              "children": [
+                                {
+                                  "type": "frame",
+                                  "id": "RdXxq",
+                                  "name": "Icono correo",
+                                  "width": 72,
+                                  "height": 72,
+                                  "fill": "$obBgTopE6",
+                                  "cornerRadius": 36,
+                                  "stroke": "$obInk24",
+                                  "strokeWidth": 1,
+                                  "justifyContent": "center",
+                                  "alignItems": "center",
+                                  "children": [
+                                    {
+                                      "type": "icon",
+                                      "id": "V6x1pg",
+                                      "name": "envelope",
+                                      "width": 32,
+                                      "height": 32,
+                                      "icon": "envelope-simple-open",
+                                      "library": "phosphor",
+                                      "fill": "$obInk"
+                                    }
+                                  ]
+                                },
+                                {
+                                  "type": "frame",
+                                  "id": "Z410v",
+                                  "name": "spacer",
+                                  "width": "fill_container",
+                                  "height": 6
+                                },
+                                {
+                                  "type": "text",
+                                  "id": "x2wND",
+                                  "name": "Title",
+                                  "fill": "$obInk",
+                                  "textGrowth": "fixed-width",
+                                  "width": "fill_container",
+                                  "content": "Te mandamos el link",
+                                  "fontFamily": "$fontTitle",
+                                  "fontSize": 30,
+                                  "fontWeight": "600",
+                                  "letterSpacing": -1
+                                },
+                                {
+                                  "type": "text",
+                                  "id": "rx8k3",
+                                  "name": "Sub",
+                                  "fill": "$obInkA6",
+                                  "textGrowth": "fixed-width",
+                                  "width": "fill_container",
+                                  "content": "Si diego.ramirez@gmail.com tiene una cuenta en Locker, te llega un link para elegir una contraseña nueva.",
+                                  "lineHeight": 1.4,
+                                  "fontFamily": "$font",
+                                  "fontSize": 16,
+                                  "fontWeight": "normal"
+                                },
+                                {
+                                  "type": "text",
+                                  "id": "M46kd",
+                                  "name": "Note",
+                                  "fill": "$obInk70",
+                                  "textGrowth": "fixed-width",
+                                  "width": "fill_container",
+                                  "content": "El link vence en 1 hora y sirve una sola vez.",
+                                  "lineHeight": 1.4,
+                                  "fontFamily": "$font",
+                                  "fontSize": 14,
+                                  "fontWeight": "normal"
+                                }
+                              ]
+                            },
+                            {
+                              "type": "frame",
+                              "id": "y33H3P",
+                              "x": 24,
+                              "y": 490,
+                              "name": "actions",
+                              "width": 345,
+                              "layout": "vertical",
+                              "gap": 16,
+                              "alignItems": "center",
+                              "children": [
+                                {
+                                  "type": "frame",
+                                  "id": "O2Dnnt",
+                                  "name": "Button · Volver a iniciar sesión",
+                                  "width": "fill_container",
+                                  "height": 56,
+                                  "fill": "$obCta",
+                                  "cornerRadius": 100,
+                                  "gap": 8,
+                                  "justifyContent": "center",
+                                  "alignItems": "center",
+                                  "children": [
+                                    {
+                                      "type": "text",
+                                      "id": "elFQJ",
+                                      "name": "Label",
+                                      "fill": "$obOnCta",
+                                      "content": "Volver a iniciar sesión",
+                                      "fontFamily": "$font",
+                                      "fontSize": 17,
+                                      "fontWeight": "600",
+                                      "letterSpacing": -0.2
+                                    }
+                                  ]
+                                },
+                                {
+                                  "type": "frame",
+                                  "id": "QJ15D",
+                                  "name": "signup",
+                                  "gap": 4,
+                                  "children": [
+                                    {
+                                      "type": "text",
+                                      "id": "DYhdL",
+                                      "name": "q",
+                                      "fill": "$obInk70",
+                                      "content": "¿No te llegó?",
+                                      "fontFamily": "$font",
+                                      "fontSize": 15,
+                                      "fontWeight": "normal"
+                                    },
+                                    {
+                                      "type": "text",
+                                      "id": "z71mE",
+                                      "name": "link",
+                                      "fill": "$obInk",
+                                      "content": "Mandar otro link",
+                                      "fontFamily": "$font",
+                                      "fontSize": 15,
+                                      "fontWeight": "600"
+                                    }
+                                  ]
+                                }
+                              ]
+                            },
+                            {
+                              "id": "EWgIW",
+                              "type": "ref",
+                              "ref": "mqPCF",
+                              "x": 0,
+                              "y": 0,
+                              "name": "StatusBar",
+                              "descendants": {
+                                "2FGm5": {
+                                  "fill": "$obStatus"
+                                },
+                                "MzV9b": {
+                                  "fill": "$obStatus"
+                                },
+                                "zdsqc": {
+                                  "fill": "$obStatus"
+                                },
+                                "1hEPr": {
+                                  "fill": "$obStatusDim"
+                                },
+                                "w6jtk": {
+                                  "fill": "$obStatusDim"
+                                },
+                                "ACYgf": {
+                                  "fill": "$obStatus"
+                                }
+                              }
+                            },
+                            {
+                              "type": "frame",
+                              "id": "t7smK1",
+                              "x": 133.5,
+                              "y": 11,
+                              "name": "DynamicIsland",
+                              "width": 126,
+                              "height": 37,
+                              "fill": "#000000",
+                              "cornerRadius": 24
+                            },
+                            {
+                              "type": "frame",
+                              "id": "dHj2t",
+                              "x": 127,
+                              "y": 839,
+                              "name": "HomeIndicator",
+                              "width": 139,
+                              "height": 5,
+                              "fill": "$obInk80",
+                              "cornerRadius": 100
+                            }
+                          ]
                         }
                       ]
                     }
@@ -14314,7 +16757,7 @@
                           "fill": "#FFFFFFB3",
                           "textGrowth": "fixed-width",
                           "width": "fill_container",
-                          "content": "Falta diseñar. Se abre desde el link del correo (R3.3).",
+                          "content": "Falta diseñar. Se abre desde el link del correo (R3.3). Hoy ese link abre una página web, ver PENDIENTE.",
                           "lineHeight": 1.4,
                           "fontFamily": "$font",
                           "fontSize": 16,
@@ -14454,7 +16897,7 @@
                           "fill": "#3F3F46",
                           "textGrowth": "fixed-width",
                           "width": "fill_container",
-                          "content": "Limitamos los intentos por cuenta y por IP (R3.4).",
+                          "content": "Limitamos los intentos por cuenta y por IP (R3.4). El error no dice si falló el correo o la contraseña.",
                           "lineHeight": 1.45,
                           "fontFamily": "$font",
                           "fontSize": 16,
@@ -14498,7 +16941,7 @@
                           "fill": "#3F3F46",
                           "textGrowth": "fixed-width",
                           "width": "fill_container",
-                          "content": "El link vence y sirve una sola vez (R3.3).",
+                          "content": "El link vence en 1 hora y sirve una sola vez (R3.3). «Te mandamos el link» no dice si el correo tiene cuenta, igual que la API.",
                           "lineHeight": 1.45,
                           "fontFamily": "$font",
                           "fontSize": 16,
@@ -14543,6 +16986,50 @@
                           "textGrowth": "fixed-width",
                           "width": "fill_container",
                           "content": "Si Apple y el correo tienen el mismo correo verificado, son la misma cuenta (R4.2).",
+                          "lineHeight": 1.45,
+                          "fontFamily": "$font",
+                          "fontSize": 16,
+                          "fontWeight": "normal"
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "T5HaN",
+                      "name": "PENDIENTE",
+                      "width": "fill_container",
+                      "stroke": "#E4E4E7",
+                      "strokeWidth": {
+                        "top": 1
+                      },
+                      "layout": "vertical",
+                      "gap": 6,
+                      "padding": [
+                        16,
+                        0,
+                        0,
+                        0
+                      ],
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "wlp1v",
+                          "name": "block label",
+                          "fill": "#B45309",
+                          "content": "PENDIENTE",
+                          "fontFamily": "$font",
+                          "fontSize": 13,
+                          "fontWeight": "700",
+                          "letterSpacing": 0.8
+                        },
+                        {
+                          "type": "text",
+                          "id": "XRTSD",
+                          "name": "block text",
+                          "fill": "#3F3F46",
+                          "textGrowth": "fixed-width",
+                          "width": "fill_container",
+                          "content": "El link del correo (/r/{token}) abre una página web, no la app: no está en apple-app-site-association. ¿«Nueva contraseña» (06) se diseña en la app o se queda en la web?",
                           "lineHeight": 1.45,
                           "fontFamily": "$font",
                           "fontSize": 16,
