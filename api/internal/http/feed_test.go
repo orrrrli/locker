@@ -233,17 +233,18 @@ func TestFeedDefaultFilterIncludesPostsOfFollowedTeams(t *testing.T) {
 	}
 }
 
-// R22.2, R22.7: a user without an active team has no filters; following a
-// team does not change that. The answer is 200 with an empty list.
-func TestFeedFollowingOfAUserWithoutATeamIsAnEmptyList(t *testing.T) {
+// R22.2, R22.7, R22.8: a user without an active team has no filters; following
+// a team does not change that. Without a location, filter=following gets the
+// official posts (venue, league), not the followed team's or its player's.
+func TestFeedFollowingOfAUserWithoutATeamHoldsOnlyTheOfficialPosts(t *testing.T) {
 	w := newFeedWorld(t)
 	_, fan := signUp(t, w.api, "fan@example.com")
 	follow(t, w.api, fan, "team", w.team.ID)
 
 	got := getFeed(t, w.api, fan, "?filter=following")
 
-	if len(got.Posts) != 0 {
-		t.Fatalf("filter=following without a team = %v, want an empty list", got.ids())
+	if want := []int64{w.venuePost, w.leaguePost}; !slices.Equal(got.ids(), want) {
+		t.Fatalf("filter=following without a team = %v, want %v", got.ids(), want)
 	}
 }
 
@@ -557,7 +558,7 @@ func TestFeedPhotosInPositionOrderWithNullURLWithoutABucket(t *testing.T) {
 
 type fakeFeed struct{ calls atomic.Int64 }
 
-func (f *fakeFeed) Page(context.Context, int64, domain.FeedFilter, *domain.FeedCursor) (feed.Page, error) {
+func (f *fakeFeed) Page(context.Context, int64, domain.FeedFilter, *domain.LatLng, *domain.FeedCursor) (feed.Page, error) {
 	f.calls.Add(1)
 	return feed.Page{}, nil
 }

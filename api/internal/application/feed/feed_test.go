@@ -15,14 +15,24 @@ type fakePosts struct {
 	calls   int
 	viewer  int64
 	filter  domain.FeedFilter
+	venues  []int64
 	before  *domain.FeedCursor
 	limit   int
 	answers []domain.Post
+
+	noTeam       bool // HasTeam answers false; the zero value is a viewer with a team
+	hasTeamErr   error
+	hasTeamCalls int
 }
 
-func (f *fakePosts) Page(_ context.Context, viewerID int64, filter domain.FeedFilter, before *domain.FeedCursor, limit int) ([]domain.Post, error) {
+func (f *fakePosts) HasTeam(_ context.Context, _ int64) (bool, error) {
+	f.hasTeamCalls++
+	return !f.noTeam, f.hasTeamErr
+}
+
+func (f *fakePosts) Page(_ context.Context, viewerID int64, filter domain.FeedFilter, nearVenueIDs []int64, before *domain.FeedCursor, limit int) ([]domain.Post, error) {
 	f.calls++
-	f.viewer, f.filter, f.before, f.limit = viewerID, filter, before, limit
+	f.viewer, f.filter, f.venues, f.before, f.limit = viewerID, filter, nearVenueIDs, before, limit
 	return f.answers, nil
 }
 
@@ -58,7 +68,7 @@ func postsNewestFirst(n int) []domain.Post {
 func TestPageWithoutFilterMeansAll(t *testing.T) {
 	repo := &fakePosts{}
 
-	_, err := NewService(repo, nil).Page(context.Background(), 7, "", nil)
+	_, err := NewService(repo, nil, nil).Page(context.Background(), 7, "", nil, nil)
 
 	if err != nil {
 		t.Fatalf("Page: %v", err)
@@ -73,7 +83,7 @@ func TestPagePassesAValidFilterThrough(t *testing.T) {
 		t.Run(string(filter), func(t *testing.T) {
 			repo := &fakePosts{}
 
-			_, err := NewService(repo, nil).Page(context.Background(), 7, filter, nil)
+			_, err := NewService(repo, nil, nil).Page(context.Background(), 7, filter, nil, nil)
 
 			if err != nil {
 				t.Fatalf("Page: %v", err)
@@ -90,7 +100,7 @@ func TestPageRejectsAnyOtherFilterBeforeTouchingTheRepo(t *testing.T) {
 		t.Run(string(filter), func(t *testing.T) {
 			repo := &fakePosts{}
 
-			_, err := NewService(repo, nil).Page(context.Background(), 7, filter, nil)
+			_, err := NewService(repo, nil, nil).Page(context.Background(), 7, filter, nil, nil)
 
 			if !errors.Is(err, ErrInvalidFilter) {
 				t.Fatalf("err = %v, want ErrInvalidFilter", err)
@@ -107,7 +117,7 @@ func TestPageAsksForOneMoreThanPageSizeAndPassesTheCursorOn(t *testing.T) {
 	repo := &fakePosts{}
 	before := &domain.FeedCursor{CreatedAt: base, ID: 99}
 
-	_, err := NewService(repo, nil).Page(context.Background(), 7, domain.FeedAll, before)
+	_, err := NewService(repo, nil, nil).Page(context.Background(), 7, domain.FeedAll, nil, before)
 
 	if err != nil {
 		t.Fatalf("Page: %v", err)
@@ -123,7 +133,7 @@ func TestPageAsksForOneMoreThanPageSizeAndPassesTheCursorOn(t *testing.T) {
 func TestPageWithAFullPagePlusOneReturnsPageSizeAndACursor(t *testing.T) {
 	repo := &fakePosts{answers: postsNewestFirst(21)}
 
-	got, err := NewService(repo, nil).Page(context.Background(), 7, domain.FeedAll, nil)
+	got, err := NewService(repo, nil, nil).Page(context.Background(), 7, domain.FeedAll, nil, nil)
 
 	if err != nil {
 		t.Fatalf("Page: %v", err)
@@ -147,7 +157,7 @@ func TestPageWithNoMoreThanPageSizeHasNoCursor(t *testing.T) {
 	for _, n := range []int{20, 1} {
 		repo := &fakePosts{answers: postsNewestFirst(n)}
 
-		got, err := NewService(repo, nil).Page(context.Background(), 7, domain.FeedAll, nil)
+		got, err := NewService(repo, nil, nil).Page(context.Background(), 7, domain.FeedAll, nil, nil)
 
 		if err != nil {
 			t.Fatalf("%d posts: Page: %v", n, err)
@@ -163,7 +173,7 @@ func TestPageWithNoMoreThanPageSizeHasNoCursor(t *testing.T) {
 func TestPageOfAnEmptyFeedIsEmptyAndNotNil(t *testing.T) {
 	repo := &fakePosts{}
 
-	got, err := NewService(repo, nil).Page(context.Background(), 7, domain.FeedAll, nil)
+	got, err := NewService(repo, nil, nil).Page(context.Background(), 7, domain.FeedAll, nil, nil)
 
 	if err != nil {
 		t.Fatalf("Page: %v", err)
@@ -179,7 +189,7 @@ func TestPageSignsTheSmallVersionOfEveryPhoto(t *testing.T) {
 	posts[1].Media = []domain.PostMedia{{StorageKey: "photos/c", Position: 0}}
 	signer := &fakeSigner{}
 
-	got, err := NewService(&fakePosts{answers: posts}, signer).Page(context.Background(), 7, domain.FeedAll, nil)
+	got, err := NewService(&fakePosts{answers: posts}, nil, signer).Page(context.Background(), 7, domain.FeedAll, nil, nil)
 
 	if err != nil {
 		t.Fatalf("Page: %v", err)
@@ -213,7 +223,7 @@ func TestPageWithoutASignerLeavesEveryPhotoURLNil(t *testing.T) {
 	posts := postsNewestFirst(2)
 	posts[0].Media = []domain.PostMedia{{StorageKey: "photos/a"}, {StorageKey: "photos/b", Position: 1}}
 
-	got, err := NewService(&fakePosts{answers: posts}, nil).Page(context.Background(), 7, domain.FeedAll, nil)
+	got, err := NewService(&fakePosts{answers: posts}, nil, nil).Page(context.Background(), 7, domain.FeedAll, nil, nil)
 
 	if err != nil {
 		t.Fatalf("Page: %v", err)
@@ -235,7 +245,7 @@ func TestPageReturnsASignerError(t *testing.T) {
 	posts[0].Media = []domain.PostMedia{{StorageKey: "photos/a"}}
 	signer := &fakeSigner{err: boom}
 
-	_, err := NewService(&fakePosts{answers: posts}, signer).Page(context.Background(), 7, domain.FeedAll, nil)
+	_, err := NewService(&fakePosts{answers: posts}, nil, signer).Page(context.Background(), 7, domain.FeedAll, nil, nil)
 
 	if !errors.Is(err, boom) {
 		t.Fatalf("err = %v, want the signer's error", err)

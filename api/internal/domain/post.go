@@ -31,7 +31,15 @@ const (
 	FeedAll       FeedFilter = "all"
 	FeedTeams     FeedFilter = "teams"
 	FeedFollowing FeedFilter = "following"
+
+	// FeedNearby and FeedOfficial are the two feeds of a user without a team
+	// (R22.7, R22.8). Internal: the use case picks them, the client never sends them.
+	FeedNearby   FeedFilter = "nearby"
+	FeedOfficial FeedFilter = "official"
 )
+
+// LatLng is a point on Earth in degrees. It lives for one request only.
+type LatLng struct{ Latitude, Longitude float64 }
 
 // FeedCursor is the last post of the previous page: the next page holds the
 // posts strictly older than it, ordered by (created_at, id) descending.

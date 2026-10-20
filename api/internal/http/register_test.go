@@ -162,7 +162,7 @@ func newAPIWithFeedSigner(t *testing.T, now func() time.Time, feedSigner feed.Si
 			Users: postgres.NewUsers(pool), Photos: fakePhotos{}, Now: now,
 		}),
 		Reactions:          reactions.NewService(postgres.NewTxRunner(pool), postgres.NewReactions(pool)),
-		Feed:               feed.NewService(postgres.NewFeed(pool), feedSigner),
+		Feed:               feed.NewService(postgres.NewFeed(pool), venueSvc, feedSigner),
 		NotificationFinder: notificationRepo,
 	}))
 	mux.Handle("GET /test/whoami", authHandlers{svc: svc}.requireAuth(http.HandlerFunc(

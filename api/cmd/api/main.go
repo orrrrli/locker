@@ -195,7 +195,7 @@ func start() error {
 		Media:              mediaSvc,
 		Posts:              postSvc,
 		Reactions:          reactions.NewService(postgres.NewTxRunner(pool), postgres.NewReactions(pool)),
-		Feed:               feed.NewService(postgres.NewFeed(pool), feedPhotos),
+		Feed:               feed.NewService(postgres.NewFeed(pool), venueSvc, feedPhotos),
 		MatchFinder:        matchRepo,
 		ChargeFinder:       chargeRepo,
 		AppleAppID:         cfg.AppleAppID,
