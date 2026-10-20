@@ -1,9 +1,15 @@
 package http
 
 import (
+	"bytes"
+	"context"
 	"fmt"
+	"log/slog"
 	"net/http"
+	"net/http/httptest"
+	"os"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 )
@@ -131,5 +137,50 @@ func TestFeedOfAUserWithATeamIgnoresNear(t *testing.T) {
 	}
 	if !slices.Equal(with.ids(), want) {
 		t.Errorf("GET /feed%s = %v, want %v, as without it", nearHalcones, with.ids(), want)
+	}
+}
+
+// TestFeedNearLocationNeverLogged (R22.8, BE-FEED-6): the point in
+// GET /feed?near= is used for that request only. The API logs the path without
+// the query on the success, the 422 and the failing paths, and nginx keeps no
+// access log for /feed.
+func TestFeedNearLocationNeverLogged(t *testing.T) {
+	api := newAPI(t, func() time.Time { return today })
+	_, token := signUp(t, api, "fan@example.com")
+	var logs bytes.Buffer
+	prev := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&logs, nil)))
+	t.Cleanup(func() { slog.SetDefault(prev) })
+	const lat, lng, badLat = "31.8667", "-116.5964", "91.7777"
+
+	getFeed(t, api, token, "?near="+lat+","+lng)
+	if rec := feedGet(t, api, token, "?near="+badLat+","+lng); rec.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("GET /feed?near=%s,%s = %d %s, want 422", badLat, lng, rec.Code, rec.Body)
+	}
+	// A request the client gave up on fails inside the handler chain and is
+	// logged; the log must still carry the path only.
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	req := httptest.NewRequest(http.MethodGet, "/feed?near="+lat+","+lng, nil).WithContext(ctx)
+	req.Header.Set("Authorization", "Bearer "+token)
+	api.handler.ServeHTTP(httptest.NewRecorder(), req)
+
+	for _, leak := range []string{lat, lng, badLat, "near"} {
+		if strings.Contains(logs.String(), leak) {
+			t.Fatalf("logs contain %q: %s", leak, logs.String())
+		}
+	}
+	if !strings.Contains(logs.String(), "path=/feed") {
+		t.Fatalf("logs = %q, want the cancelled request logged with its path", logs.String())
+	}
+
+	conf, err := os.ReadFile("../../../deploy/nginx/api.locker.center.conf")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, block, found := strings.Cut(string(conf), "location = /feed {")
+	block, _, _ = strings.Cut(block, "}")
+	if !found || !strings.Contains(block, "access_log off;") {
+		t.Fatalf("nginx: location = /feed must set access_log off; got %q", block)
 	}
 }
