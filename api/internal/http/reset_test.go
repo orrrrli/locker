@@ -6,7 +6,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
-	"os"
 	"strconv"
 	"strings"
 	"sync/atomic"
@@ -217,19 +216,7 @@ func TestResetLinkPage(t *testing.T) {
 		t.Fatalf("GET: status %d, body %s; want the form without the token", rec.Code, rec.Body)
 	}
 
-	conf, err := os.ReadFile("../../../deploy/nginx/api.locker.center.conf")
-	if err != nil {
-		t.Fatal(err)
-	}
-	_, block, found := strings.Cut(string(conf), "location /r/ {")
-	block, _, _ = strings.Cut(block, "}")
-	// error_log crit keeps the request line out of the error log while the
-	// API is down; a proxy_set_header here would drop the server-level
-	// X-Real-IP and let clients pick their rate-limit IP.
-	if !found || !strings.Contains(block, "access_log off;") || !strings.Contains(block, "error_log /var/log/nginx/error.log crit;") ||
-		strings.Contains(block, "proxy_set_header") {
-		t.Fatalf("nginx: location /r/ must set access_log off and error_log crit, and no proxy_set_header; got %q", block)
-	}
+	requireNoLogLocation(t, "/r/")
 
 	post := func(password string) *httptest.ResponseRecorder {
 		req := httptest.NewRequest(http.MethodPost, path, strings.NewReader(url.Values{"password": {password}}.Encode()))

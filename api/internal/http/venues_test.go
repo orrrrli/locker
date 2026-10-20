@@ -8,7 +8,6 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
-	"os"
 	"strings"
 	"testing"
 	"time"
@@ -264,15 +263,7 @@ func TestNearLocationNeverLogged(t *testing.T) {
 		t.Fatalf("logs = %q, want the cancelled request logged with its path", logs.String())
 	}
 
-	conf, err := os.ReadFile("../../../deploy/nginx/api.locker.center.conf")
-	if err != nil {
-		t.Fatal(err)
-	}
-	_, block, found := strings.Cut(string(conf), "location = /venues {")
-	block, _, _ = strings.Cut(block, "}")
-	if !found || !strings.Contains(block, "access_log off;") {
-		t.Fatalf("nginx: location = /venues must set access_log off; got %q", block)
-	}
+	requireNoLogLocation(t, "= /venues")
 }
 
 func TestNearbyVenues(t *testing.T) {

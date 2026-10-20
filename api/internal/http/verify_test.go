@@ -4,7 +4,6 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
-	"os"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -124,15 +123,7 @@ func TestVerifyLinkPage(t *testing.T) {
 	}
 
 	// The token is in the path: production nginx must not log it.
-	conf, err := os.ReadFile("../../../deploy/nginx/api.locker.center.conf")
-	if err != nil {
-		t.Fatal(err)
-	}
-	_, block, found := strings.Cut(string(conf), "location /v/ {")
-	block, _, _ = strings.Cut(block, "}")
-	if !found || !strings.Contains(block, "access_log off;") {
-		t.Fatalf("nginx: location /v/ must set access_log off; got %q", block)
-	}
+	requireNoLogLocation(t, "/v/")
 
 	if rec := postForm(api, path); rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "confirmado") {
 		t.Fatalf("POST: status %d, body %s; want the done page", rec.Code, rec.Body)
