@@ -31,7 +31,7 @@ func (f *Feed) Page(ctx context.Context, viewerID int64, filter domain.FeedFilte
 		ViewerID: viewerID, PageSize: int32(limit),
 		IncludeMine:      filter != domain.FeedFollowing,
 		IncludeOfficial:  filter == domain.FeedAll,
-		IncludeFollowing: filter == domain.FeedFollowing,
+		IncludeFollowing: filter == domain.FeedAll || filter == domain.FeedFollowing,
 	}
 	if before != nil {
 		arg.BeforeAt = timestamptz(before.CreatedAt)

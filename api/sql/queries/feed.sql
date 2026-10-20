@@ -5,10 +5,11 @@
 -- are enrolled in and of those leagues' venues (R22.6). Pending and left
 -- memberships count for nothing (R22.2), so a dissolved team, which keeps no
 -- active member, drops out on its own (R6.10).
--- include_following ("following"): posts of followed teams, as the team or
--- by a linked player, and of followed leagues (R22.5). Follows outlive
--- dissolution, so dissolved teams are filtered here (R6.10). A viewer with no
--- active team gets none of them: no filters without a team (R22.7).
+-- include_following ("following", and "all" per R22.6): posts of followed
+-- teams, as the team or by a linked player, and of followed leagues (R22.5).
+-- Follows outlive dissolution, so dissolved teams are filtered here (R6.10).
+-- A viewer with no active team gets none of them: no filters without a team
+-- (R22.7).
 -- Every feed hides removed posts and player or team posts whose writer the
 -- viewer blocked, a team post written by a blocked admin included (R22.9,
 -- R23.5).

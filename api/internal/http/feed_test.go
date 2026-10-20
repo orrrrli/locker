@@ -200,6 +200,53 @@ func TestFeedFilterFollowingHoldsOnlyWhatTheViewerFollows(t *testing.T) {
 	}
 }
 
+// follow makes the user follow a team or league through PUT /follows/{kind}/{id}.
+func follow(t *testing.T, api apiTest, token, kind string, id int64) {
+	t.Helper()
+	if rec := api.do(t, http.MethodPut, followPath(kind, id), token, nil); rec.Code != http.StatusNoContent {
+		t.Fatalf("PUT %s = %d %s, want 204", followPath(kind, id), rec.Code, rec.Body)
+	}
+}
+
+// R22.6: the default feed ("all") also holds the posts of a team the viewer
+// follows, as the team and by a player linked to it. Ana, admin of Halcones,
+// follows Rayos through the real route; Rayos is not hers. Posts of a team she
+// does not follow stay out.
+func TestFeedDefaultFilterIncludesPostsOfFollowedTeams(t *testing.T) {
+	w := newFeedWorld(t)
+	_, caro := signUp(t, w.api, "caro@example.com")
+	daniID, dani := signUp(t, w.api, "dani@example.com")
+	_, elo := signUp(t, w.api, "elo@example.com")
+	rayos := createTeam(t, w.api, caro, "Rayos", "America/Tijuana")
+	addMember(t, w.api, rayos.ID, daniID, "player", "active")
+	strangers := createTeam(t, w.api, elo, "Otros", "America/Tijuana")
+	follow(t, w.api, w.ana, "team", rayos.ID)
+	rayosTeamPost := publish(t, w.api, caro, map[string]any{"as_kind": "team", "team_id": rayos.ID, "body": "Rayos gana"})
+	rayosPlayerPost := publish(t, w.api, dani, map[string]any{"as_kind": "player", "team_id": rayos.ID, "body": "Mi pase"})
+	publish(t, w.api, elo, map[string]any{"as_kind": "team", "team_id": strangers.ID, "body": "No me sigues"})
+
+	got := getFeed(t, w.api, w.ana, "")
+
+	want := []int64{rayosPlayerPost, rayosTeamPost, w.venuePost, w.leaguePost, w.playerPost, w.teamPost}
+	if !slices.Equal(got.ids(), want) {
+		t.Fatalf("default feed = %v, want %v (followed team and its player included)", got.ids(), want)
+	}
+}
+
+// R22.2, R22.7: a user without an active team has no filters; following a
+// team does not change that. The answer is 200 with an empty list.
+func TestFeedFollowingOfAUserWithoutATeamIsAnEmptyList(t *testing.T) {
+	w := newFeedWorld(t)
+	_, fan := signUp(t, w.api, "fan@example.com")
+	follow(t, w.api, fan, "team", w.team.ID)
+
+	got := getFeed(t, w.api, fan, "?filter=following")
+
+	if len(got.Posts) != 0 {
+		t.Fatalf("filter=following without a team = %v, want an empty list", got.ids())
+	}
+}
+
 func TestFeedRejectsAnInvalidFilter(t *testing.T) {
 	w := newFeedWorld(t)
 	getFeed(t, w.api, w.ana, "?filter=teams") // control: the route exists, so the 400 is the filter's
