@@ -236,15 +236,17 @@ type Team struct {
 }
 
 type User struct {
-	ID              int64
-	Name            pgtype.Text
-	Email           pgtype.Text
-	EmailVerifiedAt pgtype.Timestamptz
-	BirthDate       pgtype.Date
-	PhotoUrl        pgtype.Text
-	DeletedAt       pgtype.Timestamptz
-	CreatedAt       pgtype.Timestamptz
-	IsOperator      bool
+	ID                     int64
+	Name                   pgtype.Text
+	Email                  pgtype.Text
+	EmailVerifiedAt        pgtype.Timestamptz
+	BirthDate              pgtype.Date
+	PhotoUrl               pgtype.Text
+	DeletedAt              pgtype.Timestamptz
+	CreatedAt              pgtype.Timestamptz
+	IsOperator             bool
+	ContentRulesAcceptedAt pgtype.Timestamptz
+	SuspendedAt            pgtype.Timestamptz
 }
 
 type UserBlock struct {
