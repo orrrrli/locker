@@ -121,6 +121,8 @@ var postErrors = errorMap{
 	{application.ErrNotAdmin, http.StatusForbidden, "forbidden"},
 	{posts.ErrNotOperator, http.StatusForbidden, "forbidden"},
 	{posts.ErrNotAllowed, http.StatusForbidden, "forbidden"},
+	{posts.ErrSuspended, http.StatusForbidden, "suspended"},
+	{posts.ErrContentRulesNotAccepted, http.StatusForbidden, "content_rules_not_accepted"},
 	{domain.ErrTeamBusy, http.StatusServiceUnavailable, "team_busy"},
 	{domain.ErrNotFound, http.StatusNotFound, "not_found"},
 }

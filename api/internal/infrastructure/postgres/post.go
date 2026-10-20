@@ -24,19 +24,28 @@ func NewPosts(pool *pgxpool.Pool) *Posts {
 }
 
 // LockUser holds the user's row until the transaction ends, so the daily
-// count stays exact. domain.ErrNotFound for an unknown or deleted user.
-func (r *Posts) LockUser(ctx context.Context, userID int64) error {
+// count stays exact, and returns the user with ContentRulesAcceptedAt and
+// SuspendedAt read under the lock. domain.ErrNotFound for an unknown or
+// deleted user.
+func (r *Posts) LockUser(ctx context.Context, userID int64) (domain.User, error) {
 	if _, ok := ctx.Value(txKey{}).(pgx.Tx); !ok {
-		return errors.New("postgres: lock user for post: no transaction in ctx")
+		return domain.User{}, errors.New("postgres: lock user for post: no transaction in ctx")
 	}
-	_, err := sqlcdb.New(Conn(ctx, r.pool)).LockUserForPost(ctx, userID)
+	row, err := sqlcdb.New(Conn(ctx, r.pool)).LockUserForPost(ctx, userID)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return domain.ErrNotFound
+		return domain.User{}, domain.ErrNotFound
 	}
 	if err != nil {
-		return fmt.Errorf("postgres: lock user for post: %w", err)
+		return domain.User{}, fmt.Errorf("postgres: lock user for post: %w", err)
 	}
-	return nil
+	u := domain.User{ID: userID}
+	if row.ContentRulesAcceptedAt.Valid {
+		u.ContentRulesAcceptedAt = &row.ContentRulesAcceptedAt.Time
+	}
+	if row.SuspendedAt.Valid {
+		u.SuspendedAt = &row.SuspendedAt.Time
+	}
+	return u, nil
 }
 
 // CountSince counts the posts the user wrote after since.

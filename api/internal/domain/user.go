@@ -19,6 +19,8 @@ type User struct {
 	IsOperator      bool
 
 	ContentRulesAcceptedAt *time.Time
+	// SuspendedAt is set while the operator suspends the user (R23.10).
+	SuspendedAt *time.Time
 }
 
 type Provider string

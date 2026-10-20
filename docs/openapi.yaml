@@ -2582,7 +2582,12 @@ paths:
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
-          description: "`forbidden`: an active player posting as the team, or a non-operator posting as a league or venue."
+          description: |
+            - `forbidden`: an active player posting as the team, or a non-operator posting as a league or venue.
+            - `suspended`: the operator suspended the caller (R23.10). Wins over `content_rules_not_accepted`.
+            - `content_rules_not_accepted`: the caller has not called `POST /me/content-rules` yet (R23.13). Applies to every author kind.
+
+            Both are checked after the author check, so a team the caller is not an active member of still answers 404. A rejected post spends none of the daily limit and attaches none of its photos.
           content:
             application/json:
               schema:

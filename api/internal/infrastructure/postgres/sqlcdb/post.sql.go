@@ -174,18 +174,24 @@ func (q *Queries) GetPostAuthor(ctx context.Context, id int64) (GetPostAuthorRow
 }
 
 const lockUserForPost = `-- name: LockUserForPost :one
-SELECT id FROM "user"
+SELECT content_rules_accepted_at, suspended_at FROM "user"
 WHERE id = $1 AND deleted_at IS NULL
 FOR NO KEY UPDATE
 `
 
+type LockUserForPostRow struct {
+	ContentRulesAcceptedAt pgtype.Timestamptz
+	SuspendedAt            pgtype.Timestamptz
+}
+
 // Serializes one user's posts, so the daily count stays exact when two
-// arrive at once (NFR 9).
-func (q *Queries) LockUserForPost(ctx context.Context, id int64) (int64, error) {
+// arrive at once (NFR 9). Returns the moderation columns read under the
+// lock, so a suspension committed meanwhile is seen (R23.10, R23.13).
+func (q *Queries) LockUserForPost(ctx context.Context, id int64) (LockUserForPostRow, error) {
 	row := q.db.QueryRow(ctx, lockUserForPost, id)
-	var id_2 int64
-	err := row.Scan(&id_2)
-	return id_2, err
+	var i LockUserForPostRow
+	err := row.Scan(&i.ContentRulesAcceptedAt, &i.SuspendedAt)
+	return i, err
 }
 
 const releasePostUploads = `-- name: ReleasePostUploads :exec
