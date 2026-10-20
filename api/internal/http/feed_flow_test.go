@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"slices"
+	"strconv"
 	"testing"
 	"time"
 )
@@ -83,4 +84,161 @@ func TestFeedHidesTheDissolvedTeamsPostsFromItsFormerMember(t *testing.T) {
 	for _, query := range []string{"?filter=all", "?filter=teams"} {
 		wantEmptyFeed(t, api, capitan, query)
 	}
+}
+
+// joinAndApprove makes the user an active player of the team through the real
+// routes: a join request, then the admin's approval.
+func joinAndApprove(t *testing.T, api apiTest, adminToken string, team teamJSON, userID int64, userToken string) {
+	t.Helper()
+	requestJoin(t, api, userToken, team.ID, http.StatusCreated)
+	decide(t, api, adminToken, membershipID(t, api, team.ID, userID), "approve", http.StatusOK)
+}
+
+// wantFeed fails unless the feed holds exactly these posts, newest first.
+func wantFeed(t *testing.T, api apiTest, token, query string, want ...int64) {
+	t.Helper()
+	got := getFeed(t, api, token, query).ids()
+	if len(want) == 0 {
+		wantEmptyFeed(t, api, token, query)
+		return
+	}
+	if !slices.Equal(got, want) {
+		t.Errorf("GET /feed%s = %v, want %v", query, got, want)
+	}
+}
+
+// followWorld: Ana is Capitan of Halcones and follows nothing yet. Caro is the
+// Capitan of Rayos with Dani as a player (both joined through the routes). Liga
+// Norte and Liga Sur are made by the operator; Ana's team is in neither. One
+// post each, created in this order: Ana's team, Rayos, Dani as a Rayos player,
+// Liga Norte, Liga Sur, Otros (a team nobody follows).
+type followWorld struct {
+	api                                          apiTest
+	anaID, caroID, daniID                        int64
+	ana, caro, dani                              string
+	halcones, rayos                              teamJSON
+	norte, sur                                   leagueJSON
+	halconesPost, rayosPost, daniPost, nortePost int64
+	surPost, otrosPost                           int64
+}
+
+func newFollowWorld(t *testing.T) followWorld {
+	t.Helper()
+	api := newAPI(t, func() time.Time { return today })
+	w := followWorld{api: api}
+	w.anaID, w.ana = signUp(t, api, "ana@example.com")
+	w.caroID, w.caro = signUp(t, api, "caro@example.com")
+	w.daniID, w.dani = signUp(t, api, "dani@example.com")
+	_, elo := signUp(t, api, "elo@example.com")
+	op := operator(t, api)
+	w.halcones = createTeam(t, api, w.ana, "Halcones", "America/Tijuana")
+	w.rayos = createTeam(t, api, w.caro, "Rayos", "America/Tijuana")
+	otros := createTeam(t, api, elo, "Otros", "America/Tijuana")
+	joinAndApprove(t, api, w.caro, w.rayos, w.daniID, w.dani)
+	venue := createVenue(t, api, op, "Cancha 1")
+	w.norte = createLeague(t, api, op, venue.ID)
+	w.sur = createLeague(t, api, op, venue.ID)
+	w.halconesPost = publish(t, api, w.ana, map[string]any{"as_kind": "team", "team_id": w.halcones.ID, "body": "Halcones gana"})
+	w.rayosPost = publish(t, api, w.caro, map[string]any{"as_kind": "team", "team_id": w.rayos.ID, "body": "Rayos gana"})
+	w.daniPost = publish(t, api, w.dani, map[string]any{"as_kind": "player", "team_id": w.rayos.ID, "body": "Mi pase"})
+	w.nortePost = publish(t, api, op, map[string]any{"as_kind": "league", "league_id": w.norte.ID, "body": "Jornada 1"})
+	w.surPost = publish(t, api, op, map[string]any{"as_kind": "league", "league_id": w.sur.ID, "body": "Jornada 2"})
+	w.otrosPost = publish(t, api, elo, map[string]any{"as_kind": "team", "team_id": otros.ID, "body": "No me sigues"})
+	return w
+}
+
+// R22.5, R22.6, R20.3: Ana follows Rayos and Liga Norte. Following holds the
+// posts of Rayos, of its player Dani and of Liga Norte, and none of her own
+// team, Liga Sur or Otros. All holds those plus her own team's. After she
+// unfollows both through DELETE /follows, both feeds drop them again.
+func TestFeedFollowingHoldsFollowedTeamPlayerAndLeagueUntilUnfollowed(t *testing.T) {
+	w := newFollowWorld(t)
+	wantFeed(t, w.api, w.ana, "?filter=following") // control: follows nothing yet
+	wantFeed(t, w.api, w.ana, "?filter=all", w.halconesPost)
+	follow(t, w.api, w.ana, "team", w.rayos.ID)
+	follow(t, w.api, w.ana, "league", w.norte.ID)
+
+	wantFeed(t, w.api, w.ana, "?filter=following", w.nortePost, w.daniPost, w.rayosPost)
+	wantFeed(t, w.api, w.ana, "?filter=all", w.nortePost, w.daniPost, w.rayosPost, w.halconesPost)
+	wantFeed(t, w.api, w.ana, "", w.nortePost, w.daniPost, w.rayosPost, w.halconesPost)
+
+	for _, f := range []struct {
+		kind string
+		id   int64
+	}{{"team", w.rayos.ID}, {"league", w.norte.ID}} {
+		if rec := w.api.do(t, http.MethodDelete, followPath(f.kind, f.id), w.ana, nil); rec.Code != http.StatusNoContent {
+			t.Fatalf("DELETE %s = %d %s, want 204", followPath(f.kind, f.id), rec.Code, rec.Body)
+		}
+	}
+
+	wantFeed(t, w.api, w.ana, "?filter=following")
+	wantFeed(t, w.api, w.ana, "?filter=all", w.halconesPost)
+	wantFeed(t, w.api, w.ana, "", w.halconesPost)
+}
+
+// R22.4: "My teams" stays the viewer's own teams (the team and its players),
+// whatever she follows.
+func TestFeedFilterTeamsIgnoresActiveFollows(t *testing.T) {
+	w := newFollowWorld(t)
+	betoID, beto := signUp(t, w.api, "beto@example.com")
+	joinAndApprove(t, w.api, w.ana, w.halcones, betoID, beto)
+	betoPost := publish(t, w.api, beto, map[string]any{"as_kind": "player", "team_id": w.halcones.ID, "body": "Mi gol"})
+	follow(t, w.api, w.ana, "team", w.rayos.ID)
+	follow(t, w.api, w.ana, "league", w.norte.ID)
+	wantFeed(t, w.api, w.ana, "?filter=following", w.nortePost, w.daniPost, w.rayosPost) // control: the follows are active
+
+	wantFeed(t, w.api, w.ana, "?filter=teams", betoPost, w.halconesPost)
+}
+
+// R22.2, R22.7, R22.11: a user whose only membership is pending has no feed
+// even while following Rayos: 200 with an empty list under all and following.
+// Once the Capitan of Halcones approves, the next request holds Rayos's posts
+// under following, and Halcones's too under all.
+func TestFeedFollowerWithAPendingRequestGetsTheFollowedPostsRightAfterApproval(t *testing.T) {
+	w := newFollowWorld(t)
+	fanID, fan := signUp(t, w.api, "fan@example.com")
+	requestJoin(t, w.api, fan, w.halcones.ID, http.StatusCreated)
+	follow(t, w.api, fan, "team", w.rayos.ID)
+	for _, query := range []string{"", "?filter=all", "?filter=following"} {
+		wantFeed(t, w.api, fan, query) // pending: no feed, whatever she follows
+	}
+
+	decide(t, w.api, w.ana, membershipID(t, w.api, w.halcones.ID, fanID), "approve", http.StatusOK)
+
+	wantFeed(t, w.api, fan, "?filter=following", w.daniPost, w.rayosPost)
+	wantFeed(t, w.api, fan, "?filter=all", w.daniPost, w.rayosPost, w.halconesPost)
+}
+
+// R22.7: a user with no membership at all gets 200 with an empty list under
+// the default feed and following, even when following a team and a league.
+func TestFeedFollowerWithoutAnyMembershipGetsAnEmptyList(t *testing.T) {
+	w := newFollowWorld(t)
+	_, fan := signUp(t, w.api, "fan@example.com")
+	follow(t, w.api, fan, "team", w.rayos.ID)
+	follow(t, w.api, fan, "league", w.norte.ID)
+
+	for _, query := range []string{"", "?filter=following"} {
+		wantFeed(t, w.api, fan, query)
+	}
+}
+
+// R6.10: Ana follows Rayos. Dani leaves, so Caro is its only member and
+// dissolves it through DELETE /teams/{id}. Neither Rayos's post nor Dani's post
+// as a Rayos player shows in following or all afterwards. Whether dissolving
+// deletes the posts is a separate issue (#448); this checks only the feed.
+func TestFeedHidesAFollowedTeamsPostsOnceItIsDissolved(t *testing.T) {
+	w := newFollowWorld(t)
+	follow(t, w.api, w.ana, "team", w.rayos.ID)
+	wantFeed(t, w.api, w.ana, "?filter=following", w.daniPost, w.rayosPost) // control
+	wantFeed(t, w.api, w.ana, "?filter=all", w.daniPost, w.rayosPost, w.halconesPost)
+	if rec := w.api.do(t, http.MethodDelete, "/memberships/"+strconv.FormatInt(membershipID(t, w.api, w.rayos.ID, w.daniID), 10), w.dani, nil); rec.Code != http.StatusNoContent {
+		t.Fatalf("Dani leaves = %d %s", rec.Code, rec.Body)
+	}
+
+	if rec := w.api.do(t, http.MethodDelete, teamPath(w.rayos.ID), w.caro, nil); rec.Code != http.StatusNoContent {
+		t.Fatalf("dissolve = %d %s", rec.Code, rec.Body)
+	}
+
+	wantFeed(t, w.api, w.ana, "?filter=following")
+	wantFeed(t, w.api, w.ana, "?filter=all", w.halconesPost)
 }

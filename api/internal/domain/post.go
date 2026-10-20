@@ -23,13 +23,14 @@ const (
 	ReactionClap ReactionKind = "clap"
 )
 
-// FeedFilter picks which posts a feed holds (R22.3): "all" or "teams" (the
-// "My teams" filter).
+// FeedFilter picks which posts a feed holds (R22.3): "all", "teams" (the
+// "My teams" filter) or "following".
 type FeedFilter string
 
 const (
-	FeedAll   FeedFilter = "all"
-	FeedTeams FeedFilter = "teams"
+	FeedAll       FeedFilter = "all"
+	FeedTeams     FeedFilter = "teams"
+	FeedFollowing FeedFilter = "following"
 )
 
 // FeedCursor is the last post of the previous page: the next page holds the

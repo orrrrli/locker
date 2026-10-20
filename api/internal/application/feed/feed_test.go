@@ -69,7 +69,7 @@ func TestPageWithoutFilterMeansAll(t *testing.T) {
 }
 
 func TestPagePassesAValidFilterThrough(t *testing.T) {
-	for _, filter := range []domain.FeedFilter{domain.FeedAll, domain.FeedTeams} {
+	for _, filter := range []domain.FeedFilter{domain.FeedAll, domain.FeedTeams, domain.FeedFollowing} {
 		t.Run(string(filter), func(t *testing.T) {
 			repo := &fakePosts{}
 
@@ -85,10 +85,8 @@ func TestPagePassesAValidFilterThrough(t *testing.T) {
 	}
 }
 
-// "following" is a real filter of R22.3 but not built yet, so it is invalid
-// here like any other value.
 func TestPageRejectsAnyOtherFilterBeforeTouchingTheRepo(t *testing.T) {
-	for _, filter := range []domain.FeedFilter{"following", "x", "ALL", "teams "} {
+	for _, filter := range []domain.FeedFilter{"x", "ALL", "teams ", "Following"} {
 		t.Run(string(filter), func(t *testing.T) {
 			repo := &fakePosts{}
 

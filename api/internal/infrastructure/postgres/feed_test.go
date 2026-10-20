@@ -537,3 +537,352 @@ func TestFeedMyReactionsAreOnlyTheViewers(t *testing.T) {
 		t.Errorf("MyReactions = %v, want %v", mine, want)
 	}
 }
+
+// followTeam and followLeague insert a follow row (R20); the table holds
+// exactly one of the two targets per row.
+func (d *feedDB) followTeam(user, team int64) {
+	d.exec(`INSERT INTO follow (user_id, team_id) VALUES ($1, $2)`, user, team)
+}
+
+func (d *feedDB) followLeague(user, league int64) {
+	d.exec(`INSERT INTO follow (user_id, league_id) VALUES ($1, $2)`, user, league)
+}
+
+// R22.5: "Following" is the posts written as a followed team, by a player
+// linked to it, and as a followed league.
+func TestFeedFollowingHoldsPostsOfFollowedTeamsTheirPlayersAndFollowedLeagues(t *testing.T) {
+	d := newFeedDB(t)
+	viewer, admin, player, operator := d.user("Viewer"), d.user("Admin"), d.user("Player"), d.user("Operator")
+	own, followed := d.team("Own"), d.team("Followed")
+	d.member(own, viewer, "player", "active", "")
+	d.member(followed, admin, "admin", "active", "")
+	d.member(followed, player, "player", "active", "")
+	venue := d.venue("Complejo")
+	league := d.league(venue, "Liga")
+	d.followTeam(viewer, followed)
+	d.followLeague(viewer, league)
+
+	teamPost := d.post(domain.PostAsTeam, admin, followed, feedAt(1))
+	playerPost := d.post(domain.PostAsPlayer, player, followed, feedAt(2))
+	leaguePost := d.post(domain.PostAsLeague, operator, league, feedAt(3))
+
+	got := feedPage(t, d, viewer, domain.FeedFollowing, nil, feedLimit)
+
+	requireIDs(t, "filter following", got, leaguePost, playerPost, teamPost)
+}
+
+// R22.5: following is not membership. The viewer's own team they do not
+// follow, the official posts of a league their team is enrolled in but they do
+// not follow, the venue posts of a followed league's venue, and unrelated
+// teams and leagues stay out. The followed team's post is the control that the
+// filter is not just empty.
+func TestFeedFollowingLeavesOutWhatTheViewerDoesNotFollow(t *testing.T) {
+	d := newFeedDB(t)
+	viewer, admin, operator := d.user("Viewer"), d.user("Admin"), d.user("Operator")
+	own, followed, unrelated := d.team("Own"), d.team("Followed"), d.team("Unrelated")
+	d.member(own, viewer, "player", "active", "")
+	d.member(own, admin, "admin", "active", "")
+	d.member(followed, admin, "admin", "active", "")
+	d.member(unrelated, admin, "admin", "active", "")
+	venue, otherVenue := d.venue("Complejo"), d.venue("Otro complejo")
+	enrolled, followedLeague, unrelatedLeague := d.league(venue, "Enrolled"), d.league(otherVenue, "Followed"), d.league(venue, "Unrelated")
+	d.enroll(enrolled, own)
+	d.followTeam(viewer, followed)
+	d.followLeague(viewer, followedLeague)
+
+	d.post(domain.PostAsTeam, admin, own, feedAt(1))
+	d.post(domain.PostAsPlayer, viewer, own, feedAt(2))
+	d.post(domain.PostAsLeague, operator, enrolled, feedAt(3))
+	d.post(domain.PostAsVenue, operator, venue, feedAt(4))
+	d.post(domain.PostAsVenue, operator, otherVenue, feedAt(5)) // venue of the followed league
+	d.post(domain.PostAsTeam, admin, unrelated, feedAt(6))
+	d.post(domain.PostAsLeague, operator, unrelatedLeague, feedAt(7))
+	followedPost := d.post(domain.PostAsTeam, admin, followed, feedAt(8))
+
+	got := feedPage(t, d, viewer, domain.FeedFollowing, nil, feedLimit)
+
+	requireIDs(t, "filter following", got, followedPost)
+}
+
+// R6.10: dissolving a team does not delete its follows, so the feed itself
+// hides a dissolved team: its team posts and its linked player posts.
+func TestFeedFollowingDropsTheTeamAndItsPlayersOnceTheTeamIsDissolved(t *testing.T) {
+	d := newFeedDB(t)
+	viewer, admin, player, otherAdmin := d.user("Viewer"), d.user("Admin"), d.user("Player"), d.user("Other admin")
+	own, doomed, staying := d.team("Own"), d.team("Doomed"), d.team("Staying")
+	d.member(own, viewer, "player", "active", "")
+	adminMembership := d.member(doomed, admin, "admin", "active", "")
+	playerMembership := d.member(doomed, player, "player", "active", "")
+	d.member(staying, otherAdmin, "admin", "active", "")
+	d.followTeam(viewer, doomed)
+	d.followTeam(viewer, staying)
+	d.post(domain.PostAsTeam, admin, doomed, feedAt(1))
+	d.post(domain.PostAsPlayer, player, doomed, feedAt(2))
+	stayingPost := d.post(domain.PostAsTeam, otherAdmin, staying, feedAt(3))
+	if got := feedPage(t, d, viewer, domain.FeedFollowing, nil, feedLimit); len(got) != 3 {
+		t.Fatalf("before dissolving: post ids %v, want 3 posts", feedIDs(got))
+	}
+
+	// What dissolving does: every member left, then the team is marked dissolved.
+	d.exec(`UPDATE membership SET status = 'left' WHERE id IN ($1, $2)`, adminMembership, playerMembership)
+	d.exec(`UPDATE team SET dissolved_at = now() WHERE id = $1`, doomed)
+	got := feedPage(t, d, viewer, domain.FeedFollowing, nil, feedLimit)
+
+	requireIDs(t, "after dissolving", got, stayingPost)
+}
+
+// R22.2, R22.7: only a user with an active membership has the Following feed.
+// With a pending membership or none, it is an empty list and not an error,
+// even when they follow a team and a league with posts. Once they have an
+// active membership the same follows return those posts.
+func TestFeedFollowingOfAUserWithoutATeamIsEmptyUntilTheyJoinOne(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		pending bool
+	}{{"pending membership", true}, {"no membership", false}} {
+		t.Run(tc.name, func(t *testing.T) {
+			d := newFeedDB(t)
+			viewer, admin, operator := d.user("Viewer"), d.user("Admin"), d.user("Operator")
+			own, followed := d.team("Own"), d.team("Followed")
+			d.member(own, admin, "admin", "active", "")
+			d.member(followed, admin, "admin", "active", "")
+			venue := d.venue("Complejo")
+			league := d.league(venue, "Liga")
+			var pending int64
+			if tc.pending {
+				pending = d.member(own, viewer, "player", "pending", "")
+			}
+			d.followTeam(viewer, followed)
+			d.followLeague(viewer, league)
+			teamPost := d.post(domain.PostAsTeam, admin, followed, feedAt(1))
+			leaguePost := d.post(domain.PostAsLeague, operator, league, feedAt(2))
+
+			before := feedPage(t, d, viewer, domain.FeedFollowing, nil, feedLimit)
+			if tc.pending {
+				d.exec(`UPDATE membership SET status = 'active' WHERE id = $1`, pending)
+			} else {
+				d.member(own, viewer, "player", "active", "")
+			}
+			after := feedPage(t, d, viewer, domain.FeedFollowing, nil, feedLimit)
+
+			requireIDs(t, "without a team", before)
+			requireIDs(t, "with an active membership", after, leaguePost, teamPost)
+		})
+	}
+}
+
+// R22.9, R23.5: a removed post and a player post by a user the viewer blocked
+// never show, in Following as in every feed.
+func TestFeedFollowingExcludesRemovedPostsAndPostsOfBlockedAuthors(t *testing.T) {
+	d := newFeedDB(t)
+	viewer, admin, blocked, friend := d.user("Viewer"), d.user("Admin"), d.user("Blocked"), d.user("Friend")
+	own, followed := d.team("Own"), d.team("Followed")
+	d.member(own, viewer, "player", "active", "")
+	d.member(followed, admin, "admin", "active", "")
+	d.member(followed, blocked, "player", "active", "")
+	d.member(followed, friend, "player", "active", "")
+	d.followTeam(viewer, followed)
+	d.block(viewer, blocked)
+	kept := d.post(domain.PostAsTeam, admin, followed, feedAt(1))
+	removed := d.post(domain.PostAsTeam, admin, followed, feedAt(2))
+	d.exec(`UPDATE post SET removed_at = now(), removed_by = $2, removal_reason = 'spam' WHERE id = $1`, removed, admin)
+	d.post(domain.PostAsPlayer, blocked, followed, feedAt(3))
+	keptFriend := d.post(domain.PostAsPlayer, friend, followed, feedAt(4))
+
+	got := feedPage(t, d, viewer, domain.FeedFollowing, nil, feedLimit)
+
+	requireIDs(t, "filter following", got, keptFriend, kept)
+}
+
+// R22.1 on Following: posts of followed teams, their players and followed
+// leagues are one list, newest first by (created_at, id). Pages of two, the
+// cursor being the last post of the previous page, cover every post once. The
+// boundary of page 1 falls between two posts (a team's and a league's) that
+// share created_at.
+func TestFeedFollowingKeysetPagesCoverEveryPostOnce(t *testing.T) {
+	d := newFeedDB(t)
+	viewer, admin, player, operator := d.user("Viewer"), d.user("Admin"), d.user("Player"), d.user("Operator")
+	own, followed := d.team("Own"), d.team("Followed")
+	d.member(own, viewer, "player", "active", "")
+	d.member(followed, admin, "admin", "active", "")
+	d.member(followed, player, "player", "active", "")
+	league := d.league(d.venue("Complejo"), "Liga")
+	d.followTeam(viewer, followed)
+	d.followLeague(viewer, league)
+	// Inserted out of time order; p3 and p4 share created_at and p4 has the higher id.
+	p3 := d.post(domain.PostAsTeam, admin, followed, feedAt(3))
+	p5 := d.post(domain.PostAsLeague, operator, league, feedAt(5))
+	p1 := d.post(domain.PostAsPlayer, player, followed, feedAt(1))
+	p4 := d.post(domain.PostAsLeague, operator, league, feedAt(3))
+	p2 := d.post(domain.PostAsTeam, admin, followed, feedAt(2))
+
+	first := feedPage(t, d, viewer, domain.FeedFollowing, nil, 2)
+	requireIDs(t, "page 1", first, p5, p4)
+	second := feedPage(t, d, viewer, domain.FeedFollowing, &domain.FeedCursor{CreatedAt: first[1].CreatedAt, ID: first[1].ID}, 2)
+	requireIDs(t, "page 2", second, p3, p2)
+	third := feedPage(t, d, viewer, domain.FeedFollowing, &domain.FeedCursor{CreatedAt: second[1].CreatedAt, ID: second[1].ID}, 2)
+	requireIDs(t, "page 3", third, p1)
+}
+
+// A viewer who follows their own team, and a league that team is enrolled in,
+// sees each post once: neither the membership nor the enrollment doubles it.
+func TestFeedFollowingOfTheViewersOwnTeamShowsEachPostOnce(t *testing.T) {
+	d := newFeedDB(t)
+	viewer, admin, operator := d.user("Viewer"), d.user("Admin"), d.user("Operator")
+	team := d.team("Own")
+	d.member(team, viewer, "player", "active", "")
+	d.member(team, admin, "admin", "active", "")
+	league := d.league(d.venue("Complejo"), "Liga")
+	d.enroll(league, team)
+	d.followTeam(viewer, team)
+	d.followLeague(viewer, league)
+	teamPost := d.post(domain.PostAsTeam, admin, team, feedAt(1))
+	playerPost := d.post(domain.PostAsPlayer, viewer, team, feedAt(2))
+	leaguePost := d.post(domain.PostAsLeague, operator, league, feedAt(3))
+
+	got := feedPage(t, d, viewer, domain.FeedFollowing, nil, feedLimit)
+
+	requireIDs(t, "filter following", got, leaguePost, playerPost, teamPost)
+}
+
+// R22.6: "All" is "My teams" plus "Following" plus the official posts of the
+// enrolled leagues and their venues. Posts of a followed team the viewer does
+// not belong to (as the team and by a linked player) and of a followed league
+// join the viewer's own team and the enrolled league's posts, newest first.
+// The venue of a followed league, not enrolled, and an unrelated team stay out.
+func TestFeedAllAddsPostsOfFollowedTeamsTheirPlayersAndFollowedLeagues(t *testing.T) {
+	d := newFeedDB(t)
+	viewer, admin, player, operator := d.user("Viewer"), d.user("Admin"), d.user("Player"), d.user("Operator")
+	own, followed, unrelated := d.team("Own"), d.team("Followed"), d.team("Unrelated")
+	d.member(own, viewer, "player", "active", "")
+	d.member(own, admin, "admin", "active", "")
+	d.member(followed, admin, "admin", "active", "")
+	d.member(followed, player, "player", "active", "")
+	d.member(unrelated, admin, "admin", "active", "")
+	venue, otherVenue := d.venue("Complejo"), d.venue("Otro complejo")
+	enrolled, followedLeague := d.league(venue, "Enrolled"), d.league(otherVenue, "Followed")
+	d.enroll(enrolled, own)
+	d.followTeam(viewer, followed)
+	d.followLeague(viewer, followedLeague)
+
+	ownPost := d.post(domain.PostAsTeam, admin, own, feedAt(1))
+	enrolledPost := d.post(domain.PostAsLeague, operator, enrolled, feedAt(2))
+	followedTeamPost := d.post(domain.PostAsTeam, admin, followed, feedAt(3))
+	followedPlayerPost := d.post(domain.PostAsPlayer, player, followed, feedAt(4))
+	followedLeaguePost := d.post(domain.PostAsLeague, operator, followedLeague, feedAt(5))
+	d.post(domain.PostAsVenue, operator, otherVenue, feedAt(6)) // venue of a followed league only
+	d.post(domain.PostAsTeam, admin, unrelated, feedAt(7))
+
+	got := feedPage(t, d, viewer, domain.FeedAll, nil, feedLimit)
+
+	requireIDs(t, "filter all", got, followedLeaguePost, followedPlayerPost, followedTeamPost, enrolledPost, ownPost)
+}
+
+// R22.6 regression guard (green before the feature): the union does not
+// double a post. The viewer follows their own team and a league that team is
+// enrolled in, and each post still shows once.
+func TestFeedAllOfTheViewersOwnFollowedTeamAndLeagueShowsEachPostOnce(t *testing.T) {
+	d := newFeedDB(t)
+	viewer, admin, operator := d.user("Viewer"), d.user("Admin"), d.user("Operator")
+	team := d.team("Own")
+	d.member(team, viewer, "player", "active", "")
+	d.member(team, admin, "admin", "active", "")
+	league := d.league(d.venue("Complejo"), "Liga")
+	d.enroll(league, team)
+	d.followTeam(viewer, team)
+	d.followLeague(viewer, league)
+	teamPost := d.post(domain.PostAsTeam, admin, team, feedAt(1))
+	playerPost := d.post(domain.PostAsPlayer, viewer, team, feedAt(2))
+	leaguePost := d.post(domain.PostAsLeague, operator, league, feedAt(3))
+
+	got := feedPage(t, d, viewer, domain.FeedAll, nil, feedLimit)
+
+	requireIDs(t, "filter all", got, leaguePost, playerPost, teamPost)
+}
+
+// R6.10: dissolving a followed team does not delete the follow, but the team
+// and its linked players leave "All". A followed team that stays is the control.
+func TestFeedAllDropsAFollowedTeamAndItsPlayersOnceItIsDissolved(t *testing.T) {
+	d := newFeedDB(t)
+	viewer, admin, player, otherAdmin := d.user("Viewer"), d.user("Admin"), d.user("Player"), d.user("Other admin")
+	own, doomed, staying := d.team("Own"), d.team("Doomed"), d.team("Staying")
+	d.member(own, viewer, "player", "active", "")
+	adminMembership := d.member(doomed, admin, "admin", "active", "")
+	playerMembership := d.member(doomed, player, "player", "active", "")
+	d.member(staying, otherAdmin, "admin", "active", "")
+	d.followTeam(viewer, doomed)
+	d.followTeam(viewer, staying)
+	doomedTeamPost := d.post(domain.PostAsTeam, admin, doomed, feedAt(1))
+	doomedPlayerPost := d.post(domain.PostAsPlayer, player, doomed, feedAt(2))
+	stayingPost := d.post(domain.PostAsTeam, otherAdmin, staying, feedAt(3))
+	requireIDs(t, "before dissolving", feedPage(t, d, viewer, domain.FeedAll, nil, feedLimit), stayingPost, doomedPlayerPost, doomedTeamPost)
+
+	// What dissolving does: every member left, then the team is marked dissolved.
+	d.exec(`UPDATE membership SET status = 'left' WHERE id IN ($1, $2)`, adminMembership, playerMembership)
+	d.exec(`UPDATE team SET dissolved_at = now() WHERE id = $1`, doomed)
+	got := feedPage(t, d, viewer, domain.FeedAll, nil, feedLimit)
+
+	requireIDs(t, "after dissolving", got, stayingPost)
+}
+
+// R22.2, R22.7: a viewer with a pending membership or none has no feed, even
+// in "All" with a followed team and league that have posts; the answer is an
+// empty list, not an error. Once they have an active membership the same
+// follows bring those posts in.
+func TestFeedAllOfAUserWithoutATeamIsEmptyEvenWhenTheyFollowUntilTheyJoinOne(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		pending bool
+	}{{"pending membership", true}, {"no membership", false}} {
+		t.Run(tc.name, func(t *testing.T) {
+			d := newFeedDB(t)
+			viewer, admin, operator := d.user("Viewer"), d.user("Admin"), d.user("Operator")
+			own, followed := d.team("Own"), d.team("Followed")
+			d.member(own, admin, "admin", "active", "")
+			d.member(followed, admin, "admin", "active", "")
+			league := d.league(d.venue("Complejo"), "Liga")
+			var pending int64
+			if tc.pending {
+				pending = d.member(own, viewer, "player", "pending", "")
+			}
+			d.followTeam(viewer, followed)
+			d.followLeague(viewer, league)
+			teamPost := d.post(domain.PostAsTeam, admin, followed, feedAt(1))
+			leaguePost := d.post(domain.PostAsLeague, operator, league, feedAt(2))
+
+			before := feedPage(t, d, viewer, domain.FeedAll, nil, feedLimit)
+			if tc.pending {
+				d.exec(`UPDATE membership SET status = 'active' WHERE id = $1`, pending)
+			} else {
+				d.member(own, viewer, "player", "active", "")
+			}
+			after := feedPage(t, d, viewer, domain.FeedAll, nil, feedLimit)
+
+			requireIDs(t, "without a team", before)
+			requireIDs(t, "with an active membership", after, leaguePost, teamPost)
+		})
+	}
+}
+
+// R22.4 regression guard (green before the feature): "My teams" stays the
+// viewer's own teams; adding follows to "All" must not leak into it.
+func TestFeedTeamsLeavesOutFollowedTeamsTheirPlayersAndFollowedLeagues(t *testing.T) {
+	d := newFeedDB(t)
+	viewer, admin, player, operator := d.user("Viewer"), d.user("Admin"), d.user("Player"), d.user("Operator")
+	own, followed := d.team("Own"), d.team("Followed")
+	d.member(own, viewer, "player", "active", "")
+	d.member(own, admin, "admin", "active", "")
+	d.member(followed, admin, "admin", "active", "")
+	d.member(followed, player, "player", "active", "")
+	league := d.league(d.venue("Complejo"), "Liga")
+	d.followTeam(viewer, followed)
+	d.followLeague(viewer, league)
+	ownPost := d.post(domain.PostAsTeam, admin, own, feedAt(1))
+	d.post(domain.PostAsTeam, admin, followed, feedAt(2))
+	d.post(domain.PostAsPlayer, player, followed, feedAt(3))
+	d.post(domain.PostAsLeague, operator, league, feedAt(4))
+
+	got := feedPage(t, d, viewer, domain.FeedTeams, nil, feedLimit)
+
+	requireIDs(t, "filter teams", got, ownPost)
+}

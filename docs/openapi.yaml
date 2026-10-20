@@ -2682,11 +2682,14 @@ paths:
         One page of the caller's feed, newest first (R22.1). With at least one
         active membership: `all` (default) holds the posts of the caller's
         active teams and of players linked to them, plus the official posts of
-        the leagues those teams are enrolled in and of those leagues' venues
-        (R22.4, R22.6); `teams` holds only the first part. A caller with no
-        active membership gets an empty page for now (the nearby feed comes
-        later). Removed posts, player and team posts of authors the caller
-        blocked, and player posts of deleted accounts never show (R22.9,
+        the leagues those teams are enrolled in and of those leagues' venues,
+        plus everything in `following` (R22.4, R22.6); `teams` holds only the
+        first part. `following` holds the posts of the teams the caller
+        follows and of players linked to them, and of the leagues the caller
+        follows (R22.5); dissolved teams never show. A caller with no active membership gets an empty page for
+        now, whatever they follow (R22.7; the nearby feed comes later).
+        Removed posts, player and team posts of authors the caller blocked,
+        and player posts of deleted accounts never show (R22.9,
         R23.5); a block never hides official posts. Pages hold 20 posts;
         pass `next_cursor` back as `cursor` for the next one. At most 600
         calls per user per hour.
@@ -2698,7 +2701,7 @@ paths:
           required: false
           schema:
             type: string
-            enum: [all, teams]
+            enum: [all, teams, following]
             default: all
         - name: cursor
           in: query
@@ -2723,7 +2726,7 @@ paths:
                     type: [string, "null"]
                     description: Opaque; null on the last page.
         "400":
-          description: "`invalid_filter`: filter is not all or teams. `invalid_cursor`: the cursor is not one this API issued."
+          description: "`invalid_filter`: filter is not all, teams or following. `invalid_cursor`: the cursor is not one this API issued."
           content:
             application/json:
               schema:
