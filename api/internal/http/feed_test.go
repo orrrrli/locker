@@ -390,7 +390,7 @@ func TestFeedPostHasExactlyTheContractKeys(t *testing.T) {
 	rec := feedGet(t, w.api, w.ana, "")
 
 	want := []string{
-		"next_cursor", "posts",
+		"has_team", "next_cursor", "posts",
 		"posts[].as_kind", "posts[].author_name", "posts[].author_user_id", "posts[].body", "posts[].created_at", "posts[].id",
 		"posts[].league_id", "posts[].my_reactions", "posts[].photos", "posts[].photos[].content_type", "posts[].photos[].position",
 		"posts[].photos[].url", "posts[].reaction_counts", "posts[].reaction_counts.ball", "posts[].reaction_counts.clap",

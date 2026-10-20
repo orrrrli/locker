@@ -44,8 +44,9 @@ type Post struct {
 
 // Page is one page of the feed. Next is nil on the last page.
 type Page struct {
-	Posts []Post
-	Next  *domain.FeedCursor
+	Posts   []Post
+	Next    *domain.FeedCursor
+	HasTeam bool // R22.7: false means no filters; the client shows the join-a-team card
 }
 
 type Service struct {
@@ -109,7 +110,7 @@ func (s *Service) Page(ctx context.Context, viewerID int64, filter domain.FeedFi
 		last := rows[PageSize-1]
 		next = &domain.FeedCursor{CreatedAt: last.CreatedAt, ID: last.ID}
 	}
-	out := Page{Posts: make([]Post, len(rows)), Next: next}
+	out := Page{Posts: make([]Post, len(rows)), Next: next, HasTeam: hasTeam}
 	for i, p := range rows {
 		out.Posts[i] = Post{Post: p, PhotoURLs: make([]*string, len(p.Media))}
 		if s.signer == nil {

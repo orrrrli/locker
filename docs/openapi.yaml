@@ -2730,7 +2730,7 @@ paths:
             application/json:
               schema:
                 type: object
-                required: [posts, next_cursor]
+                required: [posts, next_cursor, has_team]
                 properties:
                   posts:
                     type: array
@@ -2739,6 +2739,12 @@ paths:
                   next_cursor:
                     type: [string, "null"]
                     description: Opaque; null on the last page.
+                  has_team:
+                    type: boolean
+                    description: |
+                      False when the caller has no active membership (R22.2): the
+                      app shows no filters and a card that invites them to join a
+                      team and links to Explore (R22.7). Present on every page.
         "400":
           description: "`invalid_filter`: filter is not all, teams or following. `invalid_cursor`: the cursor is not one this API issued."
           content:

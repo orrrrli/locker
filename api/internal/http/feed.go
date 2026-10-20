@@ -28,6 +28,7 @@ type feedHandlers struct {
 type feedJSON struct {
 	Posts      []feedItemJSON `json:"posts"`
 	NextCursor *string        `json:"next_cursor"`
+	HasTeam    bool           `json:"has_team"`
 }
 
 // feedItemJSON is a post as the feed shows it (R22.12). POST /posts keeps its
@@ -88,7 +89,7 @@ func (h feedHandlers) page(w http.ResponseWriter, r *http.Request) {
 		feedErrors.write(w, r, "feed", err)
 		return
 	}
-	out := feedJSON{Posts: make([]feedItemJSON, len(page.Posts))}
+	out := feedJSON{Posts: make([]feedItemJSON, len(page.Posts)), HasTeam: page.HasTeam}
 	if page.Next != nil {
 		c := encodeFeedCursor(*page.Next)
 		out.NextCursor = &c
