@@ -25,6 +25,6 @@ build/
 
 # Claude harness docs (local only)
 CLAUDE.md
-.claude/
+.claude
 **/docs/brain
 
