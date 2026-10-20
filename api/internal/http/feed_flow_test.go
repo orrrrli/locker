@@ -190,17 +190,18 @@ func TestFeedFilterTeamsIgnoresActiveFollows(t *testing.T) {
 	wantFeed(t, w.api, w.ana, "?filter=teams", betoPost, w.halconesPost)
 }
 
-// R22.2, R22.7, R22.11: a user whose only membership is pending has no feed
-// even while following Rayos: 200 with an empty list under all and following.
-// Once the Capitan of Halcones approves, the next request holds Rayos's posts
-// under following, and Halcones's too under all.
+// R22.2, R22.7, R22.8, R22.11: a user whose only membership is pending counts
+// as teamless: whatever the filter, she gets only the official posts of every
+// league (Sur, Norte), and nothing of Rayos, which she follows. Once the Capitan
+// of Halcones approves, the next request holds Rayos's posts under following,
+// and Halcones's too under all.
 func TestFeedFollowerWithAPendingRequestGetsTheFollowedPostsRightAfterApproval(t *testing.T) {
 	w := newFollowWorld(t)
 	fanID, fan := signUp(t, w.api, "fan@example.com")
 	requestJoin(t, w.api, fan, w.halcones.ID, http.StatusCreated)
 	follow(t, w.api, fan, "team", w.rayos.ID)
-	for _, query := range []string{"", "?filter=all", "?filter=following"} {
-		wantFeed(t, w.api, fan, query) // pending: no feed, whatever she follows
+	for _, query := range []string{"", "?filter=all", "?filter=teams", "?filter=following"} {
+		wantFeed(t, w.api, fan, query, w.surPost, w.nortePost) // pending: teamless feed, the follow adds nothing
 	}
 
 	decide(t, w.api, w.ana, membershipID(t, w.api, w.halcones.ID, fanID), "approve", http.StatusOK)
@@ -209,16 +210,18 @@ func TestFeedFollowerWithAPendingRequestGetsTheFollowedPostsRightAfterApproval(t
 	wantFeed(t, w.api, fan, "?filter=all", w.daniPost, w.rayosPost, w.halconesPost)
 }
 
-// R22.7: a user with no membership at all gets 200 with an empty list under
-// the default feed and following, even when following a team and a league.
-func TestFeedFollowerWithoutAnyMembershipGetsAnEmptyList(t *testing.T) {
+// R22.7, R22.8: a user with no membership at all and no location gets the
+// official posts of every league (Sur, Norte), under the default feed and
+// following alike. Following Rayos and Liga Norte adds nothing: no Rayos post
+// (team or player), and Liga Sur is there although she does not follow it.
+func TestFeedFollowerWithoutAnyMembershipGetsOnlyTheOfficialPosts(t *testing.T) {
 	w := newFollowWorld(t)
 	_, fan := signUp(t, w.api, "fan@example.com")
 	follow(t, w.api, fan, "team", w.rayos.ID)
 	follow(t, w.api, fan, "league", w.norte.ID)
 
 	for _, query := range []string{"", "?filter=following"} {
-		wantFeed(t, w.api, fan, query)
+		wantFeed(t, w.api, fan, query, w.surPost, w.nortePost)
 	}
 }
 

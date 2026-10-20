@@ -2686,8 +2686,13 @@ paths:
         plus everything in `following` (R22.4, R22.6); `teams` holds only the
         first part. `following` holds the posts of the teams the caller
         follows and of players linked to them, and of the leagues the caller
-        follows (R22.5); dissolved teams never show. A caller with no active membership gets an empty page for
-        now, whatever they follow (R22.7; the nearby feed comes later).
+        follows (R22.5); dissolved teams never show. A caller with no active
+        membership gets no filters (a valid `filter` is ignored) and nothing they
+        follow (R22.7): with `near`, the posts of the venues within 25 km, of
+        those venues' leagues, and of the teams enrolled in those leagues and
+        players linked to them; without `near`, the official posts of every
+        league and venue (R22.8). A caller with a team has a well-formed `near`
+        ignored; only a teamless caller has its range checked.
         Removed posts, player and team posts of authors the caller blocked,
         and player posts of deleted accounts never show (R22.9,
         R23.5); a block never hides official posts. Pages hold 20 posts;
@@ -2703,6 +2708,15 @@ paths:
             type: string
             enum: [all, teams, following]
             default: all
+        - name: near
+          in: query
+          required: false
+          description: |
+            `lat,lng` in degrees, for a caller with no active membership. Used
+            for this request only: never stored or logged (design.md decision 10).
+          schema:
+            type: string
+            example: "31.8667,-116.5964"
         - name: cursor
           in: query
           required: false
@@ -2716,7 +2730,7 @@ paths:
             application/json:
               schema:
                 type: object
-                required: [posts, next_cursor]
+                required: [posts, next_cursor, has_team]
                 properties:
                   posts:
                     type: array
@@ -2725,8 +2739,20 @@ paths:
                   next_cursor:
                     type: [string, "null"]
                     description: Opaque; null on the last page.
+                  has_team:
+                    type: boolean
+                    description: |
+                      False when the caller has no active membership (R22.2): the
+                      app shows no filters and a card that invites them to join a
+                      team and links to Explore (R22.7). Present on every page.
         "400":
           description: "`invalid_filter`: filter is not all, teams or following. `invalid_cursor`: the cursor is not one this API issued."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "422":
+          description: "`invalid_near`: near is not two numbers `lat,lng`, or is off the globe (latitude -90 to 90, longitude -180 to 180)."
           content:
             application/json:
               schema:

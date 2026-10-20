@@ -78,7 +78,7 @@ Origin Certificate and proxies to the API on `127.0.0.1`. The server block is
      real IP. Logins from your IP stay blocked for 15 minutes.
 7. After any change to `deploy/nginx/api.locker.center.conf` on `main`, run step 3 again: CI does not
    install it. Check that invite links, email verification and password reset links, and device-token deletes stay out of the logs (their path
-   carries a token), and so do nearby-venue searches (their query carries the user's location). The `/health` line proves you are reading the right log:
+   carries a token), and so do nearby-venue searches and the nearby feed (their query carries the user's location). The `/health` line proves you are reading the right log:
 
    ```bash
    curl -s -o /dev/null https://api.locker.center/health?drill-check
@@ -87,12 +87,14 @@ Origin Certificate and proxies to the API on `127.0.0.1`. The server block is
    curl -s -o /dev/null https://api.locker.center/r/drill-check
    curl -s -o /dev/null -X DELETE https://api.locker.center/me/device-tokens/drill-check
    curl -s -o /dev/null 'https://api.locker.center/venues?near=0,0&drill-check'
+   curl -s -o /dev/null 'https://api.locker.center/feed?near=0,0&drill-check'
    grep -c 'health?drill-check' /var/log/nginx/access.log                              # 1 or more
    grep -c '/i/drill-check' /var/log/nginx/access.log /var/log/nginx/error.log         # 0 and 0
    grep -c '/v/drill-check' /var/log/nginx/access.log /var/log/nginx/error.log         # 0 and 0
    grep -c '/r/drill-check' /var/log/nginx/access.log /var/log/nginx/error.log         # 0 and 0
    grep -c 'device-tokens/drill-check' /var/log/nginx/access.log /var/log/nginx/error.log  # 0 and 0
    grep -c 'venues?near=0,0&drill-check' /var/log/nginx/access.log /var/log/nginx/error.log  # 0 and 0
+   grep -c 'feed?near=0,0&drill-check' /var/log/nginx/access.log /var/log/nginx/error.log    # 0 and 0
    ```
 
 The client IP: behind Cloudflare the peer is a Cloudflare edge, so the block takes the visitor's IP from

@@ -97,7 +97,7 @@ const feedLimit = 50
 
 func feedPage(t *testing.T, d *feedDB, viewer int64, filter domain.FeedFilter, before *domain.FeedCursor, limit int) []domain.Post {
 	t.Helper()
-	posts, err := NewFeed(d.pool).Page(context.Background(), viewer, filter, before, limit)
+	posts, err := NewFeed(d.pool).Page(context.Background(), viewer, filter, nil, before, limit)
 	if err != nil {
 		t.Fatalf("Page(%s): %v", filter, err)
 	}

@@ -10,11 +10,12 @@ import (
 	"time"
 
 	"github.com/orrrrli/locker/api/internal/application/feed"
+	"github.com/orrrrli/locker/api/internal/application/venues"
 	"github.com/orrrrli/locker/api/internal/domain"
 )
 
 type feedService interface {
-	Page(ctx context.Context, viewerID int64, filter domain.FeedFilter, before *domain.FeedCursor) (feed.Page, error)
+	Page(ctx context.Context, viewerID int64, filter domain.FeedFilter, near *domain.LatLng, before *domain.FeedCursor) (feed.Page, error)
 }
 
 // feedHandlers serve GET /feed to any signed-in user; the viewer comes only
@@ -27,6 +28,7 @@ type feedHandlers struct {
 type feedJSON struct {
 	Posts      []feedItemJSON `json:"posts"`
 	NextCursor *string        `json:"next_cursor"`
+	HasTeam    bool           `json:"has_team"`
 }
 
 // feedItemJSON is a post as the feed shows it (R22.12). POST /posts keeps its
@@ -69,13 +71,25 @@ func (h feedHandlers) page(w http.ResponseWriter, r *http.Request) {
 		}
 		before = &c
 	}
+	// near is the location of a user without a team (R22.8). Like GET
+	// /venues it lives only in this request: nginx keeps no access log for
+	// /feed and the API logs paths without the query.
+	var near *domain.LatLng
+	if vals, ok := q["near"]; ok {
+		lat, lng, ok := parseNear(vals)
+		if !ok {
+			writeError(w, http.StatusUnprocessableEntity, "invalid_near")
+			return
+		}
+		near = &domain.LatLng{Latitude: lat, Longitude: lng}
+	}
 	userID, _ := userIDFrom(r.Context())
-	page, err := h.svc.Page(r.Context(), userID, domain.FeedFilter(q.Get("filter")), before)
+	page, err := h.svc.Page(r.Context(), userID, domain.FeedFilter(q.Get("filter")), near, before)
 	if err != nil {
 		feedErrors.write(w, r, "feed", err)
 		return
 	}
-	out := feedJSON{Posts: make([]feedItemJSON, len(page.Posts))}
+	out := feedJSON{Posts: make([]feedItemJSON, len(page.Posts)), HasTeam: page.HasTeam}
 	if page.Next != nil {
 		c := encodeFeedCursor(*page.Next)
 		out.NextCursor = &c
@@ -132,4 +146,5 @@ func decodeFeedCursor(s string) (domain.FeedCursor, error) {
 var feedErrors = errorMap{
 	{feed.ErrInvalidFilter, http.StatusBadRequest, "invalid_filter"},
 	{errInvalidCursor, http.StatusBadRequest, "invalid_cursor"},
+	{venues.ErrInvalidNear, http.StatusUnprocessableEntity, "invalid_near"},
 }

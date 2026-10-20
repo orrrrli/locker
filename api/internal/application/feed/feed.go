@@ -21,7 +21,13 @@ var ErrInvalidFilter = errors.New("feed: invalid filter")
 
 // Posts is what the use case needs from the feed query.
 type Posts interface {
-	Page(ctx context.Context, viewerID int64, filter domain.FeedFilter, before *domain.FeedCursor, limit int) ([]domain.Post, error)
+	HasTeam(ctx context.Context, viewerID int64) (bool, error)
+	Page(ctx context.Context, viewerID int64, filter domain.FeedFilter, nearVenueIDs []int64, before *domain.FeedCursor, limit int) ([]domain.Post, error)
+}
+
+// Venues is what the use case needs to find the venues near a point.
+type Venues interface {
+	Near(ctx context.Context, latitude, longitude float64) ([]domain.NearbyVenue, error)
 }
 
 // Signer presigns GET URLs for R2 objects.
@@ -38,26 +44,30 @@ type Post struct {
 
 // Page is one page of the feed. Next is nil on the last page.
 type Page struct {
-	Posts []Post
-	Next  *domain.FeedCursor
+	Posts   []Post
+	Next    *domain.FeedCursor
+	HasTeam bool // R22.7: false means no filters; the client shows the join-a-team card
 }
 
 type Service struct {
 	posts  Posts
+	venues Venues
 	signer Signer
 }
 
 // NewService returns the use case; signer may be nil (no bucket configured).
-func NewService(posts Posts, signer Signer) *Service {
-	return &Service{posts: posts, signer: signer}
+func NewService(posts Posts, venues Venues, signer Signer) *Service {
+	return &Service{posts: posts, venues: venues, signer: signer}
 }
 
 // Page returns one page of the viewer's feed, older than before (nil for the
 // first page).
 // An empty filter is "all" (R22.3).
-// A viewer without an active membership gets an empty page until the nearby
-// feed (BE-FEED-6) serves them.
-func (s *Service) Page(ctx context.Context, viewerID int64, filter domain.FeedFilter, before *domain.FeedCursor) (Page, error) {
+// A viewer without an active membership gets no filters (R22.7): with near,
+// the posts around the venues within 25 km of it; without, every official
+// post (R22.8). near is used for this call only and never stored; a viewer
+// with a team has it ignored.
+func (s *Service) Page(ctx context.Context, viewerID int64, filter domain.FeedFilter, near *domain.LatLng, before *domain.FeedCursor) (Page, error) {
 	switch filter {
 	case "":
 		filter = domain.FeedAll
@@ -65,8 +75,32 @@ func (s *Service) Page(ctx context.Context, viewerID int64, filter domain.FeedFi
 	default:
 		return Page{}, ErrInvalidFilter
 	}
+	hasTeam, err := s.posts.HasTeam(ctx, viewerID)
+	if err != nil {
+		return Page{}, err
+	}
+	var venueIDs []int64
+	if !hasTeam {
+		filter = domain.FeedOfficial
+		if near != nil {
+			// ponytail: Near caps at 50 venues, nearest first; a denser
+			// 25 km circle drops the farthest ones.
+			vs, err := s.venues.Near(ctx, near.Latitude, near.Longitude)
+			if err != nil {
+				return Page{}, err
+			}
+			if len(vs) == 0 {
+				return Page{Posts: []Post{}}, nil
+			}
+			filter = domain.FeedNearby
+			venueIDs = make([]int64, len(vs))
+			for i, v := range vs {
+				venueIDs[i] = v.ID
+			}
+		}
+	}
 	// One extra post tells whether another page exists.
-	rows, err := s.posts.Page(ctx, viewerID, filter, before, PageSize+1)
+	rows, err := s.posts.Page(ctx, viewerID, filter, venueIDs, before, PageSize+1)
 	if err != nil {
 		return Page{}, err
 	}
@@ -76,7 +110,7 @@ func (s *Service) Page(ctx context.Context, viewerID int64, filter domain.FeedFi
 		last := rows[PageSize-1]
 		next = &domain.FeedCursor{CreatedAt: last.CreatedAt, ID: last.ID}
 	}
-	out := Page{Posts: make([]Post, len(rows)), Next: next}
+	out := Page{Posts: make([]Post, len(rows)), Next: next, HasTeam: hasTeam}
 	for i, p := range rows {
 		out.Posts[i] = Post{Post: p, PhotoURLs: make([]*string, len(p.Media))}
 		if s.signer == nil {

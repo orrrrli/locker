@@ -10,6 +10,13 @@
 -- Follows outlive dissolution, so dissolved teams are filtered here (R6.10).
 -- A viewer with no active team gets none of them: no filters without a team
 -- (R22.7).
+-- R22.7-R22.8 for a user without a team (the use case picks the mode):
+-- near_venue_ids ("nearby") holds the venues near the user; the feed has
+-- their posts, the official posts of their leagues, and the posts of teams
+-- enrolled in those leagues, as the team or by a linked player. Dissolving a
+-- team drops its enrollments (R16.8); dissolved teams are filtered here too
+-- (R6.10).
+-- include_all_official ("official", no location): every league and venue post.
 -- Every feed hides removed posts and player or team posts whose writer the
 -- viewer blocked, a team post written by a blocked admin included (R22.9,
 -- R23.5).
@@ -34,6 +41,13 @@ WITH my_teams AS (
     SELECT league_id FROM follow
     WHERE sqlc.arg(include_following)::boolean AND EXISTS (SELECT 1 FROM my_teams)
       AND user_id = sqlc.arg(viewer_id) AND league_id IS NOT NULL
+), near_venues AS (
+    SELECT unnest(sqlc.arg(near_venue_ids)::bigint[]) AS venue_id
+), near_leagues AS (
+    SELECT id AS league_id FROM league WHERE venue_id IN (SELECT venue_id FROM near_venues)
+), near_teams AS (
+    SELECT lt.team_id FROM league_team lt JOIN team nt ON nt.id = lt.team_id
+    WHERE lt.league_id IN (SELECT league_id FROM near_leagues) AND nt.dissolved_at IS NULL
 )
 SELECT p.id, p.author_user_id, p.as_kind, p.team_id, p.league_id, p.venue_id, p.body, p.share_token, p.created_at,
        coalesce(CASE p.as_kind
@@ -62,11 +76,22 @@ WHERE p.removed_at IS NULL
        OR p.league_id IN (SELECT league_id FROM my_leagues)
        OR p.venue_id IN (SELECT venue_id FROM my_venues)
        OR p.team_id IN (SELECT team_id FROM followed_teams)
-       OR p.league_id IN (SELECT league_id FROM followed_leagues))
+       OR p.league_id IN (SELECT league_id FROM followed_leagues)
+       OR p.venue_id IN (SELECT venue_id FROM near_venues)
+       OR p.league_id IN (SELECT league_id FROM near_leagues)
+       OR p.team_id IN (SELECT team_id FROM near_teams)
+       OR (sqlc.arg(include_all_official)::boolean AND p.as_kind IN ('league', 'venue')))
   AND (sqlc.narg(before_at)::timestamptz IS NULL
        OR (p.created_at, p.id) < (sqlc.narg(before_at)::timestamptz, sqlc.narg(before_id)::bigint))
 ORDER BY p.created_at DESC, p.id DESC
 LIMIT sqlc.arg(page_size);
+
+-- name: ViewerHasTeam :one
+-- R22.2: "with a team" is at least one active membership; pending and left
+-- count for nothing.
+SELECT EXISTS (
+    SELECT 1 FROM membership WHERE user_id = $1 AND status = 'active'
+)::boolean;
 
 -- name: PostMediaFor :many
 SELECT post_id, storage_key, position, content_type, size_bytes FROM post_media
