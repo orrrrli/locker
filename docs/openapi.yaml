@@ -591,6 +591,47 @@ paths:
         "503":
           $ref: "#/components/responses/TeamBusy"
 
+  /me/content-rules:
+    post:
+      tags: [account]
+      operationId: acceptContentRules
+      summary: Accept the content rules
+      description: |
+        Records when the caller accepted the content rules, which the first
+        post requires (R23.13). The caller comes from the session only. No
+        body; a body with any field is a 400. A repeat keeps the first time.
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Accepted.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [content_rules_accepted_at]
+                properties:
+                  content_rules_accepted_at:
+                    $ref: "#/components/schemas/Timestamp"
+        "400":
+          $ref: "#/components/responses/InvalidRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          description: "`not_found`: the account was deleted meanwhile."
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Error"
+                  - properties:
+                      error:
+                        const: not_found
+        "413":
+          $ref: "#/components/responses/BodyTooLarge"
+        "500":
+          $ref: "#/components/responses/Internal"
+
   /me/matches:
     get:
       tags: [matches]
@@ -4164,7 +4205,7 @@ components:
 
     Me:
       type: object
-      required: [id, name, email, birth_date, is_operator, created_at]
+      required: [id, name, email, birth_date, is_operator, created_at, content_rules_accepted_at]
       properties:
         id:
           type: integer
@@ -4185,6 +4226,11 @@ components:
           description: True only for the operator account (rule 12).
         created_at:
           $ref: "#/components/schemas/Timestamp"
+        content_rules_accepted_at:
+          oneOf:
+            - $ref: "#/components/schemas/Timestamp"
+            - type: "null"
+          description: When the user accepted the content rules; null until then (R23.13). POST /posts needs it.
 
     Team:
       type: object

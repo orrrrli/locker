@@ -130,7 +130,24 @@ func (r *Users) Get(ctx context.Context, userID int64) (domain.User, error) {
 	if row.BirthDate.Valid {
 		u.BirthDate = &row.BirthDate.Time
 	}
+	if row.ContentRulesAcceptedAt.Valid {
+		u.ContentRulesAcceptedAt = &row.ContentRulesAcceptedAt.Time
+	}
 	return u, nil
+}
+
+// AcceptContentRules records when the user accepted the content rules and
+// returns it; a repeat keeps the first time. domain.ErrNotFound for an
+// unknown or deleted user.
+func (r *Users) AcceptContentRules(ctx context.Context, userID int64) (time.Time, error) {
+	at, err := sqlcdb.New(Conn(ctx, r.pool)).AcceptContentRules(ctx, userID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return time.Time{}, domain.ErrNotFound
+	}
+	if err != nil {
+		return time.Time{}, fmt.Errorf("postgres: accept content rules: %w", err)
+	}
+	return at.Time, nil
 }
 
 // SetPassword replaces the user's password hash and returns the identity's

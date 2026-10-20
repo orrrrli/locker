@@ -17,6 +17,8 @@ type User struct {
 	DeletedAt       *time.Time
 	CreatedAt       time.Time
 	IsOperator      bool
+
+	ContentRulesAcceptedAt *time.Time
 }
 
 type Provider string

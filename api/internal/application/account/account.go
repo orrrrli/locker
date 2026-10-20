@@ -5,6 +5,7 @@ package account
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/orrrrli/locker/api/internal/application"
 	"github.com/orrrrli/locker/api/internal/domain"
@@ -56,6 +57,10 @@ type Users interface {
 	// DeletePersonalData deletes identities, device tokens and sessions and
 	// nulls the personal fields; domain.ErrNotFound when already deleted.
 	DeletePersonalData(ctx context.Context, userID int64) error
+	// AcceptContentRules records when the user accepted the content rules and
+	// returns it, keeping the first time on a repeat; domain.ErrNotFound for an
+	// unknown or deleted user.
+	AcceptContentRules(ctx context.Context, userID int64) (time.Time, error)
 }
 
 type Deps struct {
@@ -82,6 +87,13 @@ func NewService(d Deps) *Service {
 // the account was deleted since the request authenticated.
 func (s *Service) Me(ctx context.Context, userID int64) (domain.User, error) {
 	return s.users.Get(ctx, userID)
+}
+
+// AcceptContentRules records when the user accepted the content rules, which
+// the first post requires (R23.13), and returns it. A repeat keeps the first
+// time. domain.ErrNotFound when the account was deleted meanwhile.
+func (s *Service) AcceptContentRules(ctx context.Context, userID int64) (time.Time, error) {
+	return s.users.AcceptContentRules(ctx, userID)
 }
 
 // Delete deletes the user's account in one transaction (R5). It is rejected
