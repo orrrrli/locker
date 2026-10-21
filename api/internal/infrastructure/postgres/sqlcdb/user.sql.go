@@ -11,6 +11,22 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const acceptContentRules = `-- name: AcceptContentRules :one
+UPDATE "user"
+SET content_rules_accepted_at = coalesce(content_rules_accepted_at, now())
+WHERE id = $1 AND deleted_at IS NULL
+RETURNING content_rules_accepted_at
+`
+
+// R23.13: records when the user accepted the content rules. A repeat keeps
+// the first time.
+func (q *Queries) AcceptContentRules(ctx context.Context, id int64) (pgtype.Timestamptz, error) {
+	row := q.db.QueryRow(ctx, acceptContentRules, id)
+	var content_rules_accepted_at pgtype.Timestamptz
+	err := row.Scan(&content_rules_accepted_at)
+	return content_rules_accepted_at, err
+}
+
 const clearUserPersonalData = `-- name: ClearUserPersonalData :execrows
 UPDATE "user"
 SET name = NULL, email = NULL, email_verified_at = NULL, birth_date = NULL,
@@ -75,19 +91,21 @@ func (q *Queries) DeleteSessionsOfUser(ctx context.Context, userID int64) error 
 }
 
 const getUser = `-- name: GetUser :one
-SELECT id, name, email, email_verified_at, birth_date, photo_url, created_at, is_operator
+SELECT id, name, email, email_verified_at, birth_date, photo_url, created_at, is_operator,
+       content_rules_accepted_at
 FROM "user" WHERE id = $1 AND deleted_at IS NULL
 `
 
 type GetUserRow struct {
-	ID              int64
-	Name            pgtype.Text
-	Email           pgtype.Text
-	EmailVerifiedAt pgtype.Timestamptz
-	BirthDate       pgtype.Date
-	PhotoUrl        pgtype.Text
-	CreatedAt       pgtype.Timestamptz
-	IsOperator      bool
+	ID                     int64
+	Name                   pgtype.Text
+	Email                  pgtype.Text
+	EmailVerifiedAt        pgtype.Timestamptz
+	BirthDate              pgtype.Date
+	PhotoUrl               pgtype.Text
+	CreatedAt              pgtype.Timestamptz
+	IsOperator             bool
+	ContentRulesAcceptedAt pgtype.Timestamptz
 }
 
 // A live account: a deleted one never authenticates, so GET /me never sees it.
@@ -103,6 +121,7 @@ func (q *Queries) GetUser(ctx context.Context, id int64) (GetUserRow, error) {
 		&i.PhotoUrl,
 		&i.CreatedAt,
 		&i.IsOperator,
+		&i.ContentRulesAcceptedAt,
 	)
 	return i, err
 }

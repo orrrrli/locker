@@ -93,6 +93,44 @@ func TestUserIsOperatorDefaultsFalse(t *testing.T) {
 	}
 }
 
+// TestUserModerationColumnsAreNullable checks content_rules_accepted_at and
+// suspended_at are timestamptz, nullable, and NULL for a user created without
+// naming them: NULL means rules not accepted yet / not suspended (R23.13,
+// R23.10), so a NOT NULL or a default would break both.
+func TestUserModerationColumnsAreNullable(t *testing.T) {
+	pool, _ := testPool(t)
+	ctx := context.Background()
+	if err := Migrate(ctx, pool); err != nil {
+		t.Fatal(err)
+	}
+	var accepted, suspended *time.Time
+	err := pool.QueryRow(ctx, `
+		INSERT INTO "user" (name, birth_date) VALUES ('Ana', '1990-01-01')
+		RETURNING content_rules_accepted_at, suspended_at`).Scan(&accepted, &suspended)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if accepted != nil {
+		t.Errorf("content_rules_accepted_at = %v for a new user, want NULL", accepted)
+	}
+	if suspended != nil {
+		t.Errorf("suspended_at = %v for a new user, want NULL", suspended)
+	}
+	for _, column := range []string{"content_rules_accepted_at", "suspended_at"} {
+		var dataType, nullable string
+		err := pool.QueryRow(ctx, `
+			SELECT data_type, is_nullable FROM information_schema.columns
+			WHERE table_schema = 'public' AND table_name = 'user' AND column_name = $1`,
+			column).Scan(&dataType, &nullable)
+		if err != nil {
+			t.Fatalf("%s: %v", column, err)
+		}
+		if dataType != "timestamp with time zone" || nullable != "YES" {
+			t.Errorf("%s is %s, nullable %s, want timestamp with time zone, nullable YES", column, dataType, nullable)
+		}
+	}
+}
+
 // TestLeagueChecks: the database rejects an empty or backwards window, a
 // season that ends before it starts and a weekday outside 1 to 7, even from
 // a write that skips the use case (R16.2, R16.3).

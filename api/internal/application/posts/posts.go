@@ -41,13 +41,19 @@ var (
 	// ErrNotAllowed rejects deleting a post the caller neither wrote nor,
 	// for a team post, administers.
 	ErrNotAllowed = errors.New("only the author, or an admin of the team for a team post, deletes a post")
+	// ErrSuspended rejects any post by a suspended user (R23.10).
+	ErrSuspended = errors.New("your account is suspended from posting")
+	// ErrContentRulesNotAccepted rejects a post before the user accepted the
+	// content rules (R23.13).
+	ErrContentRulesNotAccepted = errors.New("accept the content rules before posting")
 )
 
 // Posts is what the use case needs from the post tables.
 type Posts interface {
-	// LockUser holds the user's row until commit; domain.ErrNotFound for an
+	// LockUser holds the user's row until commit and returns the user with
+	// ContentRulesAcceptedAt and SuspendedAt; domain.ErrNotFound for an
 	// unknown or deleted user.
-	LockUser(ctx context.Context, userID int64) error
+	LockUser(ctx context.Context, userID int64) (domain.User, error)
 	CountSince(ctx context.Context, userID int64, since time.Time) (int, error)
 	// Create stores p and its media; domain.ErrNotFound when its team, league
 	// or venue does not exist.
@@ -125,8 +131,9 @@ type NewPost struct {
 // Publish checks the post and its photos, then stores it in one transaction
 // (R18). The photos are checked before the transaction, so no row lock waits
 // on the network, and only keys issued to userID and unused ever reach R2.
-// Inside it: the author check for AsKind (R18.2-R18.6), then the daily limit
-// under the user's row lock (NFR 9), and the keys again, now attached. The
+// Inside it: the author check for AsKind (R18.2-R18.6), then, under the
+// user's row lock, the suspension and content rules checks (R23.10, R23.13)
+// and the daily limit (NFR 9), and the keys again, now attached. The
 // cleanup job locks a key's row before deleting its objects, so a key it
 // takes in between fails the attach here.
 //
@@ -157,8 +164,17 @@ func (s *Service) Publish(ctx context.Context, userID int64, in NewPost) (domain
 		if err := s.checkAuthor(ctx, userID, p); err != nil {
 			return err
 		}
-		if err := s.posts.LockUser(ctx, userID); err != nil {
+		u, err := s.posts.LockUser(ctx, userID)
+		if err != nil {
 			return err
+		}
+		// Every author kind, the operator too. Suspended first: accepting
+		// the rules would not lift it.
+		if u.SuspendedAt != nil {
+			return ErrSuspended
+		}
+		if u.ContentRulesAcceptedAt == nil {
+			return ErrContentRulesNotAccepted
 		}
 		n, err := s.posts.CountSince(ctx, userID, now.Add(-24*time.Hour))
 		if err != nil {

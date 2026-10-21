@@ -259,7 +259,7 @@ func TestGetMe(t *testing.T) {
 		if err := json.Unmarshal(rec.Body.Bytes(), &raw); err != nil {
 			t.Fatal(err)
 		}
-		want := []string{"birth_date", "created_at", "email", "id", "is_operator", "name"}
+		want := []string{"birth_date", "content_rules_accepted_at", "created_at", "email", "id", "is_operator", "name"}
 		if keys := slices.Sorted(maps.Keys(raw)); !slices.Equal(keys, want) {
 			t.Fatalf("keys = %v, want %v", keys, want)
 		}
@@ -300,5 +300,155 @@ func TestGetMe(t *testing.T) {
 	}
 	if rec := api.do(t, http.MethodGet, "/me", otherToken, nil); rec.Code != http.StatusUnauthorized {
 		t.Fatalf("after delete: status %d, body %s", rec.Code, rec.Body)
+	}
+}
+
+// meContentRules reads content_rules_accepted_at from the raw GET /me body, so
+// a missing key fails instead of reading as null. It returns nil for null.
+func meContentRules(t *testing.T, api apiTest, token string) *time.Time {
+	t.Helper()
+	rec := api.do(t, http.MethodGet, "/me", token, nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET /me: status %d, body %s", rec.Code, rec.Body)
+	}
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(rec.Body.Bytes(), &raw); err != nil {
+		t.Fatal(err)
+	}
+	field, ok := raw["content_rules_accepted_at"]
+	if !ok {
+		t.Fatalf("GET /me has no content_rules_accepted_at key: %s", rec.Body)
+	}
+	var at *time.Time
+	if err := json.Unmarshal(field, &at); err != nil {
+		t.Fatal(err)
+	}
+	return at
+}
+
+// acceptRules calls POST /me/content-rules without a body and returns the
+// accepted time, failing unless the answer is a 200 with only that key.
+func acceptRules(t *testing.T, api apiTest, token string) time.Time {
+	t.Helper()
+	rec := api.do(t, http.MethodPost, "/me/content-rules", token, nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("POST /me/content-rules: status %d, body %s", rec.Code, rec.Body)
+	}
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(rec.Body.Bytes(), &raw); err != nil {
+		t.Fatal(err)
+	}
+	if keys, want := slices.Sorted(maps.Keys(raw)), []string{"content_rules_accepted_at"}; !slices.Equal(keys, want) {
+		t.Fatalf("keys = %v, want %v", keys, want)
+	}
+	var body struct {
+		At *time.Time `json:"content_rules_accepted_at"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil || body.At == nil {
+		t.Fatalf("body %s: content_rules_accepted_at missing or null (err %v)", rec.Body, err)
+	}
+	return *body.At
+}
+
+// TestAcceptContentRulesRecordsTime: POST /me/content-rules stores when the
+// user accepted (R23.13); GET /me shows null before and that time after.
+func TestAcceptContentRulesRecordsTime(t *testing.T) {
+	api := newAPI(t, func() time.Time { return today })
+	id, token := signUp(t, api, "ana@example.com")
+	if at := meContentRules(t, api, token); at != nil {
+		t.Fatalf("before accepting: content_rules_accepted_at = %v, want null", at)
+	}
+
+	at := acceptRules(t, api, token)
+
+	if at.IsZero() || at.Location() != time.UTC || at.Nanosecond() != 0 {
+		t.Fatalf("accepted at %v, want a UTC whole-second time", at)
+	}
+	if d := time.Since(at); d < -time.Minute || d > time.Minute {
+		t.Fatalf("accepted at %v, want about now", at)
+	}
+	if got := meContentRules(t, api, token); got == nil || !got.Equal(at) {
+		t.Fatalf("GET /me content_rules_accepted_at = %v, want %v", got, at)
+	}
+	var stored *time.Time
+	if err := api.pool.QueryRow(context.Background(),
+		`SELECT content_rules_accepted_at FROM "user" WHERE id = $1`, id).Scan(&stored); err != nil || stored == nil {
+		t.Fatalf("column = %v, err %v, want a time", stored, err)
+	}
+	if !stored.Truncate(time.Second).Equal(at) {
+		t.Fatalf("column = %v, response = %v, want the same second", stored, at)
+	}
+}
+
+// TestAcceptContentRulesKeepsFirstTime: a second POST answers the first time,
+// it does not move it (R23.13 stores when the user accepted).
+func TestAcceptContentRulesKeepsFirstTime(t *testing.T) {
+	api := newAPI(t, func() time.Time { return today })
+	id, token := signUp(t, api, "ana@example.com")
+	acceptRules(t, api, token)
+	// Back-date the stored time, so a second now() cannot match by luck.
+	first := time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
+	if _, err := api.pool.Exec(context.Background(),
+		`UPDATE "user" SET content_rules_accepted_at = $2 WHERE id = $1`, id, first); err != nil {
+		t.Fatal(err)
+	}
+
+	second := acceptRules(t, api, token)
+
+	if !second.Equal(first) {
+		t.Fatalf("second POST = %v, want the first time %v", second, first)
+	}
+	if got := meContentRules(t, api, token); got == nil || !got.Equal(first) {
+		t.Fatalf("GET /me content_rules_accepted_at = %v, want %v", got, first)
+	}
+}
+
+// TestAcceptContentRulesNeedsSession: without a valid token nothing is
+// recorded and the answer is 401.
+func TestAcceptContentRulesNeedsSession(t *testing.T) {
+	api := newAPI(t, func() time.Time { return today })
+	_, token := signUp(t, api, "ana@example.com")
+
+	for name, tok := range map[string]string{"no token": "", "unknown token": "not-a-session"} {
+		if rec := api.do(t, http.MethodPost, "/me/content-rules", tok, nil); rec.Code != http.StatusUnauthorized {
+			t.Fatalf("%s: status %d, body %s, want 401", name, rec.Code, rec.Body)
+		}
+	}
+	if at := meContentRules(t, api, token); at != nil {
+		t.Fatalf("content_rules_accepted_at = %v after rejected calls, want null", at)
+	}
+}
+
+// TestAcceptContentRulesRejectsBody: the route takes no input, so any JSON
+// field is a 400 (decodeJSON convention) and nothing is recorded. The user
+// comes only from the session.
+func TestAcceptContentRulesRejectsBody(t *testing.T) {
+	api := newAPI(t, func() time.Time { return today })
+	id, token := signUp(t, api, "ana@example.com")
+
+	for name, body := range map[string]map[string]any{
+		"unknown field": {"x": 1},
+		"user id":       {"user_id": id},
+	} {
+		if rec := api.do(t, http.MethodPost, "/me/content-rules", token, body); rec.Code != http.StatusBadRequest {
+			t.Fatalf("%s: status %d, body %s, want 400", name, rec.Code, rec.Body)
+		}
+	}
+	if at := meContentRules(t, api, token); at != nil {
+		t.Fatalf("content_rules_accepted_at = %v after rejected bodies, want null", at)
+	}
+}
+
+// TestAcceptContentRulesOnlyForTheCaller: one user accepting leaves every
+// other account unaccepted.
+func TestAcceptContentRulesOnlyForTheCaller(t *testing.T) {
+	api := newAPI(t, func() time.Time { return today })
+	_, tokenA := signUp(t, api, "ana@example.com")
+	_, tokenB := signUp(t, api, "bob@example.com")
+
+	acceptRules(t, api, tokenA)
+
+	if at := meContentRules(t, api, tokenB); at != nil {
+		t.Fatalf("bob's content_rules_accepted_at = %v, want null", at)
 	}
 }

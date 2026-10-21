@@ -13,6 +13,7 @@ import (
 type accountService interface {
 	Me(ctx context.Context, userID int64) (domain.User, error)
 	Delete(ctx context.Context, userID int64) error
+	AcceptContentRules(ctx context.Context, userID int64) (time.Time, error)
 }
 
 type accountHandlers struct {
@@ -36,6 +37,9 @@ type meJSON struct {
 	BirthDate  string    `json:"birth_date"` // YYYY-MM-DD
 	IsOperator bool      `json:"is_operator"`
 	CreatedAt  time.Time `json:"created_at"`
+	// ContentRulesAcceptedAt is null until the user accepts the content
+	// rules, which the first post requires (R23.13).
+	ContentRulesAcceptedAt *time.Time `json:"content_rules_accepted_at"`
 }
 
 func toMeJSON(u domain.User) meJSON {
@@ -45,6 +49,10 @@ func toMeJSON(u domain.User) meJSON {
 	}
 	if u.BirthDate != nil {
 		out.BirthDate = u.BirthDate.Format(time.DateOnly)
+	}
+	if u.ContentRulesAcceptedAt != nil {
+		t := apiTime(*u.ContentRulesAcceptedAt)
+		out.ContentRulesAcceptedAt = &t
 	}
 	return out
 }
@@ -90,4 +98,21 @@ func (h accountHandlers) deleteMe(w http.ResponseWriter, r *http.Request) {
 var accountErrors = errorMap{
 	{domain.ErrTeamBusy, http.StatusServiceUnavailable, "team_busy"},
 	{domain.ErrNotFound, http.StatusNotFound, "not_found"},
+}
+
+// acceptContentRules answers POST /me/content-rules (R23.13). The user comes
+// only from the session. No body is expected; one with any field is a 400.
+// ponytail: a chunked empty body (ContentLength -1) reads as a body and gets
+// 400 from decodeJSON; iOS sends none, revisit if a client streams it.
+func (h accountHandlers) acceptContentRules(w http.ResponseWriter, r *http.Request) {
+	if r.ContentLength != 0 && !decodeJSON(w, r, &struct{}{}) {
+		return
+	}
+	userID, _ := userIDFrom(r.Context())
+	at, err := h.svc.AcceptContentRules(r.Context(), userID)
+	if err != nil {
+		accountErrors.write(w, r, "content rules", err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]time.Time{"content_rules_accepted_at": apiTime(at)})
 }

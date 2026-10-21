@@ -46,6 +46,7 @@ func uploadKey(t *testing.T, api apiTest, token string) string {
 func TestPublishPost(t *testing.T) {
 	api := newAPI(t, func() time.Time { return today })
 	_, ana := signUp(t, api, "ana@example.com")
+	acceptRules(t, api, ana)
 	team := createTeam(t, api, ana, "Pumas", "America/Tijuana")
 	key := uploadKey(t, api, ana)
 
@@ -147,6 +148,8 @@ func TestPublishPostRejects(t *testing.T) {
 	api := newAPI(t, func() time.Time { return today })
 	_, ana := signUp(t, api, "ana@example.com")
 	_, beto := signUp(t, api, "beto@example.com")
+	acceptRules(t, api, ana)
+	acceptRules(t, api, beto)
 	team := createTeam(t, api, ana, "Pumas", "America/Tijuana")
 	betoKey := uploadKey(t, api, beto)
 
@@ -231,6 +234,7 @@ func TestDeletePost(t *testing.T) {
 	api := newAPI(t, func() time.Time { return today })
 	_, ana := signUp(t, api, "ana@example.com")
 	_, beto := signUp(t, api, "beto@example.com")
+	acceptRules(t, api, ana)
 	team := createTeam(t, api, ana, "Pumas", "America/Tijuana")
 	rec := api.do(t, http.MethodPost, "/posts", ana, map[string]any{"as_kind": "team", "team_id": team.ID, "body": "Hola"})
 	if rec.Code != http.StatusCreated {
@@ -272,9 +276,15 @@ func TestDeletePost(t *testing.T) {
 	}
 }
 
-// postAs publishes through the real route and returns the response.
+// postAs publishes through the real route and returns the response. The user
+// accepts the content rules first (R23.13; idempotent): the tests using it are
+// about what a post does, not about who may publish. Tests of that call
+// api.do directly.
 func postAs(t *testing.T, api apiTest, token string, body map[string]any) *httptest.ResponseRecorder {
 	t.Helper()
+	if token != "" {
+		acceptRules(t, api, token)
+	}
 	return api.do(t, http.MethodPost, "/posts", token, body)
 }
 

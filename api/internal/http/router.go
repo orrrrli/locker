@@ -111,6 +111,7 @@ func NewRouter(d Deps) http.Handler {
 	acct := accountHandlers{svc: d.Account}
 	mux.Handle("GET /me", a.requireAuth(http.HandlerFunc(acct.me)))
 	mux.Handle("DELETE /me", a.requireAuth(http.HandlerFunc(acct.deleteMe)))
+	mux.Handle("POST /me/content-rules", a.requireAuth(http.HandlerFunc(acct.acceptContentRules)))
 
 	z := authz{memberships: d.Memberships, users: d.Users}
 	t := teamHandlers{svc: d.Teams}

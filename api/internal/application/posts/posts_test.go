@@ -81,6 +81,9 @@ func (f *fixture) user(t *testing.T, email string) int64 {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// Every user here publishes: the content rules are accepted (R23.13).
+	// The gate itself is tested through POST /posts, in package http.
+	f.exec(t, `UPDATE "user" SET content_rules_accepted_at = now() WHERE id = $1`, id)
 	return id
 }
 

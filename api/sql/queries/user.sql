@@ -32,5 +32,14 @@ SELECT is_operator FROM "user" WHERE id = $1;
 
 -- name: GetUser :one
 -- A live account: a deleted one never authenticates, so GET /me never sees it.
-SELECT id, name, email, email_verified_at, birth_date, photo_url, created_at, is_operator
+SELECT id, name, email, email_verified_at, birth_date, photo_url, created_at, is_operator,
+       content_rules_accepted_at
 FROM "user" WHERE id = $1 AND deleted_at IS NULL;
+
+-- name: AcceptContentRules :one
+-- R23.13: records when the user accepted the content rules. A repeat keeps
+-- the first time.
+UPDATE "user"
+SET content_rules_accepted_at = coalesce(content_rules_accepted_at, now())
+WHERE id = $1 AND deleted_at IS NULL
+RETURNING content_rules_accepted_at;

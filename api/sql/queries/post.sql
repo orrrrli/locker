@@ -1,7 +1,8 @@
 -- name: LockUserForPost :one
 -- Serializes one user's posts, so the daily count stays exact when two
--- arrive at once (NFR 9).
-SELECT id FROM "user"
+-- arrive at once (NFR 9). Returns the moderation columns read under the
+-- lock, so a suspension committed meanwhile is seen (R23.10, R23.13).
+SELECT content_rules_accepted_at, suspended_at FROM "user"
 WHERE id = $1 AND deleted_at IS NULL
 FOR NO KEY UPDATE;
 
