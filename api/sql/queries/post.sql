@@ -56,3 +56,19 @@ WHERE post_id = sqlc.arg(post_id);
 -- name: DeletePost :exec
 -- post_media goes with it (ON DELETE CASCADE).
 DELETE FROM post WHERE id = $1;
+
+-- name: ReleaseUploadsOfPlayerPostsOfUser :execrows
+-- Account deletion hands the user's player posts' keys to the cleanup job,
+-- which deletes both objects of each from R2 after commit (R18.13). The rows
+-- go before the posts: media_upload.post_id has no ON DELETE, so a post with
+-- attached uploads cannot be deleted until it releases them.
+UPDATE media_upload
+SET post_id = NULL, released_at = now()
+WHERE post_id IN (SELECT id FROM post WHERE author_user_id = $1 AND as_kind = 'player');
+
+-- name: DeletePlayerPostsOfUser :execrows
+-- Account deletion removes what the user wrote as a player (R18.13, R5.3).
+-- post_media, its reactions and its reports go with it (ON DELETE CASCADE);
+-- its uploads were released first. Posts written as a team admin stay, with
+-- the anonymized user row as the writer.
+DELETE FROM post WHERE author_user_id = $1 AND as_kind = 'player';

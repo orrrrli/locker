@@ -32,6 +32,22 @@ func (q *Queries) BlockUser(ctx context.Context, arg BlockUserParams) (int64, er
 	return blocked_id, err
 }
 
+const deleteBlocksOfUser = `-- name: DeleteBlocksOfUser :execrows
+DELETE FROM user_block WHERE blocker_id = $1 OR blocked_id = $1
+`
+
+// Account deletion removes the user's blocks in both directions (R5, open
+// question 22 resolved): the rows they made, and the rows where someone
+// blocked them. A block against a deleted account hides nothing useful and
+// would keep hiding the team posts they wrote as an admin (R18.13).
+func (q *Queries) DeleteBlocksOfUser(ctx context.Context, userID int64) (int64, error) {
+	result, err := q.db.Exec(ctx, deleteBlocksOfUser, userID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const unblockUser = `-- name: UnblockUser :exec
 DELETE FROM user_block WHERE blocker_id = $1 AND blocked_id = $2
 `

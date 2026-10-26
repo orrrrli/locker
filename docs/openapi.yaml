@@ -558,11 +558,14 @@ paths:
       description: |
         Deletes the account behind the session (never from a path or body id).
         Memberships become left "Ex-jugador #<id>" rows so team history stays.
-        Refused with 409 `last_admin_of_teams` while the caller is the only
-        active admin (Capitán) of any team; the body lists those teams. In a
-        team where the caller is the only active member (`sole_member`), there
-        is no one to promote: the caller dissolves it with `DELETE /teams/{id}`
-        first (R6.8).
+        The posts the caller wrote as a player go, with their photos, reactions
+        and reports; so do the caller's follows, reactions, blocks and reports,
+        so the public follower counts drop. Posts written as a team admin stay,
+        with the writer anonymized. Refused with 409 `last_admin_of_teams` while
+        the caller is the only active admin (Capitán) of any team; the body lists
+        those teams. In a team where the caller is the only active member
+        (`sole_member`), there is no one to promote: the caller dissolves it with
+        `DELETE /teams/{id}` first (R6.8).
       security:
         - bearerAuth: []
       responses:

@@ -106,6 +106,16 @@ func (r *Users) DeletePersonalData(ctx context.Context, userID int64) error {
 	return nil
 }
 
+// Lock holds the user's row until the transaction ends, the lock a post takes
+// while it is being published, so account deletion and a publish serialize:
+// the post lands before the deletion reads the user's posts, or its own
+// deleted_at check refuses it. domain.ErrNotFound for an unknown or already
+// deleted user.
+func (r *Users) Lock(ctx context.Context, userID int64) error {
+	_, err := lockUserForWrite(ctx, r.pool, userID)
+	return err
+}
+
 // Get returns a live user with the operator flag; domain.ErrNotFound for an
 // unknown or deleted user.
 func (r *Users) Get(ctx context.Context, userID int64) (domain.User, error) {

@@ -17,3 +17,10 @@ INSERT INTO report (post_id, reporter_user_id, reason, note, created_at)
 VALUES ($1, $2, $3, $4, $5)
 ON CONFLICT (post_id, reporter_user_id) DO NOTHING
 RETURNING id, post_id, reason, note, created_at;
+
+-- name: DeleteReportsOfUser :execrows
+-- Account deletion removes the reports the user sent (R5, open question 22
+-- resolved). Reports against the user's player posts go with those posts
+-- (report.post_id is ON DELETE CASCADE), so an operator queue never keeps a
+-- report on a post that no longer exists.
+DELETE FROM report WHERE reporter_user_id = $1;

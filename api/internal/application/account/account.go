@@ -61,6 +61,14 @@ type Users interface {
 	// returns it, keeping the first time on a repeat; domain.ErrNotFound for an
 	// unknown or deleted user.
 	AcceptContentRules(ctx context.Context, userID int64) (time.Time, error)
+	// Lock holds the user's row until commit, the same lock a post takes while
+	// it is being published; domain.ErrNotFound for an unknown or deleted user.
+	Lock(ctx context.Context, userID int64) error
+}
+
+// Social is the social-data step of account deletion (R18.13, R20.6).
+type Social interface {
+	DeleteSocialDataOfUser(ctx context.Context, userID int64) error
 }
 
 type Deps struct {
@@ -68,6 +76,7 @@ type Deps struct {
 	Teams       Teams
 	Memberships Memberships
 	Users       Users
+	Social      Social
 }
 
 type Service struct {
@@ -75,10 +84,11 @@ type Service struct {
 	teams       Teams
 	memberships Memberships
 	users       Users
+	social      Social
 }
 
 func NewService(d Deps) *Service {
-	return &Service{tx: d.Tx, teams: d.Teams, memberships: d.Memberships, users: d.Users}
+	return &Service{tx: d.Tx, teams: d.Teams, memberships: d.Memberships, users: d.Users, social: d.Social}
 }
 
 // Me returns the caller's own account, including whether they are the
@@ -100,8 +110,13 @@ func (s *Service) AcceptContentRules(ctx context.Context, userID int64) (time.Ti
 // with a *LastAdminError while the user is the only active admin of any team
 // (R5.4). Otherwise every membership becomes a left "Ex-jugador #<id>" with
 // no user, keeping attendance and fees (R5.3); never-joined pending rows are
-// deleted like a reject; then identities, device tokens and sessions are
-// deleted and the personal fields nulled (R5.2).
+// deleted like a reject; then the social data goes (the posts they wrote as a
+// player with their photos, reactions and reports, and their follows,
+// reactions, blocks and reports, R18.13, R20.6); then identities, device
+// tokens and sessions are deleted and the personal fields nulled (R5.2).
+// Posts written as a team admin stay, with the anonymized user row as the
+// writer, and the cleanup job deletes the deleted posts' photos from R2 after
+// commit.
 //
 // A membership that turns active in a team the check did not lock (the user
 // joined one meanwhile) fails it with domain.ErrTeamBusy, so that team is
@@ -138,6 +153,17 @@ func (s *Service) Delete(ctx context.Context, userID int64) error {
 			}
 			if stillLinked > 0 {
 				return domain.ErrTeamBusy
+			}
+			// A post being published meanwhile holds this lock until it
+			// commits. Taken before the posts are read, it makes the publish
+			// either land first, so the deletion removes it, or check
+			// deleted_at after it, and refuse (security audit H1). Team locks
+			// stay first: publishing a team post takes them in this order too.
+			if err := s.users.Lock(ctx, userID); err != nil {
+				return err
+			}
+			if err := s.social.DeleteSocialDataOfUser(ctx, userID); err != nil {
+				return err
 			}
 			return s.users.DeletePersonalData(ctx, userID)
 		})

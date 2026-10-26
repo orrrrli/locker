@@ -141,6 +141,7 @@ func start() error {
 		Teams:       postgres.NewTeams(pool),
 		Memberships: memberships,
 		Users:       postgres.NewUsers(pool),
+		Social:      postgres.NewSocial(pool),
 	})
 	matchSvc := matches.NewService(matches.Deps{
 		Tx:          postgres.NewTxRunner(pool),
