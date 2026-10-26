@@ -79,12 +79,24 @@ func (m *fakeMailer) next(t *testing.T) sentMail {
 // database. The hasher uses cheap params so the suite stays fast.
 func newAPI(t *testing.T, now func() time.Time) apiTest {
 	t.Helper()
-	return newAPIWithFeedSigner(t, now, nil)
+	return newAPIWith(t, now, nil, "")
 }
 
 // newAPIWithFeedSigner is newAPI with a signer for the feed photo URLs; nil
 // means no bucket is configured.
 func newAPIWithFeedSigner(t *testing.T, now func() time.Time, feedSigner feed.Signer) apiTest {
+	t.Helper()
+	return newAPIWith(t, now, feedSigner, "")
+}
+
+// newAPIWithDownload is newAPI with the download URL the public pages point
+// at; empty means the app is not out yet.
+func newAPIWithDownload(t *testing.T, now func() time.Time, downloadURL string) apiTest {
+	t.Helper()
+	return newAPIWith(t, now, nil, downloadURL)
+}
+
+func newAPIWith(t *testing.T, now func() time.Time, feedSigner feed.Signer, downloadURL string) apiTest {
 	t.Helper()
 	pool := testdb.New(t)
 	mail := &fakeMailer{sent: make(chan sentMail, 64)}
@@ -157,12 +169,13 @@ func newAPIWithFeedSigner(t *testing.T, now func() time.Time, feedSigner feed.Si
 		Auth: svc, Teams: teamSvc, Invites: inviteSvc, Members: memberSvc, Account: accountSvc,
 		Matches: matchSvc, MatchFinder: matchRepo, Charges: chargeSvc, ChargeFinder: chargeRepo, Notifications: notificationSvc,
 		Venues: venueSvc, Memberships: memberships, Users: postgres.NewUsers(pool), Limits: limits, Leagues: leagueSvc, Pages: pageSvc, Leads: leadSvc,
-		Blocks:  blocks.NewService(postgres.NewBlocks(pool)),
-		Follows: follows.NewService(postgres.NewFollows(pool)),
-		Media:   media.NewService(media.Deps{Tx: postgres.NewTxRunner(pool), Uploads: postgres.NewMediaUploads(pool), Storage: fakePhotos{}, Now: now}),
+		DownloadURL: downloadURL,
+		Blocks:      blocks.NewService(postgres.NewBlocks(pool)),
+		Follows:     follows.NewService(postgres.NewFollows(pool)),
+		Media:       media.NewService(media.Deps{Tx: postgres.NewTxRunner(pool), Uploads: postgres.NewMediaUploads(pool), Storage: fakePhotos{}, Now: now}),
 		Posts: posts.NewService(posts.Deps{
 			Tx: postgres.NewTxRunner(pool), Posts: postgres.NewPosts(pool), Memberships: memberships,
-			Users: postgres.NewUsers(pool), Photos: fakePhotos{}, Now: now,
+			Users: postgres.NewUsers(pool), Photos: fakePhotos{}, Signer: feedSigner, Now: now,
 		}),
 		Reactions: reactions.NewService(postgres.NewTxRunner(pool), postgres.NewReactions(pool)),
 		Reports: reports.NewService(reports.Deps{

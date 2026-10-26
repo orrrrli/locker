@@ -230,6 +230,14 @@ func TestPublishPostWithoutBucket(t *testing.T) {
 
 func (f *fakePosts) Delete(context.Context, int64, int64) error { return nil }
 
+func (f *fakePosts) Page(context.Context, string) (posts.SharedPost, error) {
+	return posts.SharedPost{}, domain.ErrNotFound
+}
+
+func (f *fakePosts) Shared(context.Context, int64, string) (posts.SharedPost, error) {
+	return posts.SharedPost{}, domain.ErrNotFound
+}
+
 func TestDeletePost(t *testing.T) {
 	api := newAPI(t, func() time.Time { return today })
 	_, ana := signUp(t, api, "ana@example.com")

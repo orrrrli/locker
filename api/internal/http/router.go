@@ -181,6 +181,10 @@ func NewRouter(d Deps) http.Handler {
 	mux.Handle("POST /posts", a.requireAuth(limitBy(d.Limits.PostWrite, byUser, http.HandlerFunc(ps.publish))))
 	mux.Handle("DELETE /posts/{id}", a.requireAuth(http.HandlerFunc(ps.remove)))
 
+	sh := shareHandlers{}
+	mux.HandleFunc("GET /p/{token}", sh.page)
+	mux.Handle("GET /posts/shared/{token}", a.requireAuth(http.HandlerFunc(sh.post)))
+
 	rh := reportHandlers{svc: d.Reports}
 	mux.Handle("POST /posts/{id}/reports", a.requireAuth(limitBy(d.Limits.Report, byUser, http.HandlerFunc(rh.report))))
 
