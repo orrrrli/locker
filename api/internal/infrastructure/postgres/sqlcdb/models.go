@@ -212,6 +212,16 @@ type Reaction struct {
 	CreatedAt pgtype.Timestamptz
 }
 
+type Report struct {
+	ID             int64
+	PostID         int64
+	ReporterUserID int64
+	Reason         string
+	Note           pgtype.Text
+	ResolvedAt     pgtype.Timestamptz
+	CreatedAt      pgtype.Timestamptz
+}
+
 type Rsvp struct {
 	MatchID      int64
 	MembershipID int64

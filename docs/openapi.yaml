@@ -49,7 +49,7 @@ tags:
   - name: feed
     description: Posts and their photos (R18).
   - name: moderation
-    description: One-way user blocks (R23).
+    description: Reports of posts and one-way user blocks (R23).
   - name: operator
     description: |
       Curation routes under `/operator`, only for the user whose
@@ -2670,6 +2670,90 @@ paths:
         "500":
           $ref: "#/components/responses/Internal"
 
+  /posts/{id}/reports:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        description: The post to report.
+        schema:
+          type: integer
+          format: int64
+    post:
+      tags: [moderation]
+      operationId: reportPost
+      summary: Report a post
+      description: |
+        Stores the caller's report of the post with a reason from a fixed list
+        and an optional note (R23.1). A report is stored once per user and
+        post: reporting the same post again answers 200 with the report
+        already stored, keeping its first reason and note (R23.2), and costs
+        no quota. A user cannot report their own post (R23.3), and at most 10
+        new reports are stored per user in any 24 hours (NFR 9); a repeat of a
+        post already reported is still accepted at that limit. A post the
+        operator removed is not reportable. Any signed-in user may report, the
+        content rules need not be accepted. At most 30 attempts per user per
+        hour.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [reason]
+              properties:
+                reason:
+                  $ref: "#/components/schemas/ReportReason"
+                note:
+                  type: [string, "null"]
+                  maxLength: 500
+                  description: Free text, optional; null or absent for none. At most 500 characters.
+      responses:
+        "201":
+          description: The report was stored.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Report"
+        "200":
+          description: The caller had already reported this post; the stored report comes back, with its first reason and note.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Report"
+        "400":
+          $ref: "#/components/responses/InvalidRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          description: "`not_found`: unknown or deleted post, a post the operator removed, or an id that is not a positive integer."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "422":
+          description: |
+            `cannot_report_own_post`: the post is the caller's own (R23.3).
+            `invalid_reason`: the reason is not one of the four.
+            `invalid_note`: the note is longer than 500 characters or carries invisible characters.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "429":
+          description: |
+            `too_many_reports`: the caller already has 10 new reports in the
+            last 24 hours (NFR 9). `too_many_attempts`: more than 30 calls in
+            an hour, with `Retry-After`.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          $ref: "#/components/responses/Internal"
+
   /posts/{id}/reactions/{kind}:
     post:
       tags: [feed]
@@ -3967,6 +4051,30 @@ components:
     ReactionKind:
       type: string
       enum: [fire, ball, clap]
+    ReportReason:
+      type: string
+      description: Why the caller reported the post (R23.1).
+      enum: [spam, inappropriate, harassment, other]
+    Report:
+      type: object
+      description: A report as stored (R23.1).
+      required: [id, post_id, reason, note, created_at]
+      properties:
+        id:
+          type: integer
+          format: int64
+        post_id:
+          type: integer
+          format: int64
+        reason:
+          $ref: "#/components/schemas/ReportReason"
+        note:
+          type: [string, "null"]
+          description: The caller's free text, null when they sent none.
+        created_at:
+          type: string
+          format: date-time
+          description: When the report was stored, UTC.
     FeedPost:
       type: object
       description: A post as the feed shows it (R22.12).
@@ -4134,6 +4242,10 @@ components:
         - too_many_photos
         - invalid_photo
         - too_many_posts
+        - too_many_reports
+        - invalid_reason
+        - invalid_note
+        - cannot_report_own_post
     AlreadyMemberError:
       type: object
       required: [error, status]

@@ -63,7 +63,10 @@ type Post struct {
 	Body         *string
 	ShareToken   string // the /p/{token} link (R21)
 	CreatedAt    time.Time
-	Media        []PostMedia // in position order
+	// RemovedAt is when the operator removed the post (R23.9); nil otherwise.
+	// A removed post shows nowhere but can still be deleted (R18.11).
+	RemovedAt *time.Time
+	Media     []PostMedia // in position order
 
 	// Feed-only: filled by the feed query (R22.12).
 	AuthorName     string  // team, player (as in the linked team), league or venue name

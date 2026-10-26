@@ -28,15 +28,9 @@ func NewPosts(pool *pgxpool.Pool) *Posts {
 // SuspendedAt read under the lock. domain.ErrNotFound for an unknown or
 // deleted user.
 func (r *Posts) LockUser(ctx context.Context, userID int64) (domain.User, error) {
-	if _, ok := ctx.Value(txKey{}).(pgx.Tx); !ok {
-		return domain.User{}, errors.New("postgres: lock user for post: no transaction in ctx")
-	}
-	row, err := sqlcdb.New(Conn(ctx, r.pool)).LockUserForPost(ctx, userID)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return domain.User{}, domain.ErrNotFound
-	}
+	row, err := lockUserForWrite(ctx, r.pool, userID)
 	if err != nil {
-		return domain.User{}, fmt.Errorf("postgres: lock user for post: %w", err)
+		return domain.User{}, err
 	}
 	u := domain.User{ID: userID}
 	if row.ContentRulesAcceptedAt.Valid {
@@ -46,6 +40,24 @@ func (r *Posts) LockUser(ctx context.Context, userID int64) (domain.User, error)
 		u.SuspendedAt = &row.SuspendedAt.Time
 	}
 	return u, nil
+}
+
+// lockUserForWrite holds the user's row until commit, so a daily count stays
+// exact when two writes arrive at once (NFR 9). Posts and reports share it:
+// both carry a limit per user per day. It returns the moderation columns read
+// under the lock, and domain.ErrNotFound for an unknown or deleted user.
+func lockUserForWrite(ctx context.Context, pool *pgxpool.Pool, userID int64) (sqlcdb.LockUserForWriteRow, error) {
+	if _, ok := ctx.Value(txKey{}).(pgx.Tx); !ok {
+		return sqlcdb.LockUserForWriteRow{}, errors.New("postgres: lock user for write: no transaction in ctx")
+	}
+	row, err := sqlcdb.New(Conn(ctx, pool)).LockUserForWrite(ctx, userID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return sqlcdb.LockUserForWriteRow{}, domain.ErrNotFound
+	}
+	if err != nil {
+		return sqlcdb.LockUserForWriteRow{}, fmt.Errorf("postgres: lock user for write: %w", err)
+	}
+	return row, nil
 }
 
 // CountSince counts the posts the user wrote after since.
@@ -112,8 +124,8 @@ func (r *Posts) CountUnusedUploads(ctx context.Context, userID int64, keys []str
 	return int(n), nil
 }
 
-// PostAuthor returns the post's ID, author, kind and team, without locking
-// it; domain.ErrNotFound for an unknown post.
+// PostAuthor returns the post's ID, author, kind, team and removal time,
+// without locking it; domain.ErrNotFound for an unknown post.
 func (r *Posts) PostAuthor(ctx context.Context, id int64) (domain.Post, error) {
 	row, err := sqlcdb.New(Conn(ctx, r.pool)).GetPostAuthor(ctx, id)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -122,7 +134,10 @@ func (r *Posts) PostAuthor(ctx context.Context, id int64) (domain.Post, error) {
 	if err != nil {
 		return domain.Post{}, fmt.Errorf("postgres: post author: %w", err)
 	}
-	return domain.Post{ID: row.ID, AuthorUserID: row.AuthorUserID, AsKind: domain.PostKind(row.AsKind), TeamID: int8Ptr(row.TeamID)}, nil
+	return domain.Post{
+		ID: row.ID, AuthorUserID: row.AuthorUserID, AsKind: domain.PostKind(row.AsKind),
+		TeamID: int8Ptr(row.TeamID), RemovedAt: utcPtr(row.RemovedAt),
+	}, nil
 }
 
 // Delete releases the post's uploads to the cleanup job at now, then deletes

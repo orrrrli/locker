@@ -395,6 +395,11 @@ const (
 	// still costs up to 8 R2 HEADs and a transaction; this caps the attempts.
 	postWriteMaxPerUser = 30
 	postWriteWindow     = time.Hour
+	// POST /posts/{id}/reports already allows 10 stored reports a day
+	// (NFR 9), but a refused one still costs a transaction; this caps the
+	// attempts the same way postWrite does.
+	reportMaxPerUser = 30
+	reportWindow     = time.Hour
 	// A reaction is one tap, toggled often, and writes a row each time; this
 	// stops a script from churning the table.
 	reactionMaxPerUser = 120
@@ -479,6 +484,7 @@ type Limits struct {
 	DeviceToken *RateLimiter // per user
 	MatchWrite  *RateLimiter // per user, match create and update together
 	PostWrite   *RateLimiter // per user, POST /posts attempts
+	Report      *RateLimiter // per user, POST /posts/{id}/reports attempts
 	Reaction    *RateLimiter // per user, POST /posts/{id}/reactions/{kind}
 	Feed        *RateLimiter // per user, GET /feed
 	// ResetRequestIP limits POST /auth/password-reset per client IP;
@@ -497,6 +503,7 @@ func NewLimits(now func() time.Time) Limits {
 		DeviceToken:  NewRateLimiter(deviceTokenMaxPerUser, deviceTokenWindow, now),
 		MatchWrite:   NewRateLimiter(matchWriteMaxPerUser, matchWriteWindow, now),
 		PostWrite:    NewRateLimiter(postWriteMaxPerUser, postWriteWindow, now),
+		Report:       NewRateLimiter(reportMaxPerUser, reportWindow, now),
 		Reaction:     NewRateLimiter(reactionMaxPerUser, reactionWindow, now),
 		Feed:         NewRateLimiter(feedMaxPerUser, feedWindow, now),
 
@@ -514,6 +521,7 @@ func (l Limits) Prune() {
 	l.DeviceToken.Prune()
 	l.MatchWrite.Prune()
 	l.PostWrite.Prune()
+	l.Report.Prune()
 	l.Reaction.Prune()
 	l.Feed.Prune()
 	l.ResetRequestIP.Prune()
