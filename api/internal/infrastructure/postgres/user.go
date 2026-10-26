@@ -185,6 +185,34 @@ func (r *Users) MarkEmailVerified(ctx context.Context, userID int64, now time.Ti
 	return nil
 }
 
+// Suspend sets suspended_at and returns it; a repeat keeps the first time.
+// domain.ErrNotFound for an unknown or deleted user (R23.10).
+func (r *Users) Suspend(ctx context.Context, userID int64, now time.Time) (time.Time, error) {
+	at, err := sqlcdb.New(Conn(ctx, r.pool)).SuspendUser(ctx, sqlcdb.SuspendUserParams{
+		Now: timestamptz(now), ID: userID,
+	})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return time.Time{}, domain.ErrNotFound
+	}
+	if err != nil {
+		return time.Time{}, fmt.Errorf("postgres: suspend user: %w", err)
+	}
+	return at.Time.UTC(), nil
+}
+
+// Unsuspend clears suspended_at; domain.ErrNotFound for an unknown or deleted
+// user (R23.11).
+func (r *Users) Unsuspend(ctx context.Context, userID int64) error {
+	_, err := sqlcdb.New(Conn(ctx, r.pool)).UnsuspendUser(ctx, userID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return domain.ErrNotFound
+	}
+	if err != nil {
+		return fmt.Errorf("postgres: unsuspend user: %w", err)
+	}
+	return nil
+}
+
 // IsOperator reports whether the user is the operator (rule 12). It returns
 // domain.ErrNotFound for an unknown user.
 func (r *Users) IsOperator(ctx context.Context, userID int64) (bool, error) {

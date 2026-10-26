@@ -25,6 +25,7 @@ import (
 	"github.com/orrrrli/locker/api/internal/application/matches"
 	"github.com/orrrrli/locker/api/internal/application/media"
 	applicationmemberships "github.com/orrrrli/locker/api/internal/application/memberships"
+	"github.com/orrrrli/locker/api/internal/application/moderation"
 	"github.com/orrrrli/locker/api/internal/application/notifications"
 	"github.com/orrrrli/locker/api/internal/application/pages"
 	"github.com/orrrrli/locker/api/internal/application/posts"
@@ -180,25 +181,29 @@ func start() error {
 		Users: postgres.NewUsers(pool), Photos: postPhotos,
 	})
 	router := apihttp.NewRouter(apihttp.Deps{
-		Auth:               authSvc,
-		Teams:              teamSvc,
-		Invites:            inviteSvc,
-		Members:            memberSvc,
-		Account:            accountSvc,
-		Matches:            matchSvc,
-		Charges:            chargeSvc,
-		Notifications:      notificationSvc,
-		Venues:             venueSvc,
-		Leagues:            leagueSvc,
-		Pages:              pageSvc,
-		Leads:              leadSvc,
-		Blocks:             blocks.NewService(postgres.NewBlocks(pool)),
-		Follows:            follows.NewService(postgres.NewFollows(pool)),
-		Media:              mediaSvc,
-		Posts:              postSvc,
-		Reactions:          reactions.NewService(postgres.NewTxRunner(pool), postgres.NewReactions(pool)),
+		Auth:          authSvc,
+		Teams:         teamSvc,
+		Invites:       inviteSvc,
+		Members:       memberSvc,
+		Account:       accountSvc,
+		Matches:       matchSvc,
+		Charges:       chargeSvc,
+		Notifications: notificationSvc,
+		Venues:        venueSvc,
+		Leagues:       leagueSvc,
+		Pages:         pageSvc,
+		Leads:         leadSvc,
+		Blocks:        blocks.NewService(postgres.NewBlocks(pool)),
+		Follows:       follows.NewService(postgres.NewFollows(pool)),
+		Media:         mediaSvc,
+		Posts:         postSvc,
+		Reactions:     reactions.NewService(postgres.NewTxRunner(pool), postgres.NewReactions(pool)),
 		Reports: reports.NewService(reports.Deps{
 			Tx: postgres.NewTxRunner(pool), Reports: postgres.NewReports(pool), Posts: postgres.NewPosts(pool),
+		}),
+		Moderation: moderation.NewService(moderation.Deps{
+			Tx: postgres.NewTxRunner(pool), Reports: postgres.NewReports(pool),
+			Posts: postgres.NewPosts(pool), Users: postgres.NewUsers(pool),
 		}),
 		Feed:               feed.NewService(postgres.NewFeed(pool), venueSvc, feedPhotos),
 		MatchFinder:        matchRepo,

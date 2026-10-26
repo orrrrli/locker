@@ -122,3 +122,99 @@ func (q *Queries) GetReportByPostAndReporter(ctx context.Context, arg GetReportB
 	)
 	return i, err
 }
+
+const listOpenReports = `-- name: ListOpenReports :many
+SELECT r.id, r.reason, r.note, r.created_at,
+       p.id AS post_id, p.as_kind, p.body, p.created_at AS post_created_at,
+       coalesce(CASE p.as_kind
+           WHEN 'team'   THEN t.name
+           WHEN 'player' THEN coalesce(m.display_name_override, u.name)
+           WHEN 'league' THEN l.name
+           WHEN 'venue'  THEN v.name
+       END, '')::text AS author_name,
+       t.name AS team_name,
+       (SELECT count(*) FROM report o
+        WHERE o.post_id = r.post_id AND o.resolved_at IS NULL)::int AS reporters_count
+FROM report r
+JOIN post p ON p.id = r.post_id
+LEFT JOIN team t ON t.id = p.team_id
+LEFT JOIN membership m ON p.as_kind = 'player' AND m.team_id = p.team_id AND m.user_id = p.author_user_id
+LEFT JOIN "user" u ON u.id = p.author_user_id
+LEFT JOIN league l ON l.id = p.league_id
+LEFT JOIN venue v ON v.id = p.venue_id
+WHERE r.resolved_at IS NULL AND p.removed_at IS NULL
+ORDER BY r.created_at, r.id
+`
+
+type ListOpenReportsRow struct {
+	ID             int64
+	Reason         string
+	Note           pgtype.Text
+	CreatedAt      pgtype.Timestamptz
+	PostID         int64
+	AsKind         string
+	Body           pgtype.Text
+	PostCreatedAt  pgtype.Timestamptz
+	AuthorName     string
+	TeamName       pgtype.Text
+	ReportersCount int32
+}
+
+// R23.4: the operator's queue. One row per open report, oldest first (id
+// breaks the tie), with the post it is about and how many open reports that
+// post has, so the same count repeats on every row of the post.
+// A post the operator already removed is left out: its reports were resolved
+// by that removal, and one inserted by a report racing it is not actionable.
+// ponytail: no pagination; the queue only ever holds open reports.
+func (q *Queries) ListOpenReports(ctx context.Context) ([]ListOpenReportsRow, error) {
+	rows, err := q.db.Query(ctx, listOpenReports)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListOpenReportsRow
+	for rows.Next() {
+		var i ListOpenReportsRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Reason,
+			&i.Note,
+			&i.CreatedAt,
+			&i.PostID,
+			&i.AsKind,
+			&i.Body,
+			&i.PostCreatedAt,
+			&i.AuthorName,
+			&i.TeamName,
+			&i.ReportersCount,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const resolveOpenReportsOfPost = `-- name: ResolveOpenReportsOfPost :execrows
+UPDATE report
+SET resolved_at = $1::timestamptz
+WHERE post_id = $2 AND resolved_at IS NULL
+`
+
+type ResolveOpenReportsOfPostParams struct {
+	Now    pgtype.Timestamptz
+	PostID int64
+}
+
+// R23.9: the removal resolves the post's open reports in the same transaction,
+// so the queue drops them. Already resolved ones keep their first time.
+func (q *Queries) ResolveOpenReportsOfPost(ctx context.Context, arg ResolveOpenReportsOfPostParams) (int64, error) {
+	result, err := q.db.Exec(ctx, resolveOpenReportsOfPost, arg.Now, arg.PostID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}

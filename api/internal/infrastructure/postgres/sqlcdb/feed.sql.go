@@ -57,6 +57,9 @@ WHERE p.removed_at IS NULL
   -- change (00030 backfills nothing) and any future writer that skips the
   -- lock. Team posts of a deleted admin stay (R18.13).
   AND NOT (p.as_kind = 'player' AND u.deleted_at IS NOT NULL)
+  -- R23.10: a suspended author's player posts are hidden; the team posts they
+  -- wrote as an admin stay, because team features keep working.
+  AND NOT (p.as_kind = 'player' AND u.suspended_at IS NOT NULL)
   -- A block hides only player and team posts (R23.5): official posts stay,
   -- so blocking ids one by one never reveals the operator's account.
   AND NOT (p.as_kind IN ('player', 'team') AND EXISTS (
@@ -124,8 +127,11 @@ type FeedPostsRow struct {
 // Every feed hides removed posts and player or team posts whose writer the
 // viewer blocked, a team post written by a blocked admin included (R22.9,
 // R23.5).
-// ponytail: suspended authors are not filtered yet (no column until
-// BE-MOD-1); SEC-MOD-1 moves this into the shared visibility filter.
+// R23.10: a suspension hides the author's player posts; team posts stay, so the
+// suspended user keeps their team features. A removed post stays hidden after
+// the suspension is lifted (R23.11).
+// ponytail: this filter and the block one below are per query; SEC-MOD-1 moves
+// them into one shared visibility condition.
 // ponytail: no feed index; add (team_id, created_at) and its league/venue
 // twins once EXPLAIN on real data asks for them.
 // Keyset on (created_at, id) descending: a NULL cursor is the first page.

@@ -28,6 +28,7 @@ type Deps struct {
 	Reactions     reactionService
 	Reports       reportService
 	Feed          feedService
+	Moderation    moderationService
 	// MatchFinder resolves the team of routes on /matches/{id}.
 	MatchFinder matchFinder
 	// ChargeFinder resolves the team of routes on /charges/{id}.
@@ -225,6 +226,11 @@ func NewRouter(d Deps) http.Handler {
 	op.HandleFunc("POST /operator/leagues/{id}/fixtures", lg.createFixture)
 	op.HandleFunc("PATCH /operator/leagues/{id}/fixtures/{fixtureId}", lg.updateFixture)
 	op.HandleFunc("DELETE /operator/leagues/{id}/fixtures/{fixtureId}", lg.cancelFixture)
+	mo := moderationHandlers{svc: d.Moderation}
+	op.HandleFunc("GET /operator/reports", mo.reports)
+	op.HandleFunc("DELETE /operator/posts/{id}", mo.removePost)
+	op.HandleFunc("PUT /operator/users/{id}/suspension", mo.suspend)
+	op.HandleFunc("DELETE /operator/users/{id}/suspension", mo.unsuspend)
 	return operatorFirst(a.requireAuth(z.requireOperator(jsonMisses(op))), jsonMisses(mux))
 }
 

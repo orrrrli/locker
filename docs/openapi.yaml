@@ -2646,6 +2646,9 @@ paths:
         from storage once their upload URLs expire, about 16 minutes after
         they were uploaded. The author may delete it even after leaving the
         team or losing the role that let them write it. Posts cannot be edited (R18.12).
+        A post the operator removed is refused instead (R23.9): that removal is
+        final, with its reason and its photos, and only account deletion
+        (R18.13) or dissolving the team end it.
       security:
         - bearerAuth: []
       parameters:
@@ -2661,7 +2664,7 @@ paths:
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
-          description: "`forbidden`: the caller is not the author, nor an active admin of the team for a team post."
+          description: "`forbidden`: the caller is not the author, nor an active admin of the team for a team post, or the operator removed the post and that removal is final (R23.9)."
           content:
             application/json:
               schema:
@@ -3794,6 +3797,158 @@ paths:
                   - properties:
                       error:
                         enum: [fixture_started]
+        "500":
+          $ref: "#/components/responses/Internal"
+  /operator/reports:
+    get:
+      tags: [operator]
+      operationId: listOpenReports
+      summary: List the open report queue
+      description: |
+        Operator only (R23.4, R23.12, NFR 7). One row per open report, oldest
+        first (id breaks the tie), with the post it is about and how many open
+        reports that post has, so the operator can act within 24 hours. A post
+        already removed is left out of the queue. Not paginated.
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: The open reports, `[]` when there are none.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [reports]
+                properties:
+                  reports:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/QueuedReport"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/NotOperator"
+        "500":
+          $ref: "#/components/responses/Internal"
+  /operator/posts/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        description: Post id. An unknown id answers 404.
+        schema:
+          type: integer
+          format: int64
+          minimum: 1
+    delete:
+      tags: [operator]
+      operationId: removePost
+      summary: Remove a post
+      description: |
+        Operator only (R23.9, R23.12). Hides the post everywhere and records
+        `removed_at`, `removed_by` and `removal_reason`; the row and its photos
+        stay, because the record is kept, and its open reports are resolved in
+        the same call. A second call keeps the first removal and answers the
+        same.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [reason]
+              properties:
+                reason:
+                  type: string
+                  minLength: 1
+                  maxLength: 500
+                  description: Why the post is removed. Trimmed; missing, blank or over 500 characters answers 422 `invalid_reason`.
+      responses:
+        "200":
+          description: The removal that is recorded.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PostRemoval"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/NotOperator"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          description: |
+            - `invalid_reason`: the reason is missing, blank, over 500 characters, or carries invisible characters.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Error"
+                  - properties:
+                      error:
+                        const: invalid_reason
+        "500":
+          $ref: "#/components/responses/Internal"
+  /operator/users/{id}/suspension:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        description: User id. An unknown or deleted user answers 404.
+        schema:
+          type: integer
+          format: int64
+          minimum: 1
+    put:
+      tags: [operator]
+      operationId: suspendUser
+      summary: Suspend a user
+      description: |
+        Operator only (R23.10, R23.12). Sets `suspended_at`; the user's `player`
+        posts are hidden from then on and new posts answer 403 `suspended`,
+        while their team features keep working. A repeat keeps the first time.
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: The suspension, with the time already recorded.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Suspension"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/NotOperator"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/Internal"
+    delete:
+      tags: [operator]
+      operationId: unsuspendUser
+      summary: Lift a user's suspension
+      description: |
+        Operator only (R23.11, R23.12). Clears `suspended_at`, so the user's
+        `player` posts show again, except the ones the operator removed.
+        Lifting one that is not suspended answers the same.
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: The lifted suspension, with `suspended_at` null.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Suspension"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/NotOperator"
+        "404":
+          $ref: "#/components/responses/NotFound"
         "500":
           $ref: "#/components/responses/Internal"
 
@@ -5400,6 +5555,69 @@ components:
         created_at:
           $ref: "#/components/schemas/Timestamp"
         handled_at:
+          oneOf:
+            - $ref: "#/components/schemas/Timestamp"
+            - type: "null"
+    QueuedReport:
+      type: object
+      required: [id, post, reason, note, reporters_count, created_at]
+      description: One open report in the operator's queue (R23.4).
+      properties:
+        id:
+          type: integer
+          format: int64
+        post:
+          type: object
+          required: [id, as_kind, body, author_name, team_name, created_at]
+          description: The post the report is about, with what the operator needs to judge it.
+          properties:
+            id:
+              type: integer
+              format: int64
+            as_kind:
+              type: string
+              enum: [team, player, league, venue]
+            body:
+              type: [string, "null"]
+            author_name:
+              type: string
+              description: The team name for a team post, the person's name for a player post, the league or venue name for an official one.
+            team_name:
+              type: [string, "null"]
+              description: The linked team of a team or player post; null for an official one.
+            created_at:
+              $ref: "#/components/schemas/Timestamp"
+        reason:
+          type: string
+          enum: [spam, inappropriate, harassment, other]
+        note:
+          type: [string, "null"]
+        reporters_count:
+          type: integer
+          description: Open reports on the same post, so the same number repeats on every row of that post.
+        created_at:
+          $ref: "#/components/schemas/Timestamp"
+    PostRemoval:
+      type: object
+      required: [id, removed_at, removal_reason]
+      description: What the operator's removal recorded (R23.9).
+      properties:
+        id:
+          type: integer
+          format: int64
+        removed_at:
+          $ref: "#/components/schemas/Timestamp"
+        removal_reason:
+          type: string
+    Suspension:
+      type: object
+      required: [user_id, suspended_at]
+      description: A user's suspension state (R23.10, R23.11).
+      properties:
+        user_id:
+          type: integer
+          format: int64
+        suspended_at:
           oneOf:
             - $ref: "#/components/schemas/Timestamp"
             - type: "null"
