@@ -14,3 +14,10 @@ DELETE FROM reaction WHERE post_id = $1 AND user_id = $2 AND kind = $3;
 -- name: AddReaction :exec
 INSERT INTO reaction (post_id, user_id, kind) VALUES ($1, $2, $3)
 ON CONFLICT DO NOTHING;
+
+-- name: DeleteReactionsOfUser :execrows
+-- Account deletion removes the user's reactions, so their counts drop
+-- (R5, open question 31 resolved). After the user's player posts are deleted:
+-- deleting the posts first locks them in the same order a reaction toggle
+-- takes, so the two cannot deadlock.
+DELETE FROM reaction WHERE user_id = $1;

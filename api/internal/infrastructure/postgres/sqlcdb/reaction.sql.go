@@ -25,6 +25,22 @@ func (q *Queries) AddReaction(ctx context.Context, arg AddReactionParams) error 
 	return err
 }
 
+const deleteReactionsOfUser = `-- name: DeleteReactionsOfUser :execrows
+DELETE FROM reaction WHERE user_id = $1
+`
+
+// Account deletion removes the user's reactions, so their counts drop
+// (R5, open question 31 resolved). After the user's player posts are deleted:
+// deleting the posts first locks them in the same order a reaction toggle
+// takes, so the two cannot deadlock.
+func (q *Queries) DeleteReactionsOfUser(ctx context.Context, userID int64) (int64, error) {
+	result, err := q.db.Exec(ctx, deleteReactionsOfUser, userID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const lockVisiblePost = `-- name: LockVisiblePost :one
 SELECT id FROM post
 WHERE id = $1 AND removed_at IS NULL

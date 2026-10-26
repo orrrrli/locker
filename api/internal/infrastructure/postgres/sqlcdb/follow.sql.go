@@ -11,6 +11,20 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const deleteFollowsOfUser = `-- name: DeleteFollowsOfUser :execrows
+DELETE FROM follow WHERE user_id = $1
+`
+
+// Account deletion removes the user's follows, so the public follower counts
+// drop (R20.6).
+func (q *Queries) DeleteFollowsOfUser(ctx context.Context, userID int64) (int64, error) {
+	result, err := q.db.Exec(ctx, deleteFollowsOfUser, userID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const followLeague = `-- name: FollowLeague :one
 INSERT INTO follow (user_id, league_id)
 SELECT $1, id FROM league

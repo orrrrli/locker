@@ -64,8 +64,11 @@ LEFT JOIN "user" u ON u.id = p.author_user_id
 LEFT JOIN league l ON l.id = p.league_id
 LEFT JOIN venue v ON v.id = p.venue_id
 WHERE p.removed_at IS NULL
-  -- Account deletion does not delete player posts yet (BE-MOD-5, R18.13), so
-  -- hide them here; team posts of a deleted admin stay (R18.13).
+  -- Account deletion deletes the user's player posts (BE-MOD-5, R18.13) under
+  -- the user's row lock, so a racing publish is refused instead. This guard
+  -- covers what the deletion did not reach: accounts deleted before that
+  -- change (00030 backfills nothing) and any future writer that skips the
+  -- lock. Team posts of a deleted admin stay (R18.13).
   AND NOT (p.as_kind = 'player' AND u.deleted_at IS NOT NULL)
   -- A block hides only player and team posts (R23.5): official posts stay,
   -- so blocking ids one by one never reveals the operator's account.

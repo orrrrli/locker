@@ -117,6 +117,7 @@ func newAPIWithFeedSigner(t *testing.T, now func() time.Time, feedSigner feed.Si
 		Teams:       postgres.NewTeams(pool),
 		Memberships: memberships,
 		Users:       postgres.NewUsers(pool),
+		Social:      postgres.NewSocial(pool),
 	})
 	matchRepo := postgres.NewMatches(pool)
 	notificationRepo := postgres.NewNotifications(pool)

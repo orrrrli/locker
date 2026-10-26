@@ -74,6 +74,22 @@ func (q *Queries) CreateReport(ctx context.Context, arg CreateReportParams) (Cre
 	return i, err
 }
 
+const deleteReportsOfUser = `-- name: DeleteReportsOfUser :execrows
+DELETE FROM report WHERE reporter_user_id = $1
+`
+
+// Account deletion removes the reports the user sent (R5, open question 22
+// resolved). Reports against the user's player posts go with those posts
+// (report.post_id is ON DELETE CASCADE), so an operator queue never keeps a
+// report on a post that no longer exists.
+func (q *Queries) DeleteReportsOfUser(ctx context.Context, reporterUserID int64) (int64, error) {
+	result, err := q.db.Exec(ctx, deleteReportsOfUser, reporterUserID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const getReportByPostAndReporter = `-- name: GetReportByPostAndReporter :one
 SELECT id, post_id, reason, note, created_at FROM report
 WHERE post_id = $1 AND reporter_user_id = $2

@@ -21,3 +21,8 @@ DELETE FROM follow WHERE user_id = $1 AND team_id = $2;
 
 -- name: UnfollowLeague :exec
 DELETE FROM follow WHERE user_id = $1 AND league_id = $2;
+
+-- name: DeleteFollowsOfUser :execrows
+-- Account deletion removes the user's follows, so the public follower counts
+-- drop (R20.6).
+DELETE FROM follow WHERE user_id = $1;
