@@ -257,6 +257,65 @@ func (q *Queries) LockUserForWrite(ctx context.Context, id int64) (LockUserForWr
 	return i, err
 }
 
+const postByShareToken = `-- name: PostByShareToken :one
+SELECT p.id, p.author_user_id, p.as_kind, p.team_id, p.league_id, p.venue_id, p.body, p.share_token, p.created_at,
+       coalesce(CASE p.as_kind
+           WHEN 'team'   THEN t.name
+           WHEN 'player' THEN coalesce(m.display_name_override, u.name)
+           WHEN 'league' THEN l.name
+           WHEN 'venue'  THEN v.name
+       END, '')::text AS author_name,
+       t.name AS team_name
+FROM post p
+LEFT JOIN team t ON t.id = p.team_id
+LEFT JOIN membership m ON p.as_kind = 'player' AND m.team_id = p.team_id AND m.user_id = p.author_user_id
+LEFT JOIN "user" u ON u.id = p.author_user_id
+LEFT JOIN league l ON l.id = p.league_id
+LEFT JOIN venue v ON v.id = p.venue_id
+WHERE p.share_token = $1
+  AND p.removed_at IS NULL
+  AND NOT (p.as_kind = 'player' AND u.deleted_at IS NOT NULL)
+  AND NOT (p.as_kind = 'player' AND u.suspended_at IS NOT NULL)
+`
+
+type PostByShareTokenRow struct {
+	ID           int64
+	AuthorUserID int64
+	AsKind       string
+	TeamID       pgtype.Int8
+	LeagueID     pgtype.Int8
+	VenueID      pgtype.Int8
+	Body         pgtype.Text
+	ShareToken   string
+	CreatedAt    pgtype.Timestamptz
+	AuthorName   string
+	TeamName     pgtype.Text
+}
+
+// R21: the post behind a /p/{token} share link, with the same author name the
+// feed shows. It carries the feed's visibility guards, because a share link is
+// one more way to read a post (domains/moderation.md): a removed post is not
+// found (R23.9, R21.5), and neither is a player post whose author deleted the
+// account or was suspended (R23.10). Team posts of a suspended admin stay.
+func (q *Queries) PostByShareToken(ctx context.Context, shareToken string) (PostByShareTokenRow, error) {
+	row := q.db.QueryRow(ctx, postByShareToken, shareToken)
+	var i PostByShareTokenRow
+	err := row.Scan(
+		&i.ID,
+		&i.AuthorUserID,
+		&i.AsKind,
+		&i.TeamID,
+		&i.LeagueID,
+		&i.VenueID,
+		&i.Body,
+		&i.ShareToken,
+		&i.CreatedAt,
+		&i.AuthorName,
+		&i.TeamName,
+	)
+	return i, err
+}
+
 const releasePostUploads = `-- name: ReleasePostUploads :exec
 UPDATE media_upload
 SET post_id = NULL, released_at = $1::timestamptz

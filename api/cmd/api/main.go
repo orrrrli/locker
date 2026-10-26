@@ -178,7 +178,7 @@ func start() error {
 	mediaSvc := media.NewService(media.Deps{Tx: postgres.NewTxRunner(pool), Uploads: postgres.NewMediaUploads(pool), Storage: photos})
 	postSvc := posts.NewService(posts.Deps{
 		Tx: postgres.NewTxRunner(pool), Posts: postgres.NewPosts(pool), Memberships: memberships,
-		Users: postgres.NewUsers(pool), Photos: postPhotos,
+		Users: postgres.NewUsers(pool), Photos: postPhotos, Signer: feedPhotos,
 	})
 	router := apihttp.NewRouter(apihttp.Deps{
 		Auth:          authSvc,

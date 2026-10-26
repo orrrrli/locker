@@ -95,26 +95,34 @@ func (h feedHandlers) page(w http.ResponseWriter, r *http.Request) {
 		out.NextCursor = &c
 	}
 	for i, p := range page.Posts {
-		fp := feedItemJSON{
-			ID: p.ID, AsKind: p.AsKind, AuthorName: p.AuthorName,
-			TeamID: p.TeamID, TeamName: p.TeamName, LeagueID: p.LeagueID, VenueID: p.VenueID,
-			Body: p.Body, ShareToken: p.ShareToken, CreatedAt: apiTime(p.CreatedAt),
-			Photos: make([]feedItemPhotoJSON, len(p.Media)),
-			ReactionCounts: reactionCountsJSON{
-				Fire: p.ReactionCounts.Fire, Ball: p.ReactionCounts.Ball, Clap: p.ReactionCounts.Clap,
-			},
-			MyReactions: p.MyReactions,
-		}
-		if p.AsKind == domain.PostAsTeam || p.AsKind == domain.PostAsPlayer {
-			id := p.AuthorUserID
-			fp.AuthorUserID = &id
-		}
-		for j, m := range p.Media {
-			fp.Photos[j] = feedItemPhotoJSON{Position: m.Position, ContentType: m.ContentType, URL: p.PhotoURLs[j]}
-		}
-		out.Posts[i] = fp
+		out.Posts[i] = feedItem(p.Post, p.PhotoURLs)
 	}
 	writeJSON(w, http.StatusOK, out)
+}
+
+// feedItem is one post as the app reads it. GET /posts/shared/{token} serves
+// the same shape (BE-FEED-4), so a shared post needs no second contract.
+// author_user_id stays null for league and venue posts, so the operator's
+// account is never shown.
+func feedItem(p domain.Post, urls []*string) feedItemJSON {
+	item := feedItemJSON{
+		ID: p.ID, AsKind: p.AsKind, AuthorName: p.AuthorName,
+		TeamID: p.TeamID, TeamName: p.TeamName, LeagueID: p.LeagueID, VenueID: p.VenueID,
+		Body: p.Body, ShareToken: p.ShareToken, CreatedAt: apiTime(p.CreatedAt),
+		Photos: make([]feedItemPhotoJSON, len(p.Media)),
+		ReactionCounts: reactionCountsJSON{
+			Fire: p.ReactionCounts.Fire, Ball: p.ReactionCounts.Ball, Clap: p.ReactionCounts.Clap,
+		},
+		MyReactions: p.MyReactions,
+	}
+	if p.AsKind == domain.PostAsTeam || p.AsKind == domain.PostAsPlayer {
+		id := p.AuthorUserID
+		item.AuthorUserID = &id
+	}
+	for j, m := range p.Media {
+		item.Photos[j] = feedItemPhotoJSON{Position: m.Position, ContentType: m.ContentType, URL: urls[j]}
+	}
+	return item
 }
 
 // The cursor carries created_at with nanoseconds: apiTime shows whole

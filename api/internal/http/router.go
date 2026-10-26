@@ -95,6 +95,9 @@ func NewRouter(d Deps) http.Handler {
 	if d.Limits.Feed == nil {
 		d.Limits.Feed = defaults.Feed
 	}
+	if d.Limits.SharePage == nil {
+		d.Limits.SharePage = defaults.SharePage
+	}
 	if d.Limits.ResetRequestIP == nil {
 		d.Limits.ResetRequestIP = defaults.ResetRequestIP
 	}
@@ -180,6 +183,13 @@ func NewRouter(d Deps) http.Handler {
 	ps := postHandlers{svc: d.Posts}
 	mux.Handle("POST /posts", a.requireAuth(limitBy(d.Limits.PostWrite, byUser, http.HandlerFunc(ps.publish))))
 	mux.Handle("DELETE /posts/{id}", a.requireAuth(http.HandlerFunc(ps.remove)))
+
+	sh := shareHandlers{svc: d.Posts, downloadURL: d.DownloadURL, pageLimits: d.Limits.SharePage}
+	mux.HandleFunc("GET /p/{token}", sh.page)
+	// One shared post costs the same as one feed item: a row read and up to 8
+	// presigned URLs. It shares the feed's budget rather than adding a knob
+	// nobody tunes separately.
+	mux.Handle("GET /posts/shared/{token}", a.requireAuth(limitBy(d.Limits.Feed, byUser, http.HandlerFunc(sh.post))))
 
 	rh := reportHandlers{svc: d.Reports}
 	mux.Handle("POST /posts/{id}/reports", a.requireAuth(limitBy(d.Limits.Report, byUser, http.HandlerFunc(rh.report))))

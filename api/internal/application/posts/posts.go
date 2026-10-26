@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/orrrrli/locker/api/internal/application"
+	"github.com/orrrrli/locker/api/internal/application/feed"
 	"github.com/orrrrli/locker/api/internal/application/media"
 	"github.com/orrrrli/locker/api/internal/application/token"
 	"github.com/orrrrli/locker/api/internal/domain"
@@ -72,6 +73,11 @@ type Posts interface {
 	// unless the operator removed it first: then it deletes nothing and its
 	// photos stay. It reports whether it deleted the post.
 	Delete(ctx context.Context, id int64, now time.Time) (bool, error)
+	// PostByShareToken returns the post behind a share token with its media;
+	// domain.ErrNotFound for an unknown token, a removed post or a deleted one.
+	PostByShareToken(ctx context.Context, token string) (domain.Post, error)
+	// ReactionsOf returns one post's reaction counts and the viewer's own kinds.
+	ReactionsOf(ctx context.Context, viewerID, postID int64) (domain.ReactionCounts, []domain.ReactionKind, error)
 }
 
 // Memberships is what the author checks need from the membership table.
@@ -93,6 +99,11 @@ type Photos interface {
 	Head(ctx context.Context, key string) (contentType string, size int64, err error)
 }
 
+// Signer presigns GET URLs for R2 objects, as the feed's own Signer does.
+type Signer interface {
+	PresignGet(ctx context.Context, key string, ttl time.Duration) (string, error)
+}
+
 type Deps struct {
 	Tx          application.TxRunner
 	Posts       Posts
@@ -101,6 +112,9 @@ type Deps struct {
 	// Photos nil means the bucket is not configured: a post with photos
 	// answers media.ErrUnavailable, a text post still works.
 	Photos Photos
+	// Signer nil means the bucket is not configured: a share link shows no
+	// image and the app reads a null URL per photo.
+	Signer Signer
 	Now    func() time.Time // nil means time.Now
 }
 
@@ -110,6 +124,7 @@ type Service struct {
 	memberships Memberships
 	users       Users
 	photos      Photos
+	signer      Signer
 	now         func() time.Time
 }
 
@@ -117,7 +132,7 @@ func NewService(d Deps) *Service {
 	if d.Now == nil {
 		d.Now = time.Now
 	}
-	return &Service{tx: d.Tx, posts: d.Posts, memberships: d.Memberships, users: d.Users, photos: d.Photos, now: d.Now}
+	return &Service{tx: d.Tx, posts: d.Posts, memberships: d.Memberships, users: d.Users, photos: d.Photos, signer: d.Signer, now: d.Now}
 }
 
 // NewPost is a post as sent. Exactly the id of AsKind is set; Keys are the
@@ -395,4 +410,62 @@ func validate(in NewPost) (domain.Post, error) {
 		return p, ErrEmpty
 	}
 	return p, nil
+}
+
+// SharedPost is a post read through its share link: the post with one signed
+// photo URL per photo, and the reactions the app shows.
+type SharedPost struct {
+	Post      domain.Post
+	PhotoURLs []*string // one per photo, in position order; nil without a bucket
+}
+
+// Page returns the post behind a share token for the public /p/{token} page
+// (R21.3). It reads no reactions: the page never shows them (R21.6), so the
+// browser's visit costs one query less. domain.ErrNotFound for an unknown
+// token, a removed post or a deleted one (R21.5).
+func (s *Service) Page(ctx context.Context, token string) (SharedPost, error) {
+	p, err := s.posts.PostByShareToken(ctx, token)
+	if err != nil {
+		return SharedPost{}, err
+	}
+	urls, err := s.sign(ctx, p.Media)
+	if err != nil {
+		return SharedPost{}, err
+	}
+	return SharedPost{Post: p, PhotoURLs: urls}, nil
+}
+
+// Shared returns the post behind a share token as the app reads it (R21.3,
+// R21.4): the same post the feed would show, with its reaction counts and the
+// viewer's own kinds.
+func (s *Service) Shared(ctx context.Context, viewerID int64, token string) (SharedPost, error) {
+	p, err := s.posts.PostByShareToken(ctx, token)
+	if err != nil {
+		return SharedPost{}, err
+	}
+	if p.ReactionCounts, p.MyReactions, err = s.posts.ReactionsOf(ctx, viewerID, p.ID); err != nil {
+		return SharedPost{}, err
+	}
+	urls, err := s.sign(ctx, p.Media)
+	if err != nil {
+		return SharedPost{}, err
+	}
+	return SharedPost{Post: p, PhotoURLs: urls}, nil
+}
+
+// sign presigns the small version of each photo, as the feed does. Without a
+// bucket every URL stays nil and the page shows no image.
+func (s *Service) sign(ctx context.Context, photos []domain.PostMedia) ([]*string, error) {
+	urls := make([]*string, len(photos))
+	if s.signer == nil {
+		return urls, nil
+	}
+	for i, m := range photos {
+		url, err := s.signer.PresignGet(ctx, m.StorageKey+"/small", feed.PhotoURLTTL)
+		if err != nil {
+			return nil, err
+		}
+		urls[i] = &url
+	}
+	return urls, nil
 }

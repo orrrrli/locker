@@ -15,6 +15,9 @@ import (
 type postService interface {
 	Publish(ctx context.Context, userID int64, in posts.NewPost) (domain.Post, error)
 	Delete(ctx context.Context, userID, postID int64) error
+	// Page and Shared read one post by its share token (BE-FEED-4).
+	Page(ctx context.Context, token string) (posts.SharedPost, error)
+	Shared(ctx context.Context, viewerID int64, token string) (posts.SharedPost, error)
 }
 
 // postHandlers serve POST /posts and DELETE /posts/{id} to any signed-in user. Who may write as the
