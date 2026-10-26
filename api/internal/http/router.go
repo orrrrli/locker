@@ -186,7 +186,10 @@ func NewRouter(d Deps) http.Handler {
 
 	sh := shareHandlers{svc: d.Posts, downloadURL: d.DownloadURL, pageLimits: d.Limits.SharePage}
 	mux.HandleFunc("GET /p/{token}", sh.page)
-	mux.Handle("GET /posts/shared/{token}", a.requireAuth(http.HandlerFunc(sh.post)))
+	// One shared post costs the same as one feed item: a row read and up to 8
+	// presigned URLs. It shares the feed's budget rather than adding a knob
+	// nobody tunes separately.
+	mux.Handle("GET /posts/shared/{token}", a.requireAuth(limitBy(d.Limits.Feed, byUser, http.HandlerFunc(sh.post))))
 
 	rh := reportHandlers{svc: d.Reports}
 	mux.Handle("POST /posts/{id}/reports", a.requireAuth(limitBy(d.Limits.Report, byUser, http.HandlerFunc(rh.report))))

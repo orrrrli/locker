@@ -26,10 +26,10 @@ func requireNoLogLocation(t *testing.T, location string) {
 }
 
 // Every location whose path or query carries a secret (token, device token,
-// user location) must stay out of the nginx logs. /r/, /v/, /venues and /feed
-// are also checked next to their handler tests.
+// user location) must stay out of the nginx logs. /r/, /v/, /venues, /feed and
+// /p/ are also checked next to their handler tests.
 func TestNginxNoLogLocations(t *testing.T) {
-	for _, location := range []string{"/i/", "/v/", "/r/", "/me/device-tokens/", "= /venues", "= /feed"} {
+	for _, location := range []string{"/i/", "/v/", "/r/", "/me/device-tokens/", "= /venues", "= /feed", "/p/", "/posts/shared/"} {
 		t.Run(location, func(t *testing.T) { requireNoLogLocation(t, location) })
 	}
 }
