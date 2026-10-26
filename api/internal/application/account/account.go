@@ -63,11 +63,17 @@ type Users interface {
 	AcceptContentRules(ctx context.Context, userID int64) (time.Time, error)
 }
 
+// Social is the social-data step of account deletion (R18.13, R20.6).
+type Social interface {
+	DeleteSocialDataOfUser(ctx context.Context, userID int64) error
+}
+
 type Deps struct {
 	Tx          application.TxRunner
 	Teams       Teams
 	Memberships Memberships
 	Users       Users
+	Social      Social
 }
 
 type Service struct {
@@ -75,10 +81,11 @@ type Service struct {
 	teams       Teams
 	memberships Memberships
 	users       Users
+	social      Social
 }
 
 func NewService(d Deps) *Service {
-	return &Service{tx: d.Tx, teams: d.Teams, memberships: d.Memberships, users: d.Users}
+	return &Service{tx: d.Tx, teams: d.Teams, memberships: d.Memberships, users: d.Users, social: d.Social}
 }
 
 // Me returns the caller's own account, including whether they are the

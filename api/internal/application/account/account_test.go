@@ -28,6 +28,7 @@ func newFixture(t *testing.T) *fixture {
 			Teams:       postgres.NewTeams(pool),
 			Memberships: postgres.NewMemberships(pool),
 			Users:       postgres.NewUsers(pool),
+			Social:      postgres.NewSocial(pool),
 		}),
 		pool: pool,
 	}
