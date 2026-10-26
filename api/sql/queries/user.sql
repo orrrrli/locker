@@ -36,6 +36,23 @@ SELECT id, name, email, email_verified_at, birth_date, photo_url, created_at, is
        content_rules_accepted_at
 FROM "user" WHERE id = $1 AND deleted_at IS NULL;
 
+-- name: SuspendUser :one
+-- R23.10: the operator suspends the user. Posting is refused from then on and
+-- their player posts are hidden; team features keep working. A repeat keeps the
+-- first time. No row means an unknown or deleted user.
+UPDATE "user"
+SET suspended_at = coalesce(suspended_at, sqlc.arg(now)::timestamptz)
+WHERE id = sqlc.arg(id) AND deleted_at IS NULL
+RETURNING suspended_at;
+
+-- name: UnsuspendUser :one
+-- R23.11: lifting the suspension shows the user's player posts again, except
+-- the ones the operator removed. No row means an unknown or deleted user.
+UPDATE "user"
+SET suspended_at = NULL
+WHERE id = sqlc.arg(id) AND deleted_at IS NULL
+RETURNING id;
+
 -- name: AcceptContentRules :one
 -- R23.13: records when the user accepted the content rules. A repeat keeps
 -- the first time.

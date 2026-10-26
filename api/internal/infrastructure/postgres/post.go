@@ -8,6 +8,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/orrrrli/locker/api/internal/domain"
@@ -140,20 +141,52 @@ func (r *Posts) PostAuthor(ctx context.Context, id int64) (domain.Post, error) {
 	}, nil
 }
 
+// Remove hides the post and records who removed it, when and why; a repeat
+// keeps the first removal. domain.ErrNotFound for an unknown post (R23.9).
+func (r *Posts) Remove(ctx context.Context, id, by int64, reason string, now time.Time) (domain.PostRemoval, error) {
+	row, err := sqlcdb.New(Conn(ctx, r.pool)).RemovePost(ctx, sqlcdb.RemovePostParams{
+		Now: timestamptz(now), RemovedBy: pgInt8(by),
+		Reason: pgtype.Text{String: reason, Valid: true}, ID: id,
+	})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return domain.PostRemoval{}, domain.ErrNotFound
+	}
+	if err != nil {
+		return domain.PostRemoval{}, fmt.Errorf("postgres: remove post: %w", err)
+	}
+	return domain.PostRemoval{
+		PostID: row.ID, RemovedAt: row.RemovedAt.Time.UTC(), RemovalReason: row.RemovalReason.String,
+	}, nil
+}
+
 // Delete releases the post's uploads to the cleanup job at now, then deletes
-// the post and its media rows.
-func (r *Posts) Delete(ctx context.Context, id int64, now time.Time) error {
+// the post and its media rows. It reports whether it deleted anything: a post
+// the operator removed is left alone, and so are its photos, because that
+// removal is final (R23.9).
+func (r *Posts) Delete(ctx context.Context, id int64, now time.Time) (bool, error) {
 	// Both statements or neither: a release that commits alone hands a live
 	// post's photos to the cleanup job.
 	if _, ok := ctx.Value(txKey{}).(pgx.Tx); !ok {
-		return errors.New("postgres: delete post: no transaction in ctx")
+		return false, errors.New("postgres: delete post: no transaction in ctx")
 	}
 	q := sqlcdb.New(Conn(ctx, r.pool))
+	// The row lock comes first, so a removal that commits meanwhile is seen
+	// below instead of landing after the release.
+	removedAt, err := q.LockPostRemoval(ctx, id)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return false, domain.ErrNotFound
+	}
+	if err != nil {
+		return false, fmt.Errorf("postgres: lock post removal: %w", err)
+	}
+	if removedAt.Valid {
+		return false, nil
+	}
 	if err := q.ReleasePostUploads(ctx, sqlcdb.ReleasePostUploadsParams{PostID: pgInt8(id), Now: timestamptz(now)}); err != nil {
-		return fmt.Errorf("postgres: release post uploads: %w", err)
+		return false, fmt.Errorf("postgres: release post uploads: %w", err)
 	}
 	if err := q.DeletePost(ctx, id); err != nil {
-		return fmt.Errorf("postgres: delete post: %w", err)
+		return false, fmt.Errorf("postgres: delete post: %w", err)
 	}
-	return nil
+	return true, nil
 }

@@ -96,7 +96,10 @@ func TestPostDeleteRemovesItsReactions(t *testing.T) {
 	}
 
 	now := time.Date(2026, 10, 18, 12, 0, 0, 0, time.UTC)
-	err := NewTxRunner(pool).InTx(ctx, func(ctx context.Context) error { return NewPosts(pool).Delete(ctx, gone, now) })
+	err := NewTxRunner(pool).InTx(ctx, func(ctx context.Context) error {
+		_, err := NewPosts(pool).Delete(ctx, gone, now)
+		return err
+	})
 
 	if err != nil {
 		t.Fatalf("delete a post with reactions: %v", err)

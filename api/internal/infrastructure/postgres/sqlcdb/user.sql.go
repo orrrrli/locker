@@ -154,3 +154,41 @@ func (q *Queries) MarkEmailVerified(ctx context.Context, arg MarkEmailVerifiedPa
 	_, err := q.db.Exec(ctx, markEmailVerified, arg.Now, arg.ID)
 	return err
 }
+
+const suspendUser = `-- name: SuspendUser :one
+UPDATE "user"
+SET suspended_at = coalesce(suspended_at, $1::timestamptz)
+WHERE id = $2 AND deleted_at IS NULL
+RETURNING suspended_at
+`
+
+type SuspendUserParams struct {
+	Now pgtype.Timestamptz
+	ID  int64
+}
+
+// R23.10: the operator suspends the user. Posting is refused from then on and
+// their player posts are hidden; team features keep working. A repeat keeps the
+// first time. No row means an unknown or deleted user.
+func (q *Queries) SuspendUser(ctx context.Context, arg SuspendUserParams) (pgtype.Timestamptz, error) {
+	row := q.db.QueryRow(ctx, suspendUser, arg.Now, arg.ID)
+	var suspended_at pgtype.Timestamptz
+	err := row.Scan(&suspended_at)
+	return suspended_at, err
+}
+
+const unsuspendUser = `-- name: UnsuspendUser :one
+UPDATE "user"
+SET suspended_at = NULL
+WHERE id = $1 AND deleted_at IS NULL
+RETURNING id
+`
+
+// R23.11: lifting the suspension shows the user's player posts again, except
+// the ones the operator removed. No row means an unknown or deleted user.
+func (q *Queries) UnsuspendUser(ctx context.Context, id int64) (int64, error) {
+	row := q.db.QueryRow(ctx, unsuspendUser, id)
+	var id_2 int64
+	err := row.Scan(&id_2)
+	return id_2, err
+}

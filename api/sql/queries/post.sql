@@ -40,8 +40,8 @@ WHERE storage_key = ANY(sqlc.arg(storage_keys)::text[])
 -- name: GetPostAuthor :one
 -- No lock: the author and team never change, and DELETE locks the row
 -- itself, after any team lock the caller takes. removed_at is here so a
--- caller can tell a live post from a hidden one, without filtering: a
--- removed post can still be deleted (R23.9, R18.11).
+-- caller can tell a live post from a hidden one: a removed post is refused,
+-- because that removal is final (R23.9, R18.11).
 SELECT id, author_user_id, as_kind, team_id, removed_at FROM post
 WHERE id = $1;
 
@@ -52,6 +52,30 @@ WHERE id = $1;
 UPDATE media_upload
 SET post_id = NULL, released_at = sqlc.arg(now)::timestamptz
 WHERE post_id = sqlc.arg(post_id);
+
+-- name: RemovePost :one
+-- R23.9: the operator hides the post everywhere and records who, when and why.
+-- The row stays, and so do its photos: nobody signs them again. A repeat keeps
+-- the first removal, so calling it twice changes nothing.
+UPDATE post
+SET removed_at = coalesce(removed_at, sqlc.arg(now)::timestamptz),
+    removed_by = coalesce(removed_by, sqlc.arg(removed_by)),
+    removal_reason = coalesce(removal_reason, sqlc.arg(reason))
+WHERE id = sqlc.arg(id)
+RETURNING id, removed_at, removal_reason;
+
+-- name: LockPlayerPostsOfUser :many
+-- Takes the row locks of the user's player posts before their uploads are
+-- released: the order a delete takes (the post, then its media_upload rows), so
+-- account deletion and DELETE /posts/{id} cannot deadlock (R18.13, R23.9).
+SELECT id FROM post WHERE author_user_id = $1 AND as_kind = 'player' FOR UPDATE;
+
+-- name: LockPostRemoval :one
+-- Takes the post's row lock before a delete releases its uploads, so an
+-- operator removal cannot land between the release and the delete: the removal
+-- UPDATE waits here, and whichever goes first decides (R23.9). No row means the
+-- post is gone; a removed_at back means it is final and nothing is released.
+SELECT removed_at FROM post WHERE id = $1 FOR UPDATE;
 
 -- name: DeletePost :exec
 -- post_media goes with it (ON DELETE CASCADE).

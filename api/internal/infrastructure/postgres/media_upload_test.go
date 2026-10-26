@@ -205,10 +205,13 @@ func TestPostDeleteMustReleaseUploads(t *testing.T) {
 	}
 
 	now := time.Date(2026, 10, 18, 12, 0, 0, 0, time.UTC)
-	if err := NewPosts(pool).Delete(ctx, gone, now); err == nil {
+	if _, err := NewPosts(pool).Delete(ctx, gone, now); err == nil {
 		t.Fatal("Delete outside a transaction: want an error")
 	}
-	if err := NewTxRunner(pool).InTx(ctx, func(ctx context.Context) error { return NewPosts(pool).Delete(ctx, gone, now) }); err != nil {
+	if err := NewTxRunner(pool).InTx(ctx, func(ctx context.Context) error {
+		_, err := NewPosts(pool).Delete(ctx, gone, now)
+		return err
+	}); err != nil {
 		t.Fatal(err)
 	}
 	var media, uploads int

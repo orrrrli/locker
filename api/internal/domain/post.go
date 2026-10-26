@@ -64,7 +64,9 @@ type Post struct {
 	ShareToken   string // the /p/{token} link (R21)
 	CreatedAt    time.Time
 	// RemovedAt is when the operator removed the post (R23.9); nil otherwise.
-	// A removed post shows nowhere but can still be deleted (R18.11).
+	// A removed post shows nowhere and cannot be deleted through the API: that
+	// removal is final, and only account deletion (R18.13) or dissolving the
+	// team end it.
 	RemovedAt *time.Time
 	Media     []PostMedia // in position order
 
@@ -73,6 +75,14 @@ type Post struct {
 	TeamName       *string // linked team of a team or player post; nil otherwise
 	ReactionCounts ReactionCounts
 	MyReactions    []ReactionKind // the viewer's own; empty, never nil, when none
+}
+
+// PostRemoval is what the operator's removal recorded (R23.9). The post row and
+// its photos stay; the post shows nowhere.
+type PostRemoval struct {
+	PostID        int64
+	RemovedAt     time.Time
+	RemovalReason string
 }
 
 // PostMedia is one photo of a post. StorageKey is the R2 base of the photo's

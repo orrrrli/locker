@@ -31,3 +31,15 @@ type Report struct {
 	Note      *string
 	CreatedAt time.Time
 }
+
+// QueuedReport is one open report in the operator's queue (R23.4): the report,
+// the post it is about with the fields the operator needs to judge it, and how
+// many open reports that post has.
+type QueuedReport struct {
+	ID             int64
+	Post           Post
+	Reason         ReportReason
+	Note           *string
+	ReportersCount int
+	CreatedAt      time.Time
+}

@@ -30,12 +30,17 @@ func NewSocial(pool *pgxpool.Pool) *Social {
 //
 // It runs inside the caller's transaction. The order matters: the posts go
 // before the reactions, the order a reaction toggle takes (the post's row,
-// then the reaction's), so the two cannot deadlock.
+// then the reaction's), so the two cannot deadlock. The posts' rows are locked
+// before their uploads are released, the order a delete takes, so an author
+// deleting one of them at the same time cannot deadlock either.
 func (r *Social) DeleteSocialDataOfUser(ctx context.Context, userID int64) error {
 	if _, ok := ctx.Value(txKey{}).(pgx.Tx); !ok {
 		return errors.New("postgres: delete social data: no transaction in ctx")
 	}
 	q := sqlcdb.New(Conn(ctx, r.pool))
+	if _, err := q.LockPlayerPostsOfUser(ctx, userID); err != nil {
+		return fmt.Errorf("postgres: lock player posts: %w", err)
+	}
 	if _, err := q.ReleaseUploadsOfPlayerPostsOfUser(ctx, userID); err != nil {
 		return fmt.Errorf("postgres: release player post uploads: %w", err)
 	}

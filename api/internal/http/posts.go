@@ -96,7 +96,8 @@ func (h postHandlers) publish(w http.ResponseWriter, r *http.Request) {
 }
 
 // remove answers 204 once the post is gone (R18.11). The use case decides
-// who may: the author, or an admin of the team for a team post.
+// who may: the author, or an admin of the team for a team post. A post the
+// operator removed is refused with 403: that removal is final (R23.9).
 func (h postHandlers) remove(w http.ResponseWriter, r *http.Request) {
 	id, err := idFromPath(r, "id")
 	if err != nil {

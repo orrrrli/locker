@@ -58,6 +58,41 @@ func (r *Reports) ByPostAndReporter(ctx context.Context, postID, reporterID int6
 	}, nil
 }
 
+// ListOpen returns the operator's queue: every open report, oldest first, with
+// the post it is about and how many open reports that post has (R23.4).
+func (r *Reports) ListOpen(ctx context.Context) ([]domain.QueuedReport, error) {
+	rows, err := sqlcdb.New(Conn(ctx, r.pool)).ListOpenReports(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("postgres: list open reports: %w", err)
+	}
+	out := make([]domain.QueuedReport, len(rows))
+	for i, row := range rows {
+		out[i] = domain.QueuedReport{
+			ID: row.ID,
+			Post: domain.Post{
+				ID: row.PostID, AsKind: domain.PostKind(row.AsKind), Body: textPtr(row.Body),
+				AuthorName: row.AuthorName, TeamName: textPtr(row.TeamName),
+				CreatedAt: row.PostCreatedAt.Time.UTC(),
+			},
+			Reason: domain.ReportReason(row.Reason), Note: textPtr(row.Note),
+			ReportersCount: int(row.ReportersCount), CreatedAt: row.CreatedAt.Time.UTC(),
+		}
+	}
+	return out, nil
+}
+
+// ResolveOpenOfPost marks the post's open reports resolved at now and returns
+// how many it resolved (R23.9).
+func (r *Reports) ResolveOpenOfPost(ctx context.Context, postID int64, now time.Time) (int, error) {
+	n, err := sqlcdb.New(Conn(ctx, r.pool)).ResolveOpenReportsOfPost(ctx, sqlcdb.ResolveOpenReportsOfPostParams{
+		Now: timestamptz(now), PostID: postID,
+	})
+	if err != nil {
+		return 0, fmt.Errorf("postgres: resolve open reports of post: %w", err)
+	}
+	return int(n), nil
+}
+
 // Create stores reporterID's report r and returns it with its ID;
 // domain.ErrAlreadyExists when another request stored the same user and post
 // first.

@@ -80,13 +80,17 @@ func TestEveryOperatorRouteRefusesTeamAdmins(t *testing.T) {
 		t.Fatalf("caller is admin of %d of %d teams, want all", adminOf, teams)
 	}
 
+	postID := s.api.scalar(t, `INSERT INTO post (author_user_id, as_kind, team_id, body, share_token, created_at)
+		VALUES ($1, 'team', $2, 'Hola', 'sec-operator-post', now()) RETURNING id`, homeAdmin, s.home.ID)
 	ids := map[string]string{
-		"/operator/venues/{id}":      strconv.FormatInt(s.venue.ID, 10),
-		"/operator/leagues/{id}":     strconv.FormatInt(s.league.ID, 10),
-		"/operator/venue-leads/{id}": strconv.FormatInt(leadID, 10),
-		"{courtId}":                  strconv.FormatInt(s.venue.Courts[0].ID, 10),
-		"{teamId}":                   strconv.FormatInt(s.away.ID, 10),
-		"{fixtureId}":                strconv.FormatInt(f.ID, 10),
+		"/operator/venues/{id}":           strconv.FormatInt(s.venue.ID, 10),
+		"/operator/leagues/{id}":          strconv.FormatInt(s.league.ID, 10),
+		"/operator/venue-leads/{id}":      strconv.FormatInt(leadID, 10),
+		"/operator/posts/{id}":            strconv.FormatInt(postID, 10),
+		"/operator/users/{id}/suspension": strconv.FormatInt(homeAdmin, 10),
+		"{courtId}":                       strconv.FormatInt(s.venue.Courts[0].ID, 10),
+		"{teamId}":                        strconv.FormatInt(s.away.ID, 10),
+		"{fixtureId}":                     strconv.FormatInt(f.ID, 10),
 	}
 	fill := func(path string) string {
 		for prefix, id := range ids {
