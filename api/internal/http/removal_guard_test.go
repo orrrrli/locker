@@ -1,7 +1,6 @@
 package http
 
 import (
-	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strconv"
@@ -12,8 +11,9 @@ import (
 // BE-MOD-4: an operator's removal is final. DELETE /posts/{id} refuses a
 // removed post for both callers it serves today, its author and an active
 // admin of its team, with 403 forbidden. The row, its post_media rows, its
-// reports and the removal record all stay: the record is the moderation
-// evidence (R23.9). Account deletion (R18.13) is the documented exception.
+// attached and unreleased media_upload rows, its reports and the removal
+// record all stay: the record is the moderation evidence (R23.9). Account
+// deletion (R18.13) is the documented exception.
 
 const guardReason = "Contenido violento"
 
@@ -22,22 +22,20 @@ func deletePost(t *testing.T, api apiTest, token string, postID int64) *httptest
 	return api.do(t, http.MethodDelete, "/posts/"+strconv.FormatInt(postID, 10), token, nil)
 }
 
-// insertPostPhoto attaches one post_media row to a post inserted by raw SQL.
-func insertPostPhoto(t *testing.T, api apiTest, postID int64, key string) {
-	t.Helper()
-	api.scalar(t, `INSERT INTO post_media (post_id, storage_key, position, content_type, size_bytes)
-		VALUES ($1, $2, 0, 'image/jpeg', 100) RETURNING id`, postID, key)
-}
-
-// removedTeamPostWithEvidence inserts a live team post written by Ana with one
-// photo and two reports, one already resolved, then has the operator remove it
-// through the real route. It returns the post, its photo key, both report ids
-// and the removal.
+// removedTeamPostWithEvidence publishes a live team post written by Ana with
+// one real photo and two reports, one already resolved, then has the operator
+// remove it through the real route. It returns the post, its photo key, both
+// report ids and the removal.
+//
+// The photo goes through POST /media/uploads and POST /posts so it has a
+// media_upload row attached: a bare post_media row would hide a release, and a
+// released upload is what the cleanup job deletes from R2.
 func removedTeamPostWithEvidence(t *testing.T, w moderationWorld) (post int64, photo string, reports []int64, removal removalJSON) {
 	t.Helper()
-	post = insertTeamPost(t, w.api, w.anaID, w.team.ID, today.Add(-time.Hour))
-	photo = fmt.Sprintf("photos/guard-%d", post)
-	insertPostPhoto(t, w.api, post, photo)
+	photo = uploadKey(t, w.api, w.ana)
+	post = publish(t, w.api, w.ana, map[string]any{
+		"as_kind": "team", "team_id": w.team.ID, "photo_keys": []string{photo},
+	})
 	resolved := insertReport(t, w.api, post, w.betoID, "spam", nil, today.Add(-2*time.Hour))
 	if _, err := w.api.pool.Exec(t.Context(),
 		`UPDATE report SET resolved_at = $2 WHERE id = $1`, resolved, today.Add(-time.Hour)); err != nil {
@@ -70,12 +68,17 @@ func wantRemovalKept(t *testing.T, api apiTest, postID, removedBy int64, reason 
 	}
 }
 
-// wantPostEvidenceKept fails unless the post still has its photo and every one
-// of its reports.
+// wantPostEvidenceKept fails unless the post still has its photo, its upload
+// still attached and unreleased, and every one of its reports.
 func wantPostEvidenceKept(t *testing.T, api apiTest, postID int64, photo string, reportIDs []int64) {
 	t.Helper()
 	if n := api.scalar(t, `SELECT count(*) FROM post_media WHERE post_id = $1 AND storage_key = $2`, postID, photo); n != 1 {
 		t.Fatalf("post %d has %d rows for photo %q, want it kept", postID, n, photo)
+	}
+	if n := api.scalar(t, `SELECT count(*) FROM media_upload
+		WHERE storage_key = $1 AND post_id = $2 AND released_at IS NULL`, photo, postID); n != 1 {
+		t.Fatalf("upload %q attached to post %d and unreleased = %d rows, want 1 kept: a release hands the photo to the cleanup job",
+			photo, postID, n)
 	}
 	for _, id := range reportIDs {
 		if n := api.scalar(t, `SELECT count(*) FROM report WHERE id = $1 AND post_id = $2`, id, postID); n != 1 {
