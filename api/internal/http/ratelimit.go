@@ -408,6 +408,11 @@ const (
 	// scroll reads a few pages, this stops a script looping it.
 	feedMaxPerUser = 600
 	feedWindow     = time.Hour
+	// GET /p/{token} is public, reads the database and signs up to 8 photo
+	// URLs. A real link is opened a handful of times; this stops one client
+	// looping a token it knows.
+	sharePageMaxPerIP = 120
+	sharePageWindow   = time.Hour
 	// Each reset request can send an email: the IP cap stops one client
 	// spraying addresses and burning the Resend quota, and the service caps
 	// live links per account (auth.MaxLiveResetLinks) so one inbox cannot be
@@ -481,12 +486,13 @@ type Limits struct {
 	// table (count of the user's requests in the last 24h) if the API ever
 	// runs more than one instance.
 	JoinRequest *RateLimiter
-	DeviceToken *RateLimiter // per user
-	MatchWrite  *RateLimiter // per user, match create and update together
-	PostWrite   *RateLimiter // per user, POST /posts attempts
-	Report      *RateLimiter // per user, POST /posts/{id}/reports attempts
-	Reaction    *RateLimiter // per user, POST /posts/{id}/reactions/{kind}
-	Feed        *RateLimiter // per user, GET /feed
+	DeviceToken *RateLimiter   // per user
+	MatchWrite  *RateLimiter   // per user, match create and update together
+	PostWrite   *RateLimiter   // per user, POST /posts attempts
+	Report      *RateLimiter   // per user, POST /posts/{id}/reports attempts
+	Reaction    *RateLimiter   // per user, POST /posts/{id}/reactions/{kind}
+	Feed        *RateLimiter   // per user, GET /feed
+	SharePage   *IPRateLimiter // per client IP, GET /p/{token}
 	// ResetRequestIP limits POST /auth/password-reset per client IP;
 	// ResetConfirm limits setting the new password per client IP.
 	ResetRequestIP *IPRateLimiter
@@ -506,6 +512,7 @@ func NewLimits(now func() time.Time) Limits {
 		Report:       NewRateLimiter(reportMaxPerUser, reportWindow, now),
 		Reaction:     NewRateLimiter(reactionMaxPerUser, reactionWindow, now),
 		Feed:         NewRateLimiter(feedMaxPerUser, feedWindow, now),
+		SharePage:    NewIPRateLimiter(sharePageMaxPerIP, sharePageWindow, now),
 
 		ResetRequestIP: NewIPRateLimiter(resetRequestMaxPerIP, resetRequestWindow, now),
 		ResetConfirm:   NewIPRateLimiter(resetConfirmMaxPerIP, resetConfirmWindow, now),
@@ -524,6 +531,7 @@ func (l Limits) Prune() {
 	l.Report.Prune()
 	l.Reaction.Prune()
 	l.Feed.Prune()
+	l.SharePage.Prune()
 	l.ResetRequestIP.Prune()
 	l.ResetConfirm.Prune()
 }

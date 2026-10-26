@@ -80,8 +80,9 @@ paths:
       operationId: appleAppSiteAssociation
       summary: Universal Links association file
       description: |
-        Tells iOS to open invite links (`/i/*`) in the app. Answers 404
-        `not_found` while no Apple app ID is configured.
+        Tells iOS to open invite links (`/i/*`) and post share links (`/p/*`)
+        in the app. Answers 404 `not_found` while no Apple app ID is
+        configured.
       responses:
         "200":
           description: The association file.
@@ -96,6 +97,8 @@ paths:
                       components:
                         - "/": "/i/*"
                           comment: invite links
+                        - "/": "/p/*"
+                          comment: post share links
         "404":
           $ref: "#/components/responses/NotFound"
 
@@ -122,6 +125,51 @@ paths:
             text/html:
               schema:
                 type: string
+
+  /p/{token}:
+    get:
+      tags: [feed]
+      operationId: postSharePage
+      summary: Post share landing page (HTML)
+      description: |
+        What a browser shows for a share link when the app is not installed.
+        With the app installed, iOS opens `/p/*` in the app instead (see
+        `/.well-known/apple-app-site-association`) and the app reads the post
+        with `GET /posts/shared/{token}`. The page shows the author, the text
+        and the photos, HTML-escaped, and a pointer to the app download. It
+        never shows reaction counts, follower lists, or team content beyond
+        the author's name (R21.3, R21.6). A removed post, a deleted post and an
+        unknown token all answer 404 with a page that shows none of the post's
+        content (R21.5). At most 120 calls per client IP per hour.
+      parameters:
+        - name: token
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: HTML page (Spanish), sent with `Cache-Control no-store`, `Referrer-Policy no-referrer` and a restrictive CSP.
+          content:
+            text/html:
+              schema:
+                type: string
+        "400":
+          description: "`invalid_request`: the client address could not be read."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: The same static HTML page for every miss; it names no post.
+          content:
+            text/html:
+              schema:
+                type: string
+        "429":
+          $ref: "#/components/responses/TooManyAttempts"
+        "500":
+          $ref: "#/components/responses/Internal"
 
   /v/{token}:
     get:
@@ -2897,6 +2945,44 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "429":
           $ref: "#/components/responses/TooManyAttempts"
+        "500":
+          $ref: "#/components/responses/Internal"
+
+  /posts/shared/{token}:
+    get:
+      tags: [feed]
+      operationId: getSharedPost
+      summary: One post by its share token
+      description: |
+        The post behind a `/p/{token}` link, as the app reads it when iOS opens
+        that link. The shape is the one `GET /feed` serves for one post
+        (`FeedPost`), reaction counts and the caller's own reactions included;
+        `author_user_id` is null for league and venue posts, so the operator's
+        account is never shown. A removed post, a deleted post and an unknown
+        token all answer `not_found` (R21.5).
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: token
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: The post.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FeedPost"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          description: "`not_found`: the token names no live post."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
         "500":
           $ref: "#/components/responses/Internal"
 

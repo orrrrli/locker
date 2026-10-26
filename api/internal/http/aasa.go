@@ -5,9 +5,9 @@ import (
 	"net/http"
 )
 
-// aasa serves apple-app-site-association, which tells iOS to open invite
-// links (/i/*) in the app instead of the browser. Without an Apple app ID
-// configured there is no app to open, so it is a 404.
+// aasa serves apple-app-site-association, which tells iOS to open invite links
+// (/i/*) and post share links (/p/*) in the app instead of the browser. Without
+// an Apple app ID configured there is no app to open, so it is a 404.
 func aasa(appID string) http.HandlerFunc {
 	if appID == "" {
 		return func(w http.ResponseWriter, _ *http.Request) {
@@ -21,8 +21,11 @@ func aasa(appID string) http.HandlerFunc {
 	body, err := json.Marshal(map[string]any{
 		"applinks": map[string]any{
 			"details": []any{map[string]any{
-				"appIDs":     []string{appID},
-				"components": []component{{Path: "/i/*", Comment: "invite links"}},
+				"appIDs": []string{appID},
+				"components": []component{
+					{Path: "/i/*", Comment: "invite links"},
+					{Path: "/p/*", Comment: "post share links"},
+				},
 			}},
 		},
 	})

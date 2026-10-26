@@ -95,6 +95,9 @@ func NewRouter(d Deps) http.Handler {
 	if d.Limits.Feed == nil {
 		d.Limits.Feed = defaults.Feed
 	}
+	if d.Limits.SharePage == nil {
+		d.Limits.SharePage = defaults.SharePage
+	}
 	if d.Limits.ResetRequestIP == nil {
 		d.Limits.ResetRequestIP = defaults.ResetRequestIP
 	}
@@ -181,7 +184,7 @@ func NewRouter(d Deps) http.Handler {
 	mux.Handle("POST /posts", a.requireAuth(limitBy(d.Limits.PostWrite, byUser, http.HandlerFunc(ps.publish))))
 	mux.Handle("DELETE /posts/{id}", a.requireAuth(http.HandlerFunc(ps.remove)))
 
-	sh := shareHandlers{}
+	sh := shareHandlers{svc: d.Posts, downloadURL: d.DownloadURL, pageLimits: d.Limits.SharePage}
 	mux.HandleFunc("GET /p/{token}", sh.page)
 	mux.Handle("GET /posts/shared/{token}", a.requireAuth(http.HandlerFunc(sh.post)))
 

@@ -190,3 +190,60 @@ func (r *Posts) Delete(ctx context.Context, id int64, now time.Time) (bool, erro
 	}
 	return true, nil
 }
+
+// PostByShareToken returns the post behind a share token with its media and
+// the author name the feed shows. domain.ErrNotFound for an unknown token, a
+// removed post, or a player post whose author deleted the account (R21.5).
+func (r *Posts) PostByShareToken(ctx context.Context, token string) (domain.Post, error) {
+	q := sqlcdb.New(Conn(ctx, r.pool))
+	row, err := q.PostByShareToken(ctx, token)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return domain.Post{}, domain.ErrNotFound
+	}
+	if err != nil {
+		return domain.Post{}, fmt.Errorf("postgres: post by share token: %w", err)
+	}
+	p := domain.Post{
+		ID: row.ID, AuthorUserID: row.AuthorUserID, AsKind: domain.PostKind(row.AsKind),
+		TeamID: int8Ptr(row.TeamID), LeagueID: int8Ptr(row.LeagueID), VenueID: int8Ptr(row.VenueID),
+		Body: textPtr(row.Body), ShareToken: row.ShareToken, CreatedAt: row.CreatedAt.Time.UTC(),
+		AuthorName: row.AuthorName, TeamName: textPtr(row.TeamName),
+		Media: []domain.PostMedia{}, MyReactions: []domain.ReactionKind{},
+	}
+	media, err := q.PostMediaFor(ctx, []int64{p.ID})
+	if err != nil {
+		return domain.Post{}, fmt.Errorf("postgres: share post media: %w", err)
+	}
+	for _, m := range media {
+		p.Media = append(p.Media, domain.PostMedia{
+			StorageKey: m.StorageKey, Position: int(m.Position), ContentType: m.ContentType, SizeBytes: m.SizeBytes,
+		})
+	}
+	return p, nil
+}
+
+// ReactionsOf returns one post's reaction counts and the viewer's own kinds.
+func (r *Posts) ReactionsOf(ctx context.Context, viewerID, postID int64) (domain.ReactionCounts, []domain.ReactionKind, error) {
+	q := sqlcdb.New(Conn(ctx, r.pool))
+	rows, err := q.ReactionsFor(ctx, sqlcdb.ReactionsForParams{ViewerID: viewerID, PostIds: []int64{postID}})
+	if err != nil {
+		return domain.ReactionCounts{}, nil, fmt.Errorf("postgres: share post reactions: %w", err)
+	}
+	var counts domain.ReactionCounts
+	mine := []domain.ReactionKind{}
+	for _, row := range rows {
+		kind := domain.ReactionKind(row.Kind)
+		switch kind {
+		case domain.ReactionFire:
+			counts.Fire = int(row.N)
+		case domain.ReactionBall:
+			counts.Ball = int(row.N)
+		case domain.ReactionClap:
+			counts.Clap = int(row.N)
+		}
+		if row.Mine {
+			mine = append(mine, kind)
+		}
+	}
+	return counts, mine, nil
+}
