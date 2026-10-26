@@ -148,7 +148,7 @@ func (q *Queries) DeletePost(ctx context.Context, id int64) error {
 }
 
 const getPostAuthor = `-- name: GetPostAuthor :one
-SELECT id, author_user_id, as_kind, team_id FROM post
+SELECT id, author_user_id, as_kind, team_id, removed_at FROM post
 WHERE id = $1
 `
 
@@ -157,10 +157,13 @@ type GetPostAuthorRow struct {
 	AuthorUserID int64
 	AsKind       string
 	TeamID       pgtype.Int8
+	RemovedAt    pgtype.Timestamptz
 }
 
 // No lock: the author and team never change, and DELETE locks the row
-// itself, after any team lock the caller takes.
+// itself, after any team lock the caller takes. removed_at is here so a
+// caller can tell a live post from a hidden one, without filtering: a
+// removed post can still be deleted (R23.9, R18.11).
 func (q *Queries) GetPostAuthor(ctx context.Context, id int64) (GetPostAuthorRow, error) {
 	row := q.db.QueryRow(ctx, getPostAuthor, id)
 	var i GetPostAuthorRow
@@ -169,27 +172,29 @@ func (q *Queries) GetPostAuthor(ctx context.Context, id int64) (GetPostAuthorRow
 		&i.AuthorUserID,
 		&i.AsKind,
 		&i.TeamID,
+		&i.RemovedAt,
 	)
 	return i, err
 }
 
-const lockUserForPost = `-- name: LockUserForPost :one
+const lockUserForWrite = `-- name: LockUserForWrite :one
 SELECT content_rules_accepted_at, suspended_at FROM "user"
 WHERE id = $1 AND deleted_at IS NULL
 FOR NO KEY UPDATE
 `
 
-type LockUserForPostRow struct {
+type LockUserForWriteRow struct {
 	ContentRulesAcceptedAt pgtype.Timestamptz
 	SuspendedAt            pgtype.Timestamptz
 }
 
-// Serializes one user's posts, so the daily count stays exact when two
-// arrive at once (NFR 9). Returns the moderation columns read under the
-// lock, so a suspension committed meanwhile is seen (R23.10, R23.13).
-func (q *Queries) LockUserForPost(ctx context.Context, id int64) (LockUserForPostRow, error) {
-	row := q.db.QueryRow(ctx, lockUserForPost, id)
-	var i LockUserForPostRow
+// Serializes one user's writes that carry a daily limit (posts and reports,
+// NFR 9), so the count stays exact when two arrive at once. Returns the
+// moderation columns read under the lock, so a suspension committed
+// meanwhile is seen (R23.10, R23.13).
+func (q *Queries) LockUserForWrite(ctx context.Context, id int64) (LockUserForWriteRow, error) {
+	row := q.db.QueryRow(ctx, lockUserForWrite, id)
+	var i LockUserForWriteRow
 	err := row.Scan(&i.ContentRulesAcceptedAt, &i.SuspendedAt)
 	return i, err
 }

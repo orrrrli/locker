@@ -26,6 +26,7 @@ type Deps struct {
 	Media         mediaService
 	Posts         postService
 	Reactions     reactionService
+	Reports       reportService
 	Feed          feedService
 	// MatchFinder resolves the team of routes on /matches/{id}.
 	MatchFinder matchFinder
@@ -83,6 +84,9 @@ func NewRouter(d Deps) http.Handler {
 	}
 	if d.Limits.PostWrite == nil {
 		d.Limits.PostWrite = defaults.PostWrite
+	}
+	if d.Limits.Report == nil {
+		d.Limits.Report = defaults.Report
 	}
 	if d.Limits.Reaction == nil {
 		d.Limits.Reaction = defaults.Reaction
@@ -175,6 +179,9 @@ func NewRouter(d Deps) http.Handler {
 	ps := postHandlers{svc: d.Posts}
 	mux.Handle("POST /posts", a.requireAuth(limitBy(d.Limits.PostWrite, byUser, http.HandlerFunc(ps.publish))))
 	mux.Handle("DELETE /posts/{id}", a.requireAuth(http.HandlerFunc(ps.remove)))
+
+	rh := reportHandlers{svc: d.Reports}
+	mux.Handle("POST /posts/{id}/reports", a.requireAuth(limitBy(d.Limits.Report, byUser, http.HandlerFunc(rh.report))))
 
 	fd := feedHandlers{svc: d.Feed}
 	mux.Handle("GET /feed", a.requireAuth(limitBy(d.Limits.Feed, byUser, http.HandlerFunc(fd.page))))

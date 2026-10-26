@@ -28,6 +28,7 @@ import (
 	"github.com/orrrrli/locker/api/internal/application/pages"
 	"github.com/orrrrli/locker/api/internal/application/posts"
 	"github.com/orrrrli/locker/api/internal/application/reactions"
+	"github.com/orrrrli/locker/api/internal/application/reports"
 	"github.com/orrrrli/locker/api/internal/application/teams"
 	"github.com/orrrrli/locker/api/internal/application/venues"
 	"github.com/orrrrli/locker/api/internal/infrastructure/password"
@@ -162,6 +163,9 @@ func newAPIWithFeedSigner(t *testing.T, now func() time.Time, feedSigner feed.Si
 			Users: postgres.NewUsers(pool), Photos: fakePhotos{}, Now: now,
 		}),
 		Reactions:          reactions.NewService(postgres.NewTxRunner(pool), postgres.NewReactions(pool)),
+		Reports: reports.NewService(reports.Deps{
+			Tx: postgres.NewTxRunner(pool), Reports: postgres.NewReports(pool), Posts: postgres.NewPosts(pool), Now: now,
+		}),
 		Feed:               feed.NewService(postgres.NewFeed(pool), venueSvc, feedSigner),
 		NotificationFinder: notificationRepo,
 	}))

@@ -1,7 +1,8 @@
--- name: LockUserForPost :one
--- Serializes one user's posts, so the daily count stays exact when two
--- arrive at once (NFR 9). Returns the moderation columns read under the
--- lock, so a suspension committed meanwhile is seen (R23.10, R23.13).
+-- name: LockUserForWrite :one
+-- Serializes one user's writes that carry a daily limit (posts and reports,
+-- NFR 9), so the count stays exact when two arrive at once. Returns the
+-- moderation columns read under the lock, so a suspension committed
+-- meanwhile is seen (R23.10, R23.13).
 SELECT content_rules_accepted_at, suspended_at FROM "user"
 WHERE id = $1 AND deleted_at IS NULL
 FOR NO KEY UPDATE;
@@ -38,8 +39,10 @@ WHERE storage_key = ANY(sqlc.arg(storage_keys)::text[])
 
 -- name: GetPostAuthor :one
 -- No lock: the author and team never change, and DELETE locks the row
--- itself, after any team lock the caller takes.
-SELECT id, author_user_id, as_kind, team_id FROM post
+-- itself, after any team lock the caller takes. removed_at is here so a
+-- caller can tell a live post from a hidden one, without filtering: a
+-- removed post can still be deleted (R23.9, R18.11).
+SELECT id, author_user_id, as_kind, team_id, removed_at FROM post
 WHERE id = $1;
 
 -- name: ReleasePostUploads :exec

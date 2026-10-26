@@ -29,6 +29,7 @@ import (
 	"github.com/orrrrli/locker/api/internal/application/pages"
 	"github.com/orrrrli/locker/api/internal/application/posts"
 	"github.com/orrrrli/locker/api/internal/application/reactions"
+	"github.com/orrrrli/locker/api/internal/application/reports"
 	"github.com/orrrrli/locker/api/internal/application/teams"
 	"github.com/orrrrli/locker/api/internal/application/venues"
 	apihttp "github.com/orrrrli/locker/api/internal/http"
@@ -195,6 +196,9 @@ func start() error {
 		Media:              mediaSvc,
 		Posts:              postSvc,
 		Reactions:          reactions.NewService(postgres.NewTxRunner(pool), postgres.NewReactions(pool)),
+		Reports: reports.NewService(reports.Deps{
+			Tx: postgres.NewTxRunner(pool), Reports: postgres.NewReports(pool), Posts: postgres.NewPosts(pool),
+		}),
 		Feed:               feed.NewService(postgres.NewFeed(pool), venueSvc, feedPhotos),
 		MatchFinder:        matchRepo,
 		ChargeFinder:       chargeRepo,
