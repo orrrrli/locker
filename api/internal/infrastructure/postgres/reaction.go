@@ -23,7 +23,8 @@ func NewReactions(pool *pgxpool.Pool) *Reactions {
 
 // LockVisiblePost holds the post until commit; domain.ErrNotFound when it is
 // missing or removed.
-func (r *Reactions) LockVisiblePost(ctx context.Context, postID int64) error {
+func (r *Reactions) LockVisiblePost(ctx context.Context, viewerID, postID int64) error {
+	// ponytail: viewerID unused until the shared visibility condition lands (SEC-MOD-1-T2)
 	if _, ok := ctx.Value(txKey{}).(pgx.Tx); !ok {
 		return errors.New("postgres: lock post for reaction: no transaction in ctx")
 	}

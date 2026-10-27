@@ -12,8 +12,9 @@ import (
 // Reactions is what the use case needs from the reaction table.
 type Reactions interface {
 	// LockVisiblePost locks the post row; domain.ErrNotFound when it is
-	// missing or removed.
-	LockVisiblePost(ctx context.Context, postID int64) error
+	// missing, removed, a player post whose author is suspended or deleted,
+	// or a player or team post whose writer the viewer blocked.
+	LockVisiblePost(ctx context.Context, viewerID, postID int64) error
 	// Remove deletes the reaction and reports whether there was one.
 	Remove(ctx context.Context, postID, userID int64, kind domain.ReactionKind) (removed bool, err error)
 	Add(ctx context.Context, postID, userID int64, kind domain.ReactionKind) error
@@ -39,7 +40,7 @@ func (s *Service) Toggle(ctx context.Context, userID, postID int64, kind domain.
 		return false, domain.ErrNotFound
 	}
 	err = s.tx.InTx(ctx, func(ctx context.Context) error {
-		if err := s.reactions.LockVisiblePost(ctx, postID); err != nil {
+		if err := s.reactions.LockVisiblePost(ctx, userID, postID); err != nil {
 			return err
 		}
 		removed, err := s.reactions.Remove(ctx, postID, userID, kind)

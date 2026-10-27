@@ -194,7 +194,9 @@ func (r *Posts) Delete(ctx context.Context, id int64, now time.Time) (bool, erro
 // PostByShareToken returns the post behind a share token with its media and
 // the author name the feed shows. domain.ErrNotFound for an unknown token, a
 // removed post, or a player post whose author deleted the account (R21.5).
-func (r *Posts) PostByShareToken(ctx context.Context, token string) (domain.Post, error) {
+// viewerID == 0 means no viewer: the anonymous /p/{token} landing.
+func (r *Posts) PostByShareToken(ctx context.Context, viewerID int64, token string) (domain.Post, error) {
+	// ponytail: viewerID unused until the shared visibility condition lands (SEC-MOD-1-T2)
 	q := sqlcdb.New(Conn(ctx, r.pool))
 	row, err := q.PostByShareToken(ctx, token)
 	if errors.Is(err, pgx.ErrNoRows) {
