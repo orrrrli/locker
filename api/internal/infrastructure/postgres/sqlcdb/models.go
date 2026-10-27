@@ -287,3 +287,18 @@ type VenueLead struct {
 	CreatedAt   pgtype.Timestamptz
 	HandledAt   pgtype.Timestamptz
 }
+
+type VisiblePost struct {
+	ID            int64
+	AuthorUserID  int64
+	AsKind        string
+	TeamID        pgtype.Int8
+	LeagueID      pgtype.Int8
+	VenueID       pgtype.Int8
+	Body          pgtype.Text
+	ShareToken    string
+	RemovedAt     pgtype.Timestamptz
+	RemovedBy     pgtype.Int8
+	RemovalReason pgtype.Text
+	CreatedAt     pgtype.Timestamptz
+}

@@ -424,7 +424,8 @@ type SharedPost struct {
 // Page returns the post behind a share token for the public /p/{token} page
 // (R21.3). It reads no reactions: the page never shows them (R21.6), so the
 // browser's visit costs one query less. domain.ErrNotFound for an unknown
-// token, a removed post or a deleted one (R21.5).
+// token, a removed post, or a player post whose author deleted the account or
+// was suspended (R21.5, R23.10). A visitor has no identity, so no block applies.
 func (s *Service) Page(ctx context.Context, token string) (SharedPost, error) {
 	p, err := s.posts.PostByShareToken(ctx, 0, token)
 	if err != nil {

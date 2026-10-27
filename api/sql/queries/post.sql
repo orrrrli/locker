@@ -98,11 +98,13 @@ WHERE post_id IN (SELECT id FROM post WHERE author_user_id = $1 AND as_kind = 'p
 DELETE FROM post WHERE author_user_id = $1 AND as_kind = 'player';
 
 -- name: PostByShareToken :one
--- R21: the post behind a /p/{token} share link, with the same author name the
--- feed shows. It carries the feed's visibility guards, because a share link is
--- one more way to read a post (domains/moderation.md): a removed post is not
--- found (R23.9, R21.5), and neither is a player post whose author deleted the
--- account or was suspended (R23.10). Team posts of a suspended admin stay.
+-- R21: the post behind a share link, with the same author name the feed shows.
+-- It reads visible_post, the same shared filter as the feed (SEC-MOD-1): a
+-- removed post is not found (R23.9, R21.5), and neither is a player post whose
+-- author deleted the account or was suspended (R23.10). Team posts of a
+-- suspended admin stay.
+-- viewer_id is 0 on the public /p/{token} page, which has no viewer, so the
+-- block rule (R23.5) only applies when the app asks with a real viewer.
 SELECT p.id, p.author_user_id, p.as_kind, p.team_id, p.league_id, p.venue_id, p.body, p.share_token, p.created_at,
        coalesce(CASE p.as_kind
            WHEN 'team'   THEN t.name
@@ -111,13 +113,14 @@ SELECT p.id, p.author_user_id, p.as_kind, p.team_id, p.league_id, p.venue_id, p.
            WHEN 'venue'  THEN v.name
        END, '')::text AS author_name,
        t.name AS team_name
-FROM post p
+FROM visible_post p
 LEFT JOIN team t ON t.id = p.team_id
 LEFT JOIN membership m ON p.as_kind = 'player' AND m.team_id = p.team_id AND m.user_id = p.author_user_id
 LEFT JOIN "user" u ON u.id = p.author_user_id
 LEFT JOIN league l ON l.id = p.league_id
 LEFT JOIN venue v ON v.id = p.venue_id
-WHERE p.share_token = $1
-  AND p.removed_at IS NULL
-  AND NOT (p.as_kind = 'player' AND u.deleted_at IS NOT NULL)
-  AND NOT (p.as_kind = 'player' AND u.suspended_at IS NOT NULL);
+WHERE p.share_token = sqlc.arg(token)
+  AND (sqlc.arg(viewer_id)::bigint = 0
+       OR NOT (p.as_kind IN ('player', 'team') AND EXISTS (
+           SELECT 1 FROM user_block b
+           WHERE b.blocker_id = sqlc.arg(viewer_id) AND b.blocked_id = p.author_user_id)));
