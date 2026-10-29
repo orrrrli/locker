@@ -75,7 +75,9 @@ type Posts interface {
 	Delete(ctx context.Context, id int64, now time.Time) (bool, error)
 	// PostByShareToken returns the post behind a share token with its media;
 	// domain.ErrNotFound for an unknown token, a removed post or a deleted one.
-	PostByShareToken(ctx context.Context, token string) (domain.Post, error)
+	// viewerID == 0 means no viewer (the anonymous /p/{token} landing): the
+	// block rule (R23.5) does not apply, because no visitor has blocks there.
+	PostByShareToken(ctx context.Context, viewerID int64, token string) (domain.Post, error)
 	// ReactionsOf returns one post's reaction counts and the viewer's own kinds.
 	ReactionsOf(ctx context.Context, viewerID, postID int64) (domain.ReactionCounts, []domain.ReactionKind, error)
 }
@@ -422,9 +424,10 @@ type SharedPost struct {
 // Page returns the post behind a share token for the public /p/{token} page
 // (R21.3). It reads no reactions: the page never shows them (R21.6), so the
 // browser's visit costs one query less. domain.ErrNotFound for an unknown
-// token, a removed post or a deleted one (R21.5).
+// token, a removed post, or a player post whose author deleted the account or
+// was suspended (R21.5, R23.10). A visitor has no identity, so no block applies.
 func (s *Service) Page(ctx context.Context, token string) (SharedPost, error) {
-	p, err := s.posts.PostByShareToken(ctx, token)
+	p, err := s.posts.PostByShareToken(ctx, 0, token)
 	if err != nil {
 		return SharedPost{}, err
 	}
@@ -439,7 +442,7 @@ func (s *Service) Page(ctx context.Context, token string) (SharedPost, error) {
 // R21.4): the same post the feed would show, with its reaction counts and the
 // viewer's own kinds.
 func (s *Service) Shared(ctx context.Context, viewerID int64, token string) (SharedPost, error) {
-	p, err := s.posts.PostByShareToken(ctx, token)
+	p, err := s.posts.PostByShareToken(ctx, viewerID, token)
 	if err != nil {
 		return SharedPost{}, err
 	}

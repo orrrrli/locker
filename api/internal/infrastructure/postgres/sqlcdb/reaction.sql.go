@@ -42,21 +42,35 @@ func (q *Queries) DeleteReactionsOfUser(ctx context.Context, userID int64) (int6
 }
 
 const lockVisiblePost = `-- name: LockVisiblePost :one
-SELECT id FROM post
-WHERE id = $1 AND removed_at IS NULL
-FOR SHARE
+SELECT p.id FROM post p
+JOIN visible_post v ON v.id = p.id
+WHERE p.id = $1
+  AND NOT (p.as_kind IN ('player', 'team') AND EXISTS (
+      SELECT 1 FROM user_block b
+      WHERE b.blocker_id = $2 AND b.blocked_id = p.author_user_id))
+FOR SHARE OF p
 `
 
-// R19.6: a removed or deleted post takes no reaction. FOR SHARE holds off
-// both a concurrent DELETE /posts/{id} and an operator removal (an UPDATE of
-// removed_at, which FOR KEY SHARE would let through) until the insert commits.
-// ponytail: only removed_at for now; SEC-MOD-1 swaps in the shared
-// visibility filter (blocks, suspended authors).
-func (q *Queries) LockVisiblePost(ctx context.Context, id int64) (int64, error) {
-	row := q.db.QueryRow(ctx, lockVisiblePost, id)
-	var id_2 int64
-	err := row.Scan(&id_2)
-	return id_2, err
+type LockVisiblePostParams struct {
+	PostID   int64
+	ViewerID int64
+}
+
+// R19.6, SEC-MOD-1: a post the viewer cannot read takes no reaction, and the
+// shared filter answers every rule but the block one: a removed post, a player
+// post of a deleted or suspended author, and a post whose writer the viewer
+// blocked are all domain.ErrNotFound (R23.5, R23.10).
+// FOR SHARE holds the post row until the insert commits, so a concurrent
+// DELETE /posts/{id} or an operator removal (an UPDATE of removed_at, which FOR
+// KEY SHARE would let through) waits instead.
+// FOR SHARE OF p, not a bare FOR SHARE: the view joins "user", and locking that
+// row too would invert the order account deletion takes (the user, then its
+// posts).
+func (q *Queries) LockVisiblePost(ctx context.Context, arg LockVisiblePostParams) (int64, error) {
+	row := q.db.QueryRow(ctx, lockVisiblePost, arg.PostID, arg.ViewerID)
+	var id int64
+	err := row.Scan(&id)
+	return id, err
 }
 
 const removeReaction = `-- name: RemoveReaction :execrows

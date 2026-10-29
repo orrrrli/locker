@@ -17,14 +17,13 @@
 -- team drops its enrollments (R16.8); dissolved teams are filtered here too
 -- (R6.10).
 -- include_all_official ("official", no location): every league and venue post.
--- Every feed hides removed posts and player or team posts whose writer the
--- viewer blocked, a team post written by a blocked admin included (R22.9,
--- R23.5).
--- R23.10: a suspension hides the author's player posts; team posts stay, so the
--- suspended user keeps their team features. A removed post stays hidden after
--- the suspension is lifted (R23.11).
--- ponytail: this filter and the block one below are per query; SEC-MOD-1 moves
--- them into one shared visibility condition.
+-- Every feed reads visible_post (SEC-MOD-1): removed posts and player posts of
+-- deleted or suspended authors are already gone (R22.9, R23.10), and the
+-- authors' team posts stay, so a suspended user keeps their team features. A
+-- removed post stays hidden after the suspension is lifted (R23.11).
+-- The block check stays below because it needs the viewer: it hides player and
+-- team posts whose writer the viewer blocked, a team post written by a blocked
+-- admin included, and never an official post (R23.5).
 -- ponytail: no feed index; add (team_id, created_at) and its league/venue
 -- twins once EXPLAIN on real data asks for them.
 -- Keyset on (created_at, id) descending: a NULL cursor is the first page.
@@ -60,25 +59,15 @@ SELECT p.id, p.author_user_id, p.as_kind, p.team_id, p.league_id, p.venue_id, p.
            WHEN 'venue'  THEN v.name
        END, '')::text AS author_name,
        t.name AS team_name
-FROM post p
+FROM visible_post p
 LEFT JOIN team t ON t.id = p.team_id
 LEFT JOIN membership m ON p.as_kind = 'player' AND m.team_id = p.team_id AND m.user_id = p.author_user_id
 LEFT JOIN "user" u ON u.id = p.author_user_id
 LEFT JOIN league l ON l.id = p.league_id
 LEFT JOIN venue v ON v.id = p.venue_id
-WHERE p.removed_at IS NULL
-  -- Account deletion deletes the user's player posts (BE-MOD-5, R18.13) under
-  -- the user's row lock, so a racing publish is refused instead. This guard
-  -- covers what the deletion did not reach: accounts deleted before that
-  -- change (00030 backfills nothing) and any future writer that skips the
-  -- lock. Team posts of a deleted admin stay (R18.13).
-  AND NOT (p.as_kind = 'player' AND u.deleted_at IS NOT NULL)
-  -- R23.10: a suspended author's player posts are hidden; the team posts they
-  -- wrote as an admin stay, because team features keep working.
-  AND NOT (p.as_kind = 'player' AND u.suspended_at IS NOT NULL)
-  -- A block hides only player and team posts (R23.5): official posts stay,
+WHERE -- A block hides only player and team posts (R23.5): official posts stay,
   -- so blocking ids one by one never reveals the operator's account.
-  AND NOT (p.as_kind IN ('player', 'team') AND EXISTS (
+  NOT (p.as_kind IN ('player', 'team') AND EXISTS (
       SELECT 1 FROM user_block b
       WHERE b.blocker_id = sqlc.arg(viewer_id) AND b.blocked_id = p.author_user_id))
   AND ((sqlc.arg(include_mine)::boolean AND p.team_id IN (SELECT team_id FROM my_teams))

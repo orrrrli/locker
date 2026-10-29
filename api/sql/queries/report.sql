@@ -24,6 +24,8 @@ RETURNING id, post_id, reason, note, created_at;
 -- post has, so the same count repeats on every row of the post.
 -- A post the operator already removed is left out: its reports were resolved
 -- by that removal, and one inserted by a report racing it is not actionable.
+-- It reads `post` and not visible_post on purpose (SEC-MOD-1): the operator has
+-- to see a suspended author's post to resolve the reports on it.
 -- ponytail: no pagination; the queue only ever holds open reports.
 SELECT r.id, r.reason, r.note, r.created_at,
        p.id AS post_id, p.as_kind, p.body, p.created_at AS post_created_at,

@@ -21,13 +21,16 @@ func NewReactions(pool *pgxpool.Pool) *Reactions {
 	return &Reactions{pool: pool}
 }
 
-// LockVisiblePost holds the post until commit; domain.ErrNotFound when it is
-// missing or removed.
-func (r *Reactions) LockVisiblePost(ctx context.Context, postID int64) error {
+// LockVisiblePost holds the post until commit; domain.ErrNotFound when the
+// viewer cannot read it: missing, removed, a player post of a deleted or
+// suspended author, or a post whose writer the viewer blocked (SEC-MOD-1).
+func (r *Reactions) LockVisiblePost(ctx context.Context, viewerID, postID int64) error {
 	if _, ok := ctx.Value(txKey{}).(pgx.Tx); !ok {
 		return errors.New("postgres: lock post for reaction: no transaction in ctx")
 	}
-	_, err := sqlcdb.New(Conn(ctx, r.pool)).LockVisiblePost(ctx, postID)
+	_, err := sqlcdb.New(Conn(ctx, r.pool)).LockVisiblePost(ctx, sqlcdb.LockVisiblePostParams{
+		PostID: postID, ViewerID: viewerID,
+	})
 	if errors.Is(err, pgx.ErrNoRows) {
 		return domain.ErrNotFound
 	}

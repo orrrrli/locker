@@ -1,12 +1,21 @@
 -- name: LockVisiblePost :one
--- R19.6: a removed or deleted post takes no reaction. FOR SHARE holds off
--- both a concurrent DELETE /posts/{id} and an operator removal (an UPDATE of
--- removed_at, which FOR KEY SHARE would let through) until the insert commits.
--- ponytail: only removed_at for now; SEC-MOD-1 swaps in the shared
--- visibility filter (blocks, suspended authors).
-SELECT id FROM post
-WHERE id = $1 AND removed_at IS NULL
-FOR SHARE;
+-- R19.6, SEC-MOD-1: a post the viewer cannot read takes no reaction, and the
+-- shared filter answers every rule but the block one: a removed post, a player
+-- post of a deleted or suspended author, and a post whose writer the viewer
+-- blocked are all domain.ErrNotFound (R23.5, R23.10).
+-- FOR SHARE holds the post row until the insert commits, so a concurrent
+-- DELETE /posts/{id} or an operator removal (an UPDATE of removed_at, which FOR
+-- KEY SHARE would let through) waits instead.
+-- FOR SHARE OF p, not a bare FOR SHARE: the view joins "user", and locking that
+-- row too would invert the order account deletion takes (the user, then its
+-- posts).
+SELECT p.id FROM post p
+JOIN visible_post v ON v.id = p.id
+WHERE p.id = sqlc.arg(post_id)
+  AND NOT (p.as_kind IN ('player', 'team') AND EXISTS (
+      SELECT 1 FROM user_block b
+      WHERE b.blocker_id = sqlc.arg(viewer_id) AND b.blocked_id = p.author_user_id))
+FOR SHARE OF p;
 
 -- name: RemoveReaction :execrows
 DELETE FROM reaction WHERE post_id = $1 AND user_id = $2 AND kind = $3;
